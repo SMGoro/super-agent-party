@@ -107,6 +107,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   execCommand: (command) => ipcRenderer.invoke('exec-command', command),
   getPlatform: () => process.platform,
+  openExtensionWindow: (url, extension) => ipcRenderer.invoke('open-extension-window', { url, extension }),
 });
 
 contextBridge.exposeInMainWorld('vmcAPI', {

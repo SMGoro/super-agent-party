@@ -24,6 +24,9 @@ class Extension(BaseModel):
     systemPrompt: str = ""
     repository: str = ""
     category: str = ""
+    transparent: bool = False
+    width: int = 800
+    height: int = 600
 
 class ExtensionsResponse(BaseModel):
     extensions: List[Extension]
@@ -64,7 +67,10 @@ async def list_extensions():
                                 author=package_data.get("author", "未知"),
                                 systemPrompt = package_data.get("systemPrompt", ""),
                                 repository = package_data.get("repository", ""),
-                                category = package_data.get("category", "")
+                                category = package_data.get("category", ""),
+                                transparent = package_data.get("transparent", False),
+                                width = package_data.get("width", 800),
+                                height = package_data.get("height", 600)
                             ))
                         except json.JSONDecodeError:
                             # package.json解析失败，使用默认值
