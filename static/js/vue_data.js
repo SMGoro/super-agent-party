@@ -473,6 +473,11 @@ let vue_data = {
     userInputBuffer: '',
     sidePanelOpen: false,
     sidePanelHTML: '',
+    chatAreaOpen: true,        // 对话区域是否展开
+    chatAreaWidth: 50,         // 对话区域宽度百分比
+    sidePanelWidth: 50,        // 侧边栏宽度百分比
+    isResizing: false,         // 是否正在调整大小
+    minPanelWidth: 25,         // 最小面板宽度百分比
     extensions: [],              // 所有发现的扩展
     currentExtension: null,      // 当前加载的扩展
     sidePanelURL: '',            // 侧边栏中显示的扩展URL

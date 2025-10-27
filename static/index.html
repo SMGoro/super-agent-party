@@ -316,7 +316,7 @@ if ('serviceWorker' in navigator) {
       <el-dialog
         :title="t('switchExtension')"
         v-model="showExtensionsDialog"
-        width="600px"
+        width="60%"
         :close-on-click-modal="false">
         <div class="extensions-list">
           <!-- 默认视图选项 -->
@@ -373,10 +373,22 @@ if ('serviceWorker' in navigator) {
       <el-main class="content">
         <!-- 聊天界面保持不变 -->
         <div v-show="activeMenu === 'home'" class="page chat-container">
-          <!-- 最外层 wrapper，负责整体左右布局 -->
-          <div class="chat-wrapper" :class="{ collapsed: !sidePanelOpen }">
+        <!-- 最外层 wrapper，负责整体左右布局 -->
+        <div class="chat-wrapper" 
+            ref="chatWrapperRef"
+            :class="{ 
+              'collapsed-right': !sidePanelOpen, 
+              'collapsed-left': !chatAreaOpen,
+              'resizing': isResizing
+            }">
+          
+          <!-- 添加拖拽遮罩层 -->
+          <div v-if="isResizing" class="resize-overlay"></div>
             <!-- 聊天消息列表 -->
-            <div class="chat-area">
+            <div class="chat-area" 
+                ref="chatAreaRef"
+                :class="{ collapsed: !chatAreaOpen }" 
+                v-show="chatAreaOpen">
               <div class="messages-container" ref="messagesContainer"   v-if="!isCapsuleMode">
                 <div v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
                   <div v-if="ttsSettings.enabled && message.role === 'assistant'" class="tts-controls">
@@ -935,31 +947,56 @@ if ('serviceWorker' in navigator) {
                 </el-input>
               </div>
             </div>
-            <!-- 新区域 -->
-            <transition name="slide-left" v-if="!isCapsuleMode&&!isAssistantMode&&!isMobile">
-              <!-- 使用 v-show 代替 v-if -->
-              <div v-show="sidePanelOpen" class="side-panel">
-                <!-- 侧边栏内容 -->
-                <div class="side-panel-scroll" ref="messagesPanel" :style="{ overflow: sidePanelURL ? 'hidden' : 'auto' }">
-                  <iframe class="side-panel-iframe" v-if="sidePanelURL" :src="sidePanelURL" frameborder="0" allowfullscreen style="width: 100%; height: 100%;"></iframe>
-                  <div v-else-if="sidePanelText" v-html="defaultSidePanelHTML" class="side-panel-content"></div>
-                  <el-empty v-else :description="t('NotExtension')" >
-                    <div class="empty-tip">
-                      <a href="#" @click.stop.prevent="switchToExtensionPage">{{ t('goToExtensionPage') }}</a>
-                      {{ t('add') }}
-                    </div>
-                  </el-empty>
+            <!-- 可拖拽的分割条 -->
+            <div
+              v-if="!isCapsuleMode && !isAssistantMode && !isMobile"
+              class="resizer"
+              ref="resizerRef"
+              :class="{ 
+                'resizer-collapsed-right': !sidePanelOpen,
+                'resizer-collapsed-left': !chatAreaOpen
+              }"
+              @mousedown="startResize"
+              @click="handleResizerClick"
+            >
+              <div class="resizer-handle">
+                <div class="resizer-dots">
+                  <div class="dot"></div>
+                  <div class="dot"></div>
+                  <div class="dot"></div>
+                </div>
+                <!-- 展开按钮（当对话区收起时显示） -->
+                <div v-if="!chatAreaOpen" class="expand-chat-btn" @click.stop="expandChatArea">
+                  <i class="fa-solid fa-chevron-right"></i>
+                </div>
+                <!-- 展开按钮（当侧边栏收起时显示） -->
+                <div v-if="!sidePanelOpen" class="expand-side-btn" @click.stop="expandSidePanel">
+                  <i class="fa-solid fa-chevron-left"></i>
                 </div>
               </div>
-            </transition>
-            <!-- 展开/收起按钮：绝对定位在左侧边缘中间 -->
-            <div
-              v-if="!isCapsuleMode&&!isAssistantMode&&!isMobile"
-              class="side-toggle"
-              :class="{ open: sidePanelOpen }"
-              @click="sidePanelOpen = !sidePanelOpen"
-            >
-              <i :class="sidePanelOpen ?  'fa-solid fa-chevron-right': 'fa-solid fa-chevron-left'"></i>
+            </div>
+
+            <!-- 侧边栏区域 -->
+            <div class="side-panel" 
+                ref="sidePanelRef"
+                :class="{ collapsed: !sidePanelOpen }" 
+                v-show="sidePanelOpen">
+              <div class="side-panel-scroll" ref="messagesPanel" :style="{ overflow: sidePanelURL ? 'hidden' : 'auto' }">
+                <iframe class="side-panel-iframe" 
+                        v-if="sidePanelURL" 
+                        :src="sidePanelURL" 
+                        frameborder="0" 
+                        allowfullscreen 
+                        style="width: 100%; height: 100%;">
+                </iframe>
+                <div v-else-if="sidePanelText" v-html="defaultSidePanelHTML" class="side-panel-content"></div>
+                <el-empty v-else :description="t('NotExtension')">
+                  <div class="empty-tip">
+                    <a href="#" @click.stop.prevent="switchToExtensionPage">{{ t('goToExtensionPage') }}</a>
+                    {{ t('add') }}
+                  </div>
+                </el-empty>
+              </div>
             </div>
           </div>
           <el-dialog

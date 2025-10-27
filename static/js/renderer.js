@@ -31,6 +31,7 @@ const app = Vue.createApp({
   },
   async mounted() {
     this.checkMobile();
+    window.addEventListener('resize', this.handleResize);
     if (isElectron) {
       this.checkServerPort();
     }
@@ -153,6 +154,7 @@ const app = Vue.createApp({
       this.ttsWebSocket.close();
     }
     document.removeEventListener('click', this._toggleHighlight, false);
+    window.removeEventListener('resize', this.handleResize);
   },
   watch: {
     'readConfig.longText': {

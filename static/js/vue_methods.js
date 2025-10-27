@@ -9134,7 +9134,8 @@ clearSegments() {
   resetToDefaultView() {
     this.loadExtension(null);
     this.showExtensionsDialog = false;
-    this.sidePanelOpen = false; // 关闭扩展选择对话框
+    this.expandChatArea();
+    this.collapseSidePanel();
     this.messages[0].content = '';
   },
   // 打开扩展选择对话框
@@ -9149,10 +9150,11 @@ clearSegments() {
     // extension.systemPrompt填充到this.messages[0].content
     if (this.currentExtension) {
       this.messages[0].content = this.currentExtension.systemPrompt;
-      this.sidePanelOpen = true; // 打开扩展选择对话框
+      this.expandSidePanel();
     }else {
       this.messages[0].content = ''; // 清空
-      this.sidePanelOpen = false; // 关闭扩展选择对话框
+      this.expandChatArea();
+      this.collapseSidePanel();
     }
   },
   openExtension(extension) {
@@ -9314,6 +9316,193 @@ clearSegments() {
       window.electronAPI.openExternal(url)   // 主进程会新建可关闭的独立窗口
     } else {
       window.open(url, '_blank')
+    }
+  },
+  // 开始拖拽调整大小
+  startResize(e) {
+    if (!this.chatAreaOpen || !this.sidePanelOpen) return;
+    
+    const container = this.$refs.chatWrapperRef;
+    if (!container) {
+      console.error('Container not found');
+      return;
+    }
+    
+    this.isResizing = true;
+    const startX = e.clientX;
+    const containerRect = container.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    
+    // 添加拖拽状态类到容器
+    container.classList.add('resizing');
+
+    const handleMouseMove = (e) => {
+      if (!this.isResizing) return;
+      
+      // 计算鼠标相对于容器的位置
+      const mouseX = e.clientX - containerRect.left;
+      
+      // 限制鼠标位置在容器范围内
+      const clampedMouseX = Math.max(0, Math.min(mouseX, containerWidth));
+      
+      // 计算新的分割条位置（像素值）
+      const newResizerPosition = clampedMouseX;
+      
+      // 计算左右面板的像素宽度
+      const leftWidth = newResizerPosition;
+      const rightWidth = containerWidth - newResizerPosition - 8; // 8px 是分割条宽度
+      
+      // 转换为百分比（用于检查最小宽度）
+      const leftPercent = (leftWidth / containerWidth) * 100;
+      const rightPercent = (rightWidth / containerWidth) * 100;
+      
+      // 检查是否需要收起面板
+      if (leftPercent < this.minPanelWidth) {
+        this.collapseChatArea();
+        return;
+      }
+      
+      if (rightPercent < this.minPanelWidth) {
+        this.collapseSidePanel();
+        return;
+      }
+      
+      // 直接设置像素宽度，而不是百分比
+      this.updatePanelWidthsWithPixels(leftWidth, rightWidth);
+    };
+
+    const handleMouseUp = () => {
+      this.isResizing = false;
+      
+      // 移除拖拽状态类
+      container.classList.remove('resizing');
+      
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      
+      // 拖拽结束后，重新计算百分比（用于响应式）
+      this.recalculatePercentages();
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  },
+
+  // 使用像素宽度更新面板
+  updatePanelWidthsWithPixels(leftWidth, rightWidth) {
+    this.$nextTick(() => {
+      const chatArea = this.$refs.chatAreaRef;
+      const sidePanel = this.$refs.sidePanelRef;
+      
+      if (!chatArea || !sidePanel) {
+        return;
+      }
+      
+      if (this.chatAreaOpen && this.sidePanelOpen) {
+        chatArea.style.width = `${leftWidth}px`;
+        sidePanel.style.width = `${rightWidth}px`;
+      }
+    });
+  },
+
+  // 重新计算百分比（用于保存状态和响应式）
+  recalculatePercentages() {
+    const container = this.$refs.chatWrapperRef;
+    if (!container) return;
+    
+    const containerWidth = container.offsetWidth;
+    const chatArea = this.$refs.chatAreaRef;
+    const sidePanel = this.$refs.sidePanelRef;
+    
+    if (chatArea && sidePanel && this.chatAreaOpen && this.sidePanelOpen) {
+      const chatAreaWidth = chatArea.offsetWidth;
+      const sidePanelWidth = sidePanel.offsetWidth;
+      
+      this.chatAreaWidth = (chatAreaWidth / containerWidth) * 100;
+      this.sidePanelWidth = (sidePanelWidth / containerWidth) * 100;
+    }
+  },
+
+  // 处理分割条点击
+  handleResizerClick(e) {
+    if (e.target.closest('.expand-chat-btn') || e.target.closest('.expand-side-btn')) {
+      return;
+    }
+    
+    // 双击重置为50:50
+    if (e.detail === 2) {
+      this.resetPanelSizes();
+    }
+  },
+
+  // 收起对话区域
+  collapseChatArea() {
+    this.chatAreaOpen = false;
+    this.sidePanelWidth = 100;
+    this.updatePanelWidths();
+  },
+
+  // 收起侧边栏
+  collapseSidePanel() {
+    this.sidePanelOpen = false;
+    this.chatAreaWidth = 100;
+    this.updatePanelWidths();
+  },
+
+  // 展开对话区域
+  expandChatArea() {
+    this.chatAreaOpen = true;
+    this.chatAreaWidth = 50;
+    this.sidePanelWidth = 50;
+    this.updatePanelWidths();
+  },
+
+  // 展开侧边栏
+  expandSidePanel() {
+    this.sidePanelOpen = true;
+    this.chatAreaWidth = 50;
+    this.sidePanelWidth = 50;
+    this.updatePanelWidths();
+  },
+
+  // 重置面板大小
+  resetPanelSizes() {
+    this.chatAreaWidth = 50;
+    this.sidePanelWidth = 50;
+    this.chatAreaOpen = true;
+    this.sidePanelOpen = true;
+    this.updatePanelWidths();
+  },
+
+  // 更新面板宽度样式（用于非拖拽时的调整）
+  updatePanelWidths() {
+    this.$nextTick(() => {
+      const chatArea = this.$refs.chatAreaRef;
+      const sidePanel = this.$refs.sidePanelRef;
+      
+      if (!chatArea || !sidePanel) {
+        return;
+      }
+      
+      if (this.chatAreaOpen && this.sidePanelOpen) {
+        chatArea.style.width = `${this.chatAreaWidth}%`;
+        sidePanel.style.width = `${this.sidePanelWidth}%`;
+      } else if (this.chatAreaOpen) {
+        chatArea.style.width = '100%';
+      } else if (this.sidePanelOpen) {
+        sidePanel.style.width = '100%';
+      }
+    });
+  },
+
+  // 处理窗口大小变化
+  handleResize() {
+    if (this.chatAreaOpen && this.sidePanelOpen) {
+      this.updatePanelWidths();
     }
   },
 }

@@ -3595,22 +3595,45 @@ body {
   display: flex;
   height: 100%;
   position: relative;
-  gap: 10px;               /* 10 px 中间缝 */
-  transition: all .3s ease;
+  gap: 0;
 }
 
-/* 左侧对话区：收起 100%，展开 50%-5px */
+/* 拖拽遮罩层 */
+.resize-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  cursor: col-resize;
+  background: transparent;
+}
+
+/* 对话区域 */
 .chat-area {
-  width: 100%;
-  transition: width .3s ease;
-}
-.chat-wrapper:not(.collapsed) .chat-area {
-  width: calc(50% - 5px);
+  width: 50%;
+  transition: width 0.2s ease-out;
+  flex-shrink: 0;
+  min-width: 0;
 }
 
-/* 右侧面板：展开时 50%-5px，收起时隐藏 */
+/* 拖拽时禁用动画 */
+.chat-wrapper.resizing .chat-area {
+  transition: none;
+}
+
+.chat-wrapper.collapsed-left .chat-area {
+  display: none;
+}
+
+.chat-wrapper.collapsed-right .chat-area {
+  width: 100%;
+}
+
+/* 侧边栏 */
 .side-panel {
-  width: calc(50% - 5px);
+  width: 50%;
   flex-shrink: 0;
   background: var(--el-bg-color-page);
   border-radius: 8px;
@@ -3618,59 +3641,218 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;            /* 关键：撑满父级剩余高度 */
-  flex-direction: column;          /* 原来有就保留，没有可自己调 */
+  height: 100%;
+  flex-direction: column;
   overflow-x: hidden;
+  transition: width 0.2s ease-out;
+  min-width: 0;
 }
-.chat-wrapper.collapsed .side-panel {
+
+/* 拖拽时禁用动画 */
+.chat-wrapper.resizing .side-panel {
+  transition: none;
+}
+
+.chat-wrapper.collapsed-right .side-panel {
   display: none;
+}
+
+.chat-wrapper.collapsed-left .side-panel {
+  width: 100%;
 }
 
 .side-panel-scroll {
   width: 100%;
-  flex: 1;                 /* 占满剩余高度 */
+  flex: 1;
   box-sizing: border-box;
-  padding: 0;           /* 原来在 .side-panel 上的 padding 移到这里 */
+  padding: 0;
   margin: 0;
 }
 
-/* 滑入动画：从右往左 */
-.slide-right-enter-active,
-.slide-right-leave-active {
-  transition: transform .3s ease, opacity .3s ease;
-}
-.slide-right-enter-from,
-.slide-right-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
-}
-
-/* 按钮：永远水平居中在 10 px 缝隙 */
-.side-toggle {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 12px;
-  height: 36px;
-  background: var(--el-tag-bg-color);
-  color: var(--el-text-color-primary);
-  border-radius: 4px;
-  cursor: pointer;
+/* 可拖拽分割条 */
+.resizer {
+  width: 10px;
+  background: var(--el-border-color-light);
+  cursor: col-resize;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
-  box-shadow: 0 2px 8px rgba(0,0,0,.15);
-}
-/* 收起时按钮贴到最右边（缝隙消失） */
-.chat-wrapper.collapsed .side-toggle {
-  left: auto;
-  right: 0;
-  transform: translateY(-50%);
-  border-radius: 4px 0 0 4px;
+  transition: background-color .2s ease;
+  flex-shrink: 0;
+  z-index: 5;
 }
 
+.resizer:hover {
+  background: var(--el-color-primary);
+}
+
+.resizer-collapsed-right,
+.resizer-collapsed-left {
+  position: absolute;
+  width: 24px;
+  height: 60px;
+  border-radius: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--el-tag-bg-color);
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  cursor: pointer;
+  z-index: 10;
+  transition: all .2s ease;
+}
+
+/* 收起按钮的 hover 效果 - 只轻微移动 */
+.resizer-collapsed-right:hover {
+  background: var(--el-color-primary-light-3);
+  transform: translateY(-50%) translateX(-2px); /* 只向左移动 2px */
+}
+
+.resizer-collapsed-left:hover {
+  background: var(--el-color-primary-light-3);
+  transform: translateY(-50%) translateX(2px); /* 只向右移动 2px */
+}
+
+.resizer-collapsed-right {
+  right: 0;
+}
+
+.resizer-collapsed-left {
+  left: 0;
+}
+
+.resizer-handle {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.resizer-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.resizer-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--el-text-color-regular);
+  transition: all .2s ease;
+}
+
+.resizer:hover .resizer-dots .dot {
+  background: white;
+  transform: scale(1.1); /* 减小缩放幅度 */
+}
+
+/* 展开按钮 - 保持绝对居中 */
+.expand-chat-btn,
+.expand-side-btn {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all .2s ease;
+  box-shadow: 0 2px 4px rgba(0,0,0,.1);
+}
+
+/* 展开按钮的定位 - 确保居中且不移动 */
+.expand-chat-btn {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.expand-side-btn {
+  left: 50%; /* 改为 left 而不是 right，确保一致性 */
+  transform: translate(-50%, -50%);
+}
+
+/* 展开按钮的 hover 效果 - 只轻微缩放 */
+.expand-chat-btn:hover,
+.expand-side-btn:hover {
+  transform: translate(-50%, -50%) scale(1.05); /* 保持居中，只轻微缩放 */
+  box-shadow: 0 4px 8px rgba(0,0,0,.2);
+  background: var(--el-color-primary-dark-2);
+}
+
+/* 拖拽时的样式 */
+.chat-wrapper.resizing {
+  cursor: col-resize;
+}
+
+.chat-wrapper.resizing .side-panel-iframe {
+  pointer-events: none;
+}
+
+.chat-wrapper.resizing * {
+  user-select: none;
+}
+
+.chat-wrapper.resizing .resizer {
+  background: var(--el-color-primary);
+}
+
+/* 添加更温和的视觉反馈区域 */
+.resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1px;
+  right: -1px;
+  bottom: 0;
+  background: transparent;
+  transition: background-color .2s ease;
+}
+
+.resizer:hover::before {
+  background: var(--el-color-primary-light-9);
+}
+
+/* 为收起状态的按钮添加更温和的视觉效果 */
+.resizer-collapsed-right::before,
+.resizer-collapsed-left::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--el-color-primary-light-8), var(--el-color-primary-light-6));
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.resizer-collapsed-right:hover::before,
+.resizer-collapsed-left:hover::before {
+  opacity: 0.3; /* 降低透明度，更温和 */
+}
+
+/* 响应式处理 */
+@media (max-width: 768px) {
+  .resizer {
+    display: none;
+  }
+  
+  .chat-area,
+  .side-panel {
+    width: 100% !important;
+  }
+}
 /* 扩展相关样式 */
 .side-panel-header {
   display: flex;
