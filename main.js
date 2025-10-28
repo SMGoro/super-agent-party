@@ -554,6 +554,63 @@ app.whenReady().then(async () => {
       app.exit();
     })
 
+    // 在 main.js 的 app.whenReady().then(async () => { 中添加以下代码
+
+    ipcMain.handle('open-extension-window', async (_, { url, extension }) => {
+      const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+      
+      // 根据扩展配置决定窗口属性
+      const windowConfig = {
+        width: extension.width || 800,
+        height: extension.height || 600,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: false,
+          webSecurity: false,
+          devTools: isDev,
+          preload: path.join(__dirname, 'static/js/preload.js')
+        }
+      };
+
+      // 如果扩展需要透明和无边框
+      if (extension.transparent) {
+        Object.assign(windowConfig, {
+          frame: false,
+          transparent: true,
+          alwaysOnTop: true,
+          skipTaskbar: false,
+          hasShadow: false,
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+        });
+      } else {
+        // 普通窗口配置
+        Object.assign(windowConfig, {
+          frame: true,
+          transparent: false,
+          titleBarStyle: isMac ? 'hiddenInset' : 'default',
+          icon: 'static/source/icon.png'
+        });
+      }
+
+      const extensionWindow = new BrowserWindow(windowConfig);
+      
+      // 启用远程模块
+      remoteMain.enable(extensionWindow.webContents);
+      
+      // 加载URL
+      await extensionWindow.loadURL(url);
+      
+      // 如果是透明窗口，设置一些特殊行为
+      if (extension.transparent) {
+        // 可以根据需要设置鼠标穿透等行为
+        // extensionWindow.setIgnoreMouseEvents(false);
+      }
+      
+      return extensionWindow.id;
+    });
+
+
     ipcMain.handle('start-vrm-window', async (_, windowConfig = {}) => {
       const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 

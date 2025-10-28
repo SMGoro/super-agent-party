@@ -9521,17 +9521,41 @@ clearSegments() {
       this.updatePanelWidths();
     }
   },
-  // 在独立窗口中打开扩展
+  // 修改 openExtensionInWindow 方法
   async openExtensionInWindow(extension) {
     let url = `${this.partyURL}/ext/${extension.id}/index.html`;
     this.loadExtension(extension);
     this.showExtensionsDialog = false;
+    
     // extension.systemPrompt填充到this.messages[0].content
     if (this.currentExtension) {
       this.messages[0].content = this.currentExtension.systemPrompt;
-    }else {
+    } else {
       this.messages[0].content = ''; // 清空
     }
-    window.open(url, '_blank');
+    console.log("extension.transparent is "+extension.transparent);
+    // 检查是否在Electron环境中
+    if (window.electronAPI && window.electronAPI.openExtensionWindow) {
+      try {
+        // 只传递可序列化的属性，避免传递整个 extension 对象
+        const extensionConfig = {
+          id: extension.id,
+          name: extension.name,
+          transparent: extension.transparent || false,
+          width: extension.width || 800,
+          height: extension.height || 600,
+        };
+        
+        const windowId = await window.electronAPI.openExtensionWindow(url, extensionConfig);
+        console.log(`Extension window opened with ID: ${windowId}`);
+      } catch (error) {
+        console.error('Failed to open extension window:', error);
+        // 如果Electron方式失败，回退到普通方式
+        window.open(url, '_blank');
+      }
+    } else {
+      // 非Electron环境或API不可用，使用普通方式
+      window.open(url, '_blank');
+    }
   },
 }

@@ -461,8 +461,11 @@ if ('serviceWorker' in navigator) {
                     <!-- AI回复内容 -->
                     <div v-else-if="message.role === 'assistant'"  class="markdown-body" v-html="message.briefly ? formatMessage(message.pure_content??msg.content) : formatMessage(message.content)"></div>
                     <!-- 系统消息内容 -->
-                    <div v-else class="system-content" data-mjx-disabled="true">
-                      <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" @click="openEditDialog(message.role, message.content,index)"></div>
+                    <div v-else class="system-content" data-mjx-disabled="true" >
+                      <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" 
+                      :style="{ 'max-height' : index===0 ? '200px' : 'none','overflow-y' : index===0 ? 'auto' : 'hidden'}"
+                       @click="openEditDialog(message.role, message.content,index)">
+                      </div>
                     </div>
                   </div>
                   <!-- 添加复制按钮 -->
