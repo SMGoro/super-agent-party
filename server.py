@@ -54,7 +54,7 @@ from py.dify_openai_async import DifyOpenAIAsync
 
 from py.get_setting import EXT_DIR, load_settings,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
-
+from py.sherpa_asr import sherpa_recognize
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
 
@@ -4166,7 +4166,6 @@ async def asr_websocket_endpoint(websocket: WebSocket):
                             funasr_websocket = None
 
                         elif asr_engine == "sherpa":
-                            from py.sherpa_asr import sherpa_recognize
                             # 新增Sherpa处理
                             result = await sherpa_recognize(audio_bytes)
                             print(f"Sherpa result: {result}")

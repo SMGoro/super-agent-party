@@ -1611,6 +1611,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-ml-py"
+version = "13.580.82"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/6c/4a533f2c0185027c465adb6063086bc3728301e95f483665bfa9ebafb2d3/nvidia_ml_py-13.580.82.tar.gz", hash = "sha256:0c028805dc53a0e2a6985ea801888197765ac2ef8f1c9e29a7bf0d3616a5efc7", size = 47999, upload-time = "2025-09-11T16:44:56.267Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/96/d6d25a4c307d6645f4a9b91d620c0151c544ad38b5e371313a87d2761004/nvidia_ml_py-13.580.82-py3-none-any.whl", hash = "sha256:4361db337b0c551e2d101936dae2e9a60f957af26818e8c0c3a1f32b8db8d0a7", size = 49008, upload-time = "2025-09-11T16:44:54.915Z" },
+]
+
+[[package]]
 name = "odfpy"
 version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2777,6 +2786,7 @@ dependencies = [
     { name = "mcp" },
     { name = "mem0ai" },
     { name = "nest-asyncio" },
+    { name = "nvidia-ml-py" },
     { name = "odfpy" },
     { name = "ollama" },
     { name = "openai" },
@@ -2831,6 +2841,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.6.0" },
     { name = "mem0ai", specifier = ">=0.1.101" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
+    { name = "nvidia-ml-py", specifier = ">=13.580.82" },
     { name = "odfpy", specifier = ">=1.4.1" },
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=1.76.0" },
