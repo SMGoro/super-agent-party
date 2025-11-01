@@ -1009,7 +1009,7 @@ if ('serviceWorker' in navigator) {
                 ref="sidePanelRef"
                 :class="{ collapsed: !sidePanelOpen }" 
                 v-show="sidePanelOpen">
-              <div class="side-panel-scroll" ref="messagesPanel" :style="{ overflow: sidePanelURL||!sidePanelText ? 'hidden' : 'auto' }">
+              <div class="side-panel-scroll" ref="messagesPanel" :style="{ overflow: 'hidden' }">
                 <iframe class="side-panel-iframe" 
                         v-if="sidePanelURL" 
                         :src="sidePanelURL" 
@@ -1017,7 +1017,6 @@ if ('serviceWorker' in navigator) {
                         allowfullscreen 
                         style="width: 100%; height: 100%;">
                 </iframe>
-                <div v-else-if="sidePanelText" v-html="defaultSidePanelHTML" class="side-panel-content"></div>
                 <div v-else class="extensions-list" style="margin: 10px;height: 100%;">
                   <!-- 默认视图选项 -->
                   <el-card 
@@ -5173,6 +5172,7 @@ if ('serviceWorker' in navigator) {
                       </el-form-item>
                       <el-alert type="info" :closable="false" class="mb-2">
                         <div class="alert-content">
+                          {{ t('browserNotice') }}<br>
                           {{ t('browserNotice1') }}<br>
                           {{ t('browserNotice2') }}<br>
                           {{ t('browserNotice3') }}
@@ -9406,6 +9406,15 @@ if ('serviceWorker' in navigator) {
                           >
                             <i class="fa-brands fa-github"></i>
                             {{ t('viewRepository') }}
+                          </el-button>
+                          <!-- 紧挨着原来的 uninstall / install 按钮 -->
+                          <el-button
+                            v-if="plugin.installed"
+                            type="warning"
+                            :loading="plugin._updating"
+                            @click="updatePlugin(plugin)"
+                          >
+                            {{ t('update') }}
                           </el-button>
                           <el-button
                             :type="plugin.installed ? 'danger' : 'primary'"

@@ -335,3 +335,59 @@ async def remote_plugin_list():
         )
 
     return RemotePluginList(plugins=[_with_status(p) for p in remote])
+
+# ------------------ 更新扩展（带备用仓库回退） ------------------
+@router.put("/{ext_id}/update")
+async def update_extension(ext_id: str):
+    target = Path(EXT_DIR) / ext_id
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="扩展未安装")
+
+    # 1. 读取主/备仓库地址
+    pkg_file = target / "package.json"
+    repos: list[str] = []
+    if pkg_file.exists():
+        try:
+            meta = json.loads(pkg_file.read_text(encoding="utf-8"))
+            if meta.get("repository"):
+                repos.append(meta["repository"].strip().rstrip("/"))
+            if meta.get("backupRepository"):
+                repos.append(meta["backupRepository"].strip().rstrip("/"))
+        except Exception:
+            pass
+
+    # 2. 至少要有一个仓库
+    if not repos:
+        raise HTTPException(status_code=400, detail="缺少 repository / backupRepository 字段")
+
+    # 3. 顺序 pull（主 → 备）
+    last_err: Exception | None = None
+    for idx, repo in enumerate(repos):
+        try:
+            # 第一次用本地已跟踪的远程；如果本地没有该 remote 则加进来
+            remote_name = "origin" if idx == 0 else "backup"
+            # 确保 remote 存在（静默添加，已存在会报错可忽略）
+            subprocess.run(
+                ["git", "-C", str(target), "remote", "add", remote_name, repo],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # 真正拉取
+            subprocess.run(
+                ["git", "-C", str(target), "pull", remote_name, "--ff-only"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            # 成功就结束
+            return {"status": "updated", "remote": repo}
+        except subprocess.CalledProcessError as e:
+            last_err = e
+            continue        # 失败就换备用地址
+
+    # 4. 全部失败
+    raise HTTPException(
+        status_code=500,
+        detail=f"主/备仓库均更新失败：{last_err and last_err.stderr}"
+    )
