@@ -9407,6 +9407,15 @@ if ('serviceWorker' in navigator) {
                             <i class="fa-brands fa-github"></i>
                             {{ t('viewRepository') }}
                           </el-button>
+                          <!-- 紧挨着原来的 uninstall / install 按钮 -->
+                          <el-button
+                            v-if="plugin.installed"
+                            type="warning"
+                            :loading="plugin._updating"
+                            @click="updatePlugin(plugin)"
+                          >
+                            {{ t('update') }}
+                          </el-button>
                           <el-button
                             :type="plugin.installed ? 'danger' : 'primary'"
                             @click="togglePlugin(plugin)"
