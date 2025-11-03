@@ -39,7 +39,9 @@ jobs:
         run: npm ci
 
       - name: Build Python backend
-        run: uv run pyinstaller server.spec
+        run: |
+          uv add pyinstaller
+          uv run pyinstaller server.spec
 
       - name: Fontend Install Node.js dependencies
         shell: bash

@@ -22,7 +22,6 @@ dependencies = [
     "odfpy>=1.4.1",
     "openai>=1.76.0",
     "openpyxl>=3.1.5",
-    "pyinstaller>=6.13.0",
     "pypdf2>=3.0.1",
     "python-a2a[all]>=0.5.6",
     "python-docx>=1.1.2",
@@ -57,4 +56,5 @@ dependencies = [
     "sherpa-onnx>=1.12.15",
     "soundfile>=0.13.1",
     "nvidia-ml-py>=13.580.82",
+    "pip-licenses>=5.5.0",
 ]

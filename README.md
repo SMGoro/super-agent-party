@@ -230,6 +230,12 @@ This project uses a dual licensing model:
 
 Using this project for closed-source commercial purposes without written authorization is considered a violation of this agreement. The complete text of AGPLv3 can be found in the LICENSE file in the project root directory or at [gnu.org/licenses](https://www.gnu.org/licenses/agpl-3.0.html).
 
+### Third-Party License Notices  
+
+This project may include or depend on certain third-party libraries or components, whose licenses may differ from the main project's license. To comply with the relevant license requirements, you can find the license information for these third-party components in the [LICENSE-third-party](./LICENSE-third-party) folder located in the project's root directory, or within the corresponding component's source code.  
+
+We extend our gratitude to all contributors of the third-party libraries and components and are committed to respecting their license terms.
+
 ## Support:
 
 ### Please star us!

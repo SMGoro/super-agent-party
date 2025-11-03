@@ -32,7 +32,6 @@ aiosqlite
 rank_bm25
 fastapi_mcp
 mem0ai
-pyinstaller
 e2b-code-interpreter
 qq-botpy
 scipy
@@ -46,3 +45,4 @@ aiofiles
 sherpa_onnx
 soundfile
 nvidia-ml-py
+pip-licenses 
