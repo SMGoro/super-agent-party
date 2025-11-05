@@ -68,7 +68,11 @@
         "AppImage",
         "deb"
       ],
-      "artifactName": "${productName}-${version}-Linux.${ext}"
+      "artifactName": "${productName}-${version}-Linux.${ext}",
+      "asarUnpack": [
+        "node_modules/sharp/**/*",
+        "node_modules/@img/**/*"
+      ]
     },
     "mac": {
       "icon": "static/source/icon.icns",
