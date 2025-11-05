@@ -1166,6 +1166,20 @@ let vue_methods = {
         else if (data.type === 'update_user_input') {
           this.userInput = data.data.text;
         }
+        // 新增：处理系统消息更新
+        else if (data.type === 'update_system_prompt') {
+          if (this.messages[0].role === 'system') {
+            this.messages[0].content = data.data.text
+          }else{
+            this.messages.unshift(
+              { 
+                "role": "system",
+                "content": data.data.text
+              }
+            )
+          }
+
+        }
         // 新增：处理触发发送消息
         else if (data.type === 'trigger_send_message') {
           this.sendMessage();
