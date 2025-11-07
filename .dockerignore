@@ -30,7 +30,3 @@ wxauto*
 
 static/ext/*
 !static/ext/heshengtao_sap-example/
-
-
-package-lock.json
-uv.lock
