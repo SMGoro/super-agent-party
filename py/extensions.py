@@ -213,8 +213,6 @@ async def install_from_github(
     4. 立即返回 202，前端轮询或 websocket 通知可后续扩展
     """
     parse = urlparse(req.url)
-    if not parse.netloc or "github" not in parse.netloc:
-        raise HTTPException(status_code=400, detail="仅支持 GitHub 地址")
     # 取 owner/repo 作为 ext_id
     path_parts = parse.path.strip("/").split("/")
     if len(path_parts) < 2:
