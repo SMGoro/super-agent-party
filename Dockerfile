@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update && \
-    apt-get install -y gcc curl && \
+    apt-get install -y gcc curl git && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \ 
     apt-get install -y nodejs
 
