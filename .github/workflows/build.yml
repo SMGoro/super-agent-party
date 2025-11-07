@@ -38,10 +38,6 @@ jobs:
       - name: Install Node.js dependencies
         run: npm install
 
-      - name: Rebuild native modules for Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: npx electron-rebuild -f -w sharp
-
       - name: Build Python backend
         run: |
           uv add pyinstaller
