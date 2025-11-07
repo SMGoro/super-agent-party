@@ -362,7 +362,7 @@ let vue_methods = {
       }
       
       this.conversations = this.conversations.filter(c => c.id !== convId);
-      await this.autoSaveSettings();
+      await this.saveConversations(); // 保存对话列表
     },
     async loadConversation(convId) {
       const conversation = this.conversations.find(c => c.id === convId);
@@ -390,7 +390,7 @@ let vue_methods = {
       this.inAutoMode = false; // 重置自动模式状态
       this.scrollToBottom();
       this.sendMessagesToExtension(); // 发送消息到插件
-      await this.autoSaveSettings();
+      this.autoSaveSettings();
     },
     switchToagents() {
       this.activeMenu = 'api-group';
@@ -1538,7 +1538,7 @@ let vue_methods = {
           conv.system_prompt = this.system_prompt;
         }
       }
-      this.autoSaveSettings();
+      await this.saveConversations();
       try {
         console.log('Sending message...');
         // 请求参数需要与后端接口一致
@@ -1764,7 +1764,8 @@ let vue_methods = {
         this.isSending = false;
         this.isTyping = false;
         this.abortController = null;
-        this.autoSaveSettings();
+        await this.autoSaveSettings();
+        await this.saveConversations();
       }
     },
     async translateMessage(index) {
@@ -1916,7 +1917,6 @@ let vue_methods = {
           stickerPacks: this.stickerPacks,
           tools: this.toolsSettings,
           llmTools: this.llmTools,
-          conversations: this.conversations,
           conversationId: this.conversationId,
           reasoner: this.reasonerSettings,
           isBtnCollapse: this.isBtnCollapse,
@@ -1986,6 +1986,45 @@ let vue_methods = {
         this.ws.addEventListener('message', handler);
       });
     },
+    async saveConversations() {
+      return new Promise((resolve, reject) => {
+        // 构造 payload（保持原有逻辑）
+        const payload = {
+          conversations: this.conversations
+        };
+        const correlationId = uuid.v4();
+        // 发送保存请求
+        this.ws.send(JSON.stringify({
+          type: 'save_conversations',
+          data: payload,
+          correlationId: correlationId // 添加唯一请求 ID
+        }));
+        // 设置响应监听器
+        const handler = (event) => {
+          const response = JSON.parse(event.data);
+          
+          // 匹配对应请求的确认消息
+          if (response.type === 'conversations_saved' && 
+              response.correlationId === correlationId) {
+            this.ws.removeEventListener('message', handler);
+            resolve();
+          }
+          
+          // 错误处理（根据后端实现）
+          if (response.type === 'save_error') {
+            this.ws.removeEventListener('message', handler);
+            reject(new Error('保存失败'));
+          }
+        };
+        // 设置 10 秒超时
+        const timeout = setTimeout(() => {
+          this.ws.removeEventListener('message', handler);
+          reject(new Error('保存超时'));
+        }, 10000);
+        this.ws.addEventListener('message', handler);
+      });
+    },
+
     // 修改后的fetchModels方法
     async fetchModels() {
       this.modelsLoading = true;
@@ -7269,7 +7308,7 @@ async deleteGaussSceneOption(sceneId) {
       });
       
       this.conversations = [];
-      await this.autoSaveSettings();
+      await this.saveConversations();
     } catch (error) {
       // 用户取消操作
     }
@@ -7288,7 +7327,7 @@ async deleteGaussSceneOption(sceneId) {
         conv.timestamp && conv.timestamp >= oneWeekAgo
       );
       
-      await this.autoSaveSettings();
+      await this.saveConversations();
     } catch (error) {
       // 用户取消操作
     }

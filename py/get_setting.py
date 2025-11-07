@@ -152,3 +152,41 @@ async def save_settings(settings):
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute('INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)', (data,))
         await db.commit()
+
+
+COVS_PATH = os.path.join(USER_DATA_DIR, "conversations.db")        
+
+# 添加数据库初始化函数
+async def init_covs_db():
+    Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(COVS_PATH) as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY,
+                data TEXT NOT NULL
+            )
+        ''')
+        await db.commit()
+# 修改 load_settings 函数
+async def load_covs():
+    try:
+        await init_covs_db()
+        async with aiosqlite.connect(COVS_PATH) as db:
+            async with db.execute('SELECT data FROM settings WHERE id = 1') as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    settings = json.loads(row[0])
+                    return settings
+                else:
+                    default_covs = {"conversations": []}
+                    await save_covs(default_covs)
+                    return default_covs.copy()
+    except Exception as e:
+        print(f"Error loading conversations: {e}")
+        return {"conversations": []}
+# 修改 save_settings 函数
+async def save_covs(settings):
+    data = json.dumps(settings, ensure_ascii=False, indent=2)
+    async with aiosqlite.connect(COVS_PATH) as db:
+        await db.execute('INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)', (data,))
+        await db.commit()

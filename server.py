@@ -54,7 +54,7 @@ from mem0 import Memory
 from py.qq_bot_manager import QQBotManager
 from py.dify_openai_async import DifyOpenAIAsync
 
-from py.get_setting import EXT_DIR, load_settings,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
+from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
 from py.sherpa_asr import sherpa_recognize
 timetamp = time.time()
@@ -182,8 +182,9 @@ configure_host_port(args.host, args.port)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from py.get_setting import init_db
+    from py.get_setting import init_db, init_covs_db
     await init_db()
+    await init_covs_db()
     global settings, client, reasoner_client, mcp_client_list, local_timezone, logger, locales
     # 创建带时间戳的日志文件路径
     timestamp = time.time()
@@ -6625,6 +6626,13 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         async with settings_lock:  # 读取时加锁
             current_settings = await load_settings()
+            if current_settings.get("conversations",None):
+                await save_covs({"conversations": current_settings["conversations"]})
+                # 移除settings中的"conversations"
+                del current_settings["conversations"]
+                await save_settings(current_settings)
+            covs = await load_covs()
+            current_settings["conversations"] = covs.get("conversations", [])
         await websocket.send_json({"type": "settings", "data": current_settings})
         while True:
             data = await websocket.receive_json()
@@ -6638,8 +6646,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     "correlationId": data.get("correlationId"),
                     "success": True
                 })
+            elif data.get("type") == "save_conversations":
+                await save_covs(data.get("data", {}))
+                # 发送确认消息（携带相同 correlationId）
+                await websocket.send_json({
+                    "type": "conversations_saved",
+                    "correlationId": data.get("correlationId"),
+                    "success": True
+                })
             elif data.get("type") == "get_settings":
                 settings = await load_settings()
+                if settings.get("conversations",None):
+                    await save_covs({"conversations": settings["conversations"]})
+                    # 移除settings中的"conversations"
+                    del settings["conversations"]
+                    await save_settings(settings)
+                covs = await load_covs()
+                print("covs"+covs)
+                settings["conversations"] = covs.get("conversations", [])
                 await websocket.send_json({"type": "settings", "data": settings})
             elif data.get("type") == "save_agent":
                 current_settings = await load_settings()
