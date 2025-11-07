@@ -7,14 +7,16 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY uv.lock pyproject.toml ./
-COPY package.json package-lock.json ./
+COPY pyproject.toml ./
+COPY package.json ./
 
 RUN pip install uv && \
     uv venv && \
     uv sync
 
 RUN npm install --production --legacy-peer-deps
+
+RUN cd static && npm install --production --legacy-peer-deps && cd ..
 
 COPY . .
 

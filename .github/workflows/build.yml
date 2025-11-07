@@ -36,7 +36,7 @@ jobs:
           uv sync
 
       - name: Install Node.js dependencies
-        run: npm ci
+        run: npm install
 
       - name: Rebuild native modules for Linux
         if: matrix.os == 'ubuntu-latest'
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           cd static
-          npm ci
+          npm install
           cd ..
 
       - name: Copy node_modules to dist/server/_internal
