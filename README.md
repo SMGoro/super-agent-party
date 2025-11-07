@@ -40,21 +40,25 @@
 
 ### Windows portable package (Recommended! Installation-free source version, support one-click synchronization to the latest version of the warehouse, no need to wait for the desktop version to be packaged)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/super-agent-party-win-v0.3.1.zip)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/super-agent-party-win-v0.3.2.zip)
 
-⭐Attention! You can double-click `一键更新(update).bat` to update the software, or you can double-click `一键启动(start).bat` to start the software.
+⭐ Note!  You can double-click `一键更新(update).bat` to update the software, or you can double-click `一键启动(start).bat` to start the software.
+
+⭐ Note!  To reduce the installation package size, the npm download logic has been modified. Integration packages of version v0.3.1 and earlier will not update properly. Please download and update to integration packages of v0.3.2 or later!
 
 ### Windows Desktop Installation
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/Super-Agent-Party-Setup-0.3.1.exe)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/Super-Agent-Party-Setup-0.3.2.exe)
 
 ⭐ Note! Choose to install only for the current user during installation, otherwise, administrator privileges will be required to start.
 
 ### macOS portable package (Currently only M chips are supported, developer-oriented, no-install source version, one-click sync to latest repo, no need to wait for desktop build)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/super-agent-party-mac-v0.3.1.zip)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/super-agent-party-mac-v0.3.2.zip)
 
 ⭐ Note! You can update the software in Terminal with `one-click update(update).sh` or launch it with `one-click start(start).sh`. Remember to grant permissions before use!
+
+⭐ Note!  To reduce the installation package size, the npm download logic has been modified. Integration packages of version v0.3.1 and earlier will not update properly. Please download and update to integration packages of v0.3.2 or later!
 
   ```shell
   chmod +x 一键更新(update).sh
@@ -65,7 +69,7 @@
 
 ### MacOS Desktop Installation (Currently only M chips are supported.)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/Super-Agent-Party-0.3.1-Mac.dmg)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/Super-Agent-Party-0.3.2-Mac.dmg)
 
 ⭐Attention! After downloading, drag the app file of the dmg file into the `/Applications` directory, then open end point, execute the following command and enter the root password to remove the attached Quarantine attribute from the network download:
 
@@ -81,11 +85,11 @@ We provide two mainstream Linux installation package formats for your convenienc
 
 `.AppImage` is a Linux application format that does not require installation and can be used immediately. Suitable for most Linux distributions.
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/Super-Agent-Party-0.3.1-Linux.AppImage)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/Super-Agent-Party-0.3.2-Linux.AppImage)
 
 #### 2. Install using `.deb` package (Suitable for Ubuntu/Debian systems)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.1/Super-Agent-Party-0.3.1-Linux.deb)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.2/Super-Agent-Party-0.3.2-Linux.deb)
 
 ### Docker Deployment (This version of the table pet can only be viewed through the browser.)
 
@@ -140,6 +144,11 @@ We provide two mainstream Linux installation package formats for your convenienc
 
 ### ComfyUI Integration: Converts ComfyUI workflows into agent tools with load balancing across multiple ComfyUI servers.
 ![image](doc/image/comfyui8.jpeg)
+
+
+## Extension
+
+Added a brand-new extension system. You can check available plugins at [plugins list](https://super-agent-party.github.io/plugins.html), or directly view and install them in the party under 【Developer】->【Extensions】. You can also add your own developed extensions to the official plugin list at [super-agent-party.github.io](https://github.com/super-agent-party/super-agent-party.github.io)! 
 
 ## Hardware requirements
 
