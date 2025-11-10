@@ -1294,6 +1294,10 @@ let vue_methods = {
     // 发送消息
     async sendMessage(role = 'user') { 
       if (!this.userInput.trim() || this.isTyping) return;
+      if (this.readState.isPlaying && this.ttsSettings.enabled) {          // 暂停
+        this.stopSegmentTTS(isEnd=false);
+        this.isReadInterruption = true;
+      }
       this.isTyping = true;
       // 开始计时
       this.startTimer();
@@ -5817,6 +5821,11 @@ let vue_methods = {
         lastMessage.currentChunk = 0;
         this.TTSrunning = false;
         this.cur_audioDatas = [];
+        if(this.isReadInterruption && !this.readState.isPlaying){
+          setTimeout(() => {
+            this.toggleContinuousPlay();
+          }, this.readSettings.delay);
+        }
         // 通知VRM所有音频播放完成
         this.sendTTSStatusToVRM('allChunksCompleted', {});
         return;

@@ -1648,4 +1648,8 @@ main();`,
     gitInstalling: false,
     gitProgress: 0,
     gitTimer: null,
+    isReadInterruption: false,
+    readSettings: {
+      delay:2000
+    },
 };
