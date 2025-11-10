@@ -5246,38 +5246,47 @@ if ('serviceWorker' in navigator) {
 
               <!-- 浏览器控制界面 -->
               <div v-show="subMenu === 'chromeMCP'" class="page">
-               <!-- nodejs下载 -->
-                <div class="toolbar">
-                  <div class="node-toolbar">
-                    <!-- 已安装状态 -->
-                    <div v-if="nodeInstalled" class="node-installed" style="padding-left: 16px;">
-                      <i class="fa-solid fa-circle-check"></i>
-                      <span style="padding: 4px;">{{ t('nodeInstalled') }}</span>
-                    </div>
+                <!-- Node.js 卡片：已安装 & 未安装 双状态 -->
+                <el-card shadow="hover" class="sherpa-card">
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>Node.js</strong></span>
 
-                    <!-- 未安装状态 -->
-                    <div v-else class="node-not-installed">
-                      <span class="desc">{{ t('nodeNotInstalled') }}</span>
-                      <el-button
-                          type="primary"
-                          size="small"
-                          :loading="nodeInstalling"
-                          @click="installNode"
-                      >
-                        <i class="fa-solid fa-download"></i>{{ t('installNode') }}
-                      </el-button>
-
-                      <!-- 实时进度 -->
-                      <el-progress
-                          v-if="nodeProgress > 0"
-                          :percentage="nodeProgress"
-                          :status="nodeProgress === 100 ? 'success' : null"
-                          style="margin-top: 16px;"
-                          :stroke-width="10"
-                      ></el-progress>
+                    <div class="d-flex gap-2">
+                      <el-tag v-if="!nodeInstalled" type="info" effect="dark">
+                        {{ t('notInstalled') }}
+                      </el-tag>
+                      <el-tag v-else type="success" effect="dark">
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
                     </div>
                   </div>
-                </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <div class="left-actions">
+                      <el-button
+                        v-if="!nodeInstalled"
+                        type="primary"
+                        :loading="nodeInstalling"
+                        @click="installNode"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installNode') }}
+                      </el-button>
+                    </div>
+                  </div>
+
+                  <!-- 进度条 -->
+                  <el-progress
+                    v-if="nodeInstalling && nodeProgress > 0"
+                    :percentage="nodeProgress"
+                    :status="nodeProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
                 <el-form :model="chromeMCPSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5326,35 +5335,47 @@ if ('serviceWorker' in navigator) {
               
               <!-- SQL控制界面 -->
               <div v-show="subMenu === 'sql'" class="page">
-               <!-- uv下载 -->
-                <div class="toolbar">
-                  <div class="uv-toolbar">
-                    <div v-if="uvInstalled" class="uv-installed"  style="padding-left: 16px;">
-                      <i class="fa-solid fa-circle-check"></i>
-                      <span style="padding: 4px;">{{ t('uvInstalled') }}</span>
-                    </div>
+                <!-- uv 卡片：已安装 & 未安装 双状态 -->
+                <el-card shadow="hover" class="sherpa-card">
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>UV</strong></span>
 
-                    <div v-else class="uv-not-installed">
-                      <span class="desc">{{ t('uvNotInstalled') }}</span>
-                      <el-button
-                          type="primary"
-                          size="small"
-                          :loading="uvInstalling"
-                          @click="installUv"
-                      >
-                        <i class="fa-solid fa-download"></i>{{ t('installUv') }}
-                      </el-button>
-
-                      <el-progress
-                          v-if="uvProgress > 0"
-                          :percentage="uvProgress"
-                          :status="uvProgress === 100 ? 'success' : null"
-                          style="margin-top: 16px;"
-                          :stroke-width="10"
-                      ></el-progress>
+                    <div class="d-flex gap-2">
+                      <el-tag v-if="!uvInstalled" type="info" effect="dark">
+                        {{ t('notInstalled') }}
+                      </el-tag>
+                      <el-tag v-else type="success" effect="dark">
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
                     </div>
                   </div>
-                </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <div class="left-actions">
+                      <el-button
+                        v-if="!uvInstalled"
+                        type="primary"
+                        :loading="uvInstalling"
+                        @click="installUv"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installUv') }}
+                      </el-button>
+                    </div>
+                  </div>
+
+                  <!-- 进度条 -->
+                  <el-progress
+                    v-if="uvInstalling && uvProgress > 0"
+                    :percentage="uvProgress"
+                    :status="uvProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
                 <el-form :model="sqlSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -9484,6 +9505,152 @@ if ('serviceWorker' in navigator) {
             </div>
             <!-- 右侧内容 -->
             <div class="suite-content">
+              <!-- 开发工具页面 -->
+              <div v-show="subMenu === 'develop'" class="page agents-container">
+                <!-- Node.js 卡片：已安装 & 未安装 双状态 -->
+                <el-card shadow="hover" class="sherpa-card">
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>Node.js</strong></span>
+
+                    <div class="d-flex gap-2">
+                      <el-tag v-if="!nodeInstalled" type="info" effect="dark">
+                        {{ t('notInstalled') }}
+                      </el-tag>
+                      <el-tag v-else type="success" effect="dark">
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
+                    </div>
+                  </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <div class="left-actions">
+                      <el-button
+                        v-if="!nodeInstalled"
+                        type="primary"
+                        :loading="nodeInstalling"
+                        @click="installNode"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installNode') }}
+                      </el-button>
+                    </div>
+                  </div>
+
+                  <!-- 进度条 -->
+                  <el-progress
+                    v-if="nodeInstalling && nodeProgress > 0"
+                    :percentage="nodeProgress"
+                    :status="nodeProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
+                <!-- uv 卡片：已安装 & 未安装 双状态 -->
+                <el-card shadow="hover" class="sherpa-card">
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>UV</strong></span>
+
+                    <div class="d-flex gap-2">
+                      <el-tag v-if="!uvInstalled" type="info" effect="dark">
+                        {{ t('notInstalled') }}
+                      </el-tag>
+                      <el-tag v-else type="success" effect="dark">
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
+                    </div>
+                  </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <div class="left-actions">
+                      <el-button
+                        v-if="!uvInstalled"
+                        type="primary"
+                        :loading="uvInstalling"
+                        @click="installUv"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installUv') }}
+                      </el-button>
+                    </div>
+                  </div>
+
+                  <!-- 进度条 -->
+                  <el-progress
+                    v-if="uvInstalling && uvProgress > 0"
+                    :percentage="uvProgress"
+                    :status="uvProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
+                <!-- Git 卡片：已安装 & 未安装 双状态 -->
+                <el-card
+                  shadow="hover"
+                  class="sherpa-card"
+                >
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>Git</strong></span>
+
+                    <div class="d-flex gap-2">
+                      <!-- 未安装 -->
+                      <el-tag
+                        v-if="!gitInstalled"
+                        type="info"
+                        effect="dark"
+                      >
+                        {{ t('notInstalled') }}
+                      </el-tag>
+
+                      <!-- 已安装 -->
+                      <el-tag
+                        v-else
+                        type="success"
+                        effect="dark"
+                      >
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
+                    </div>
+                  </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <!-- 左侧按钮 -->
+                    <div class="left-actions">
+                      <!-- 未安装：显示安装按钮 -->
+                      <el-button
+                        v-if="!gitInstalled"
+                        type="primary"
+                        :loading="gitInstalling"
+                        @click="installGit"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installGit') }}
+                      </el-button>
+
+                      <!-- 已安装：空占位，保持左右结构一致（可选） -->
+                    </div>
+
+                    <!-- 右侧：已安装时可放“卸载”按钮（暂无可留空） -->
+                  </div>
+
+                  <!-- 进度条：只在安装过程中出现 -->
+                  <el-progress
+                    v-if="gitInstalling && gitProgress > 0"
+                    :percentage="gitProgress"
+                    :status="gitProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
+              </div>
               <!-- 智能体页面 -->
               <div v-show="subMenu === 'agents'" class="page agents-container">
                 <!-- 磁贴网格 -->
@@ -9569,34 +9736,67 @@ if ('serviceWorker' in navigator) {
               </div>
               <!-- 扩展页面 -->
               <div v-show="subMenu === 'extension'" class="page extension-container">
-                <div class="toolbar">
-                  <div class="git-toolbar">
-                    <div v-if="gitInstalled" class="git-installed"style="padding-left: 16px;">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span style="padding: 4px;">{{ t('gitInstalled') }}</span>
-                    </div>
+                <!-- Git 卡片：已安装 & 未安装 双状态 -->
+                <el-card
+                  shadow="hover"
+                  class="sherpa-card"
+                >
+                  <!-- 头部：标题 + 状态标签 -->
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><strong>Git</strong></span>
 
-                    <div v-else class="git-not-installed">
-                      <span class="desc">{{ t('gitNotInstalled') }}</span>
-                      <el-button
-                          type="primary"
-                          size="small"
-                          :loading="gitInstalling"
-                          @click="installGit"
+                    <div class="d-flex gap-2">
+                      <!-- 未安装 -->
+                      <el-tag
+                        v-if="!gitInstalled"
+                        type="info"
+                        effect="dark"
                       >
-                        <i class="fa-solid fa-download"></i>{{ t('installGit') }}
-                      </el-button>
+                        {{ t('notInstalled') }}
+                      </el-tag>
 
-                      <el-progress
-                          v-if="gitProgress > 0"
-                          :percentage="gitProgress"
-                          :status="gitProgress === 100 ? 'success' : null"
-                          style="margin-top: 16px;"
-                          :stroke-width="10"
-                      ></el-progress>
+                      <!-- 已安装 -->
+                      <el-tag
+                        v-else
+                        type="success"
+                        effect="dark"
+                      >
+                        <i class="fa-solid fa-circle-check"></i>
+                        {{ t('installed') }}
+                      </el-tag>
                     </div>
                   </div>
-                </div>
+
+                  <!-- 操作区 -->
+                  <div class="card-actions">
+                    <!-- 左侧按钮 -->
+                    <div class="left-actions">
+                      <!-- 未安装：显示安装按钮 -->
+                      <el-button
+                        v-if="!gitInstalled"
+                        type="primary"
+                        :loading="gitInstalling"
+                        @click="installGit"
+                      >
+                        <i class="fa-solid fa-download"></i>
+                        {{ t('installGit') }}
+                      </el-button>
+
+                      <!-- 已安装：空占位，保持左右结构一致（可选） -->
+                    </div>
+
+                    <!-- 右侧：已安装时可放“卸载”按钮（暂无可留空） -->
+                  </div>
+
+                  <!-- 进度条：只在安装过程中出现 -->
+                  <el-progress
+                    v-if="gitInstalling && gitProgress > 0"
+                    :percentage="gitProgress"
+                    :status="gitProgress === 100 ? 'success' : null"
+                    style="margin-top: 16px;"
+                    :stroke-width="10"
+                  />
+                </el-card>
                 <!-- 磁贴网格 -->
                 <div class="provider-grid">
                   <!-- 已有智能体 -->

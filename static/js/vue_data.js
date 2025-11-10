@@ -1088,6 +1088,7 @@ let vue_data = {
       { id: 'agents', title: 'agentSnapshot', icon: 'fa-solid fa-robot'},
       { id: 'docker', title: 'docker', icon: 'fa-brands fa-docker'},
       { id: 'browser', title: 'browserMode', icon: 'fa-solid fa-globe' },
+      { id: 'develop', title: 'development', icon: 'fa-solid fa-code' },
       { id: 'extension', title: 'extension', icon: 'fa-solid fa-puzzle-piece' },
       { id: 'fastapi', title: 'fastAPIDocs', icon: 'fa-solid fa-book' },
     ],
