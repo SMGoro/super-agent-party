@@ -58,4 +58,5 @@ dependencies = [
     "nvidia-ml-py>=13.580.82",
     "pip-licenses>=5.5.0",
     "google-api-python-client>=2.179.0",
+    "lark-oapi>=1.4.24",
 ]

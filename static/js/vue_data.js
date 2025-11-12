@@ -1179,6 +1179,19 @@ let vue_data = {
       quickRestart: true,
       is_sandbox: false,
     },
+    feishuBotConfig: {
+      FeishuAgent:'super-model',
+      memoryLimit: 30,
+      appid: '',
+      secret: '',
+      separators: ["。", "\n", "？", "！"],
+      reasoningVisible: true,
+      quickRestart: true
+    },
+    isFeishuBotRunning: false,
+    isFeishuStarting: false,
+    isFeishuStopping: false,
+    isFeishuReloading: false,
     isAudioSynthesizing: false, // 音频合成状态
     audioChunksCount: 0,        // 已生成的音频片段数
     totalChunksCount: 0,        // 总音频片段数
@@ -1209,6 +1222,7 @@ let vue_data = {
       { id: 'table_pet', title: 'tablePet', icon: "fa-solid fa-user-ninja"},
       { id: 'live_stream', title: 'live_stream_bot', icon: "fa-solid fa-video"},
       { id: 'qq_bot', title: 'qqBot', icon: 'fa-brands fa-qq' },
+      { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-bookmark' },
       { id: 'read_bot', title: 'readBot', icon: "fa-solid fa-book-open-reader"}, 
       { id: 'translate_bot', title: 'translateBot', icon: "fa-solid fa-language"}, 
       { id: 'bot_config', title: 'bot_config', icon: 'fa-solid fa-robot' }

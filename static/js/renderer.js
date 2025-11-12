@@ -85,6 +85,7 @@ const app = Vue.createApp({
     document.documentElement.setAttribute('data-theme', this.systemSettings.theme);
     if (isElectron) {
       window.stopQQBotHandler = this.requestStopQQBotIfRunning;
+      window.stopFeishuBotHandler = this.requestFeishuBotStopIfRunning;
       window.electronAPI.onWindowState((_, state) => {
         this.isMaximized = state === 'maximized'
       });
@@ -156,6 +157,7 @@ const app = Vue.createApp({
     clearInterval(this.gitTimer);
     if (isElectron) {
       delete window.stopQQBotHandler;
+      delete window.stopFeishuBotHandler;
     }
     if (this.ttsWebSocket) {
       this.ttsWebSocket.close();
@@ -390,9 +392,23 @@ const app = Vue.createApp({
     isQQBotConfigValid() {
         return this.qqBotConfig.appid && this.qqBotConfig.secret;
     },
-    isWXBotConfigValid() {
-        return this.WXBotConfig.nickNameList && this.WXBotConfig.nickNameList.length > 0;
+    isfeishuBotConfigValid() {
+      return this.feishuBotConfig.appid && this.feishuBotConfig.secret;
     },
+    filteredFeishuSeparators() {
+      const current = this.feishuBotConfig.separators;
+      const defaults = this.defaultSeparators;
+      const custom = current
+        .filter(s => !defaults.some(d => d.value === s))
+        .map(s => ({
+          label: `(${this.formatSeparator(s)})`,
+          value: s
+        }));
+      return [...this.defaultSeparators, ...custom];
+    },
+    // isWXBotConfigValid() {
+    //     return this.WXBotConfig.nickNameList && this.WXBotConfig.nickNameList.length > 0;
+    // },
     isLiveConfigValid() {
         if (this.liveConfig.bilibili_enabled) {
             if(this.liveConfig.bilibili_type === 'web'){

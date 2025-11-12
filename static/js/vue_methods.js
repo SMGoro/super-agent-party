@@ -1076,6 +1076,7 @@ let vue_methods = {
           this.agents = data.data.agents || this.agents;
           this.mainAgent = data.data.mainAgent || this.mainAgent;
           this.qqBotConfig = data.data.qqBotConfig || this.qqBotConfig;
+          this.feishuBotConfig = data.data.feishuBotConfig || this.feishuBotConfig;
           this.targetLangSelected = data.data.targetLangSelected || this.targetLangSelected;
           this.allBriefly = data.data.allBriefly || this.allBriefly;
           this.BotConfig = data.data.BotConfig || this.BotConfig;
@@ -1917,6 +1918,7 @@ let vue_methods = {
           agents: this.agents,
           mainAgent: this.mainAgent,
           qqBotConfig : this.qqBotConfig,
+          feishuBotConfig: this.feishuBotConfig,
           targetLangSelected: this.targetLangSelected,
           allBriefly: this.allBriefly,
           BotConfig: this.BotConfig,
@@ -3914,134 +3916,221 @@ let vue_methods = {
       }
     },
 
-    // 启动微信机器人
-    async startWXBot() {
-      this.isWXStarting = true;
-
+ async requestFeishuBotStopIfRunning(){
       try {
-        // 显示连接中的提示
-        showNotification('正在连接微信机器人...', 'info');
-
-        const response = await fetch(`/start_wx_bot`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.WXBotConfig)
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          this.isWXBotRunning = true;
-          showNotification('微信机器人已成功启动并就绪', 'success');
-        } else {
-          // 显示具体错误信息
-          const errorMessage = result.message || '启动失败，请检查配置';
-          showNotification(`启动失败: ${errorMessage}`, 'error');
-
-          // 如果是超时错误，给出更具体的提示
-          if (errorMessage.includes('超时')) {
-            showNotification('提示：请检查网络连接和机器人配置是否正确', 'warning');
-          }
-        }
-      } catch (error) {
-        console.error('启动微信机器人时出错:', error);
-        showNotification('启动微信机器人失败: 网络错误或服务器未响应', 'error');
-      } finally {
-        this.isWXStarting = false;
-      }
-    },
-
-    // 停止微信机器人
-    async stopWXBot() {
-      this.isWXStopping = true;
-
-      try {
-        const response = await fetch(`/stop_wx_bot`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          this.isWXBotRunning = false;
-          showNotification('微信机器人已成功停止', 'success');
-        } else {
-          const errorMessage = result.message || '停止失败';
-          showNotification(`停止失败: ${errorMessage}`, 'error');
-        }
-      } catch (error) {
-        console.error('停止微信机器人时出错:', error);
-        showNotification('停止微信机器人失败: 网络错误或服务器未响应', 'error');
-      } finally {
-        this.isWXStopping = false;
-      }
-    },
-
-    // 重载微信机器人配置
-    async reloadWXBotConfig() {
-      this.isWXReloading = true;
-
-      try {
-        const response = await fetch(`/reload_wx_bot`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.WXBotConfig)
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          if (result.config_changed) {
-            showNotification('微信机器人配置已重载并重新启动', 'success');
-          } else {
-            showNotification('微信机器人配置已更新', 'success');
-          }
-        } else {
-          const errorMessage = result.message || '重载失败';
-          showNotification(`重载失败: ${errorMessage}`, 'error');
-        }
-      } catch (error) {
-        console.error('重载微信机器人配置时出错:', error);
-        showNotification('重载微信机器人配置失败: 网络错误或服务器未响应', 'error');
-      } finally {
-        this.isWXReloading = false;
-      }
-    },
-
-    // 检查微信机器人状态
-    async checkWXBotStatus() {
-      try {
-        const response = await fetch(`/wx_bot_status`);
-        const status = await response.json();
-
-        // 更新机器人运行状态
-        this.isWXBotRunning = status.is_running;
-
-        // 如果机器人正在运行但前端状态不一致，更新状态
-        if (status.is_running && !this.isWXBotRunning) {
-          this.isWXBotRunning = true;
-        }
-      } catch (error) {
-        console.error('检查机器人状态失败:', error);
-      }
-    },
-
-    // 新增的方法：供主进程请求关闭机器人
-    async requestStopWXBotIfRunning() {
-      try {
-        const response = await fetch(`/wx_bot_status`)
+        const response = await fetch(`/feishu_bot_status`)
         const status = await response.json()
 
         if (status.is_running) {
-          // 调用 stopWXBot 来关闭机器人
-          await this.stopWXBot()
+          // 调用 stopQQBot 来关闭机器人
+          await this.stopFeishuBot()
           console.log('机器人已关闭')
         }
       } catch (error) {
         console.error('检查或停止机器人失败:', error)
       }
-    },
+ },
+
+async startFeishuBot() {
+  this.isFeishuStarting = true;
+  try {
+    showNotification('正在连接飞书机器人...', 'info');
+    const res = await fetch('/start_feishu_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.feishuBotConfig),
+    });
+    const json = await res.json();
+    if (json.success) {
+      this.isFeishuBotRunning = true;
+      showNotification('飞书机器人启动成功', 'success');
+    } else {
+      showNotification(`启动失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isFeishuStarting = false;
+  }
+},
+async stopFeishuBot() {
+  this.isFeishuStopping = true;
+  try {
+    const res = await fetch('/stop_feishu_bot', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      this.isFeishuBotRunning = false;
+      showNotification('飞书机器人已停止', 'success');
+    } else {
+      showNotification(`停止失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isFeishuStopping = false;
+  }
+},
+async reloadfeishuBotConfig() {
+  this.isFeishuReloading = true;
+  try {
+    const res = await fetch('/reload_feishu_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.feishuBotConfig),
+    });
+    const json = await res.json();
+    if (json.success) {
+      showNotification('飞书机器人已重载', 'success');
+    } else {
+      showNotification(`重载失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isFeishuReloading = false;
+  }
+},
+async checkFeishuBotStatus() {
+  try {
+    const res = await fetch('/feishu_bot_status');
+    const st = await res.json();
+    this.isFeishuBotRunning = st.is_running;
+  } catch (e) {
+    console.error('检查飞书机器人状态失败', e);
+  }
+},
+handleCreateFeishuSeparator(val) {
+  this.feishuBotConfig.separators.push(val);
+},
+
+    // // 启动微信机器人
+    // async startWXBot() {
+    //   this.isWXStarting = true;
+
+    //   try {
+    //     // 显示连接中的提示
+    //     showNotification('正在连接微信机器人...', 'info');
+
+    //     const response = await fetch(`/start_wx_bot`, {
+    //       method: 'POST',
+    //       headers: { 'Content-Type': 'application/json' },
+    //       body: JSON.stringify(this.WXBotConfig)
+    //     });
+
+    //     const result = await response.json();
+
+    //     if (result.success) {
+    //       this.isWXBotRunning = true;
+    //       showNotification('微信机器人已成功启动并就绪', 'success');
+    //     } else {
+    //       // 显示具体错误信息
+    //       const errorMessage = result.message || '启动失败，请检查配置';
+    //       showNotification(`启动失败: ${errorMessage}`, 'error');
+
+    //       // 如果是超时错误，给出更具体的提示
+    //       if (errorMessage.includes('超时')) {
+    //         showNotification('提示：请检查网络连接和机器人配置是否正确', 'warning');
+    //       }
+    //     }
+    //   } catch (error) {
+    //     console.error('启动微信机器人时出错:', error);
+    //     showNotification('启动微信机器人失败: 网络错误或服务器未响应', 'error');
+    //   } finally {
+    //     this.isWXStarting = false;
+    //   }
+    // },
+
+    // // 停止微信机器人
+    // async stopWXBot() {
+    //   this.isWXStopping = true;
+
+    //   try {
+    //     const response = await fetch(`/stop_wx_bot`, {
+    //       method: 'POST',
+    //       headers: { 'Content-Type': 'application/json' }
+    //     });
+
+    //     const result = await response.json();
+
+    //     if (result.success) {
+    //       this.isWXBotRunning = false;
+    //       showNotification('微信机器人已成功停止', 'success');
+    //     } else {
+    //       const errorMessage = result.message || '停止失败';
+    //       showNotification(`停止失败: ${errorMessage}`, 'error');
+    //     }
+    //   } catch (error) {
+    //     console.error('停止微信机器人时出错:', error);
+    //     showNotification('停止微信机器人失败: 网络错误或服务器未响应', 'error');
+    //   } finally {
+    //     this.isWXStopping = false;
+    //   }
+    // },
+
+    // // 重载微信机器人配置
+    // async reloadWXBotConfig() {
+    //   this.isWXReloading = true;
+
+    //   try {
+    //     const response = await fetch(`/reload_wx_bot`, {
+    //       method: 'POST',
+    //       headers: { 'Content-Type': 'application/json' },
+    //       body: JSON.stringify(this.WXBotConfig)
+    //     });
+
+    //     const result = await response.json();
+
+    //     if (result.success) {
+    //       if (result.config_changed) {
+    //         showNotification('微信机器人配置已重载并重新启动', 'success');
+    //       } else {
+    //         showNotification('微信机器人配置已更新', 'success');
+    //       }
+    //     } else {
+    //       const errorMessage = result.message || '重载失败';
+    //       showNotification(`重载失败: ${errorMessage}`, 'error');
+    //     }
+    //   } catch (error) {
+    //     console.error('重载微信机器人配置时出错:', error);
+    //     showNotification('重载微信机器人配置失败: 网络错误或服务器未响应', 'error');
+    //   } finally {
+    //     this.isWXReloading = false;
+    //   }
+    // },
+
+    // // 检查微信机器人状态
+    // async checkWXBotStatus() {
+    //   try {
+    //     const response = await fetch(`/wx_bot_status`);
+    //     const status = await response.json();
+
+    //     // 更新机器人运行状态
+    //     this.isWXBotRunning = status.is_running;
+
+    //     // 如果机器人正在运行但前端状态不一致，更新状态
+    //     if (status.is_running && !this.isWXBotRunning) {
+    //       this.isWXBotRunning = true;
+    //     }
+    //   } catch (error) {
+    //     console.error('检查机器人状态失败:', error);
+    //   }
+    // },
+
+    // // 新增的方法：供主进程请求关闭机器人
+    // async requestStopWXBotIfRunning() {
+    //   try {
+    //     const response = await fetch(`/wx_bot_status`)
+    //     const status = await response.json()
+
+    //     if (status.is_running) {
+    //       // 调用 stopWXBot 来关闭机器人
+    //       await this.stopWXBot()
+    //       console.log('机器人已关闭')
+    //     }
+    //   } catch (error) {
+    //     console.error('检查或停止机器人失败:', error)
+    //   }
+    // },
 
     async handleSeparatorChange(val) {
       this.qqBotConfig.separators = val.map(s => 

@@ -985,6 +985,15 @@ app.whenReady().then(async () => {
         `);
       }
     });
+    ipcMain.handle('request-stop-feishubot', async (event) => {
+      const win = BrowserWindow.getAllWindows()[0]; // 获取主窗口
+      if (win && !win.isDestroyed()) {
+        // 通过webContents执行渲染进程方法
+        await win.webContents.executeJavaScript(`
+          window.stopFeishuBotHandler && window.stopFeishuBotHandler()
+        `);
+      }
+    });
     ipcMain.handle('exec-command', (event, command) => {
       return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {
@@ -1060,6 +1069,12 @@ app.on('before-quit', async (event) => {
         }
       `);
       
+      await mainWindow.webContents.executeJavaScript(`
+        if (window.stopFeishuBotHandler) {
+          window.stopFeishuBotHandler();
+        }
+      `);
+
       // 等待机器人停止（最多1秒）
       await new Promise(resolve => setTimeout(resolve, 1000));
     }

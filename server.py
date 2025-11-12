@@ -50,7 +50,7 @@ from concurrent.futures import ThreadPoolExecutor
 import aiofiles
 import argparse
 from mem0 import Memory
-from py.qq_bot_manager import QQBotManager
+from py.qq_bot_manager import QQBotConfig, QQBotManager
 from py.dify_openai_async import DifyOpenAIAsync
 
 from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
@@ -5843,16 +5843,6 @@ async def create_sticker_pack(
         logger.error(f"创建表情包时出错: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
-# 定义请求体
-class QQBotConfig(BaseModel):
-    QQAgent: str
-    memoryLimit: int
-    appid: str
-    secret: str
-    separators: List[str]
-    reasoningVisible: bool
-    quickRestart: bool
-    is_sandbox: bool
 
 # 全局机器人管理器
 qq_bot_manager = QQBotManager()
@@ -5907,6 +5897,71 @@ async def reload_qq_bot(config: QQBotConfig):
         return {
             "success": True,
             "message": "QQ机器人已重新加载",
+            "config_changed": True
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": str(e)}
+        )
+
+# 入口文件部分代码
+
+from py.feishu_bot_manager import FeishuBotConfig, FeishuBotManager
+
+# 全局飞书机器人管理器
+feishu_bot_manager = FeishuBotManager()
+
+@app.post("/start_feishu_bot")
+async def start_feishu_bot(config: FeishuBotConfig):
+    try:
+        feishu_bot_manager.start_bot(config)
+        return {
+            "success": True,
+            "message": "飞书机器人已成功启动",
+            "environment": "thread-based"
+        }
+    except Exception as e:
+        logger.error(f"启动飞书机器人失败: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False, 
+                "message": f"启动失败: {str(e)}",
+                "error_type": "startup_error"
+            }
+        )
+
+@app.post("/stop_feishu_bot")
+async def stop_feishu_bot():
+    try:
+        feishu_bot_manager.stop_bot()
+        return {"success": True, "message": "飞书机器人已停止"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": str(e)}
+        )
+
+@app.get("/feishu_bot_status")
+async def feishu_bot_status():
+    status = feishu_bot_manager.get_status()
+    # 如果有启动错误，在状态中包含错误信息
+    if status.get("startup_error") and not status.get("is_running"):
+        status["error_message"] = f"启动失败: {status['startup_error']}"
+    return status
+
+@app.post("/reload_feishu_bot")
+async def reload_feishu_bot(config: FeishuBotConfig):
+    try:
+        # 先停止再启动
+        feishu_bot_manager.stop_bot()
+        await asyncio.sleep(1)  # 等待完全停止
+        feishu_bot_manager.start_bot(config)
+        
+        return {
+            "success": True,
+            "message": "飞书机器人已重新加载",
             "config_changed": True
         }
     except Exception as e:

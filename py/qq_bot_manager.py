@@ -20,6 +20,17 @@ import base64
 from py.get_setting import get_port,load_settings
 from py.image_host import upload_image_host
 
+# 定义请求体
+class QQBotConfig(BaseModel):
+    QQAgent: str
+    memoryLimit: int
+    appid: str
+    secret: str
+    separators: List[str]
+    reasoningVisible: bool
+    quickRestart: bool
+    is_sandbox: bool
+
 class QQBotManager:
     def __init__(self):
         self.bot_thread: Optional[threading.Thread] = None
@@ -866,13 +877,3 @@ class MyClient(botpy.Client):
         # 移除纯URL
         clean = re.sub(r'https?://\S+', '', clean)
         return clean.strip()
-
-# 定义请求体
-class QQBotConfig(BaseModel):
-    QQAgent: str
-    memoryLimit: int
-    appid: str
-    secret: str
-    separators: List[str]
-    reasoningVisible: bool
-    quickRestart: bool

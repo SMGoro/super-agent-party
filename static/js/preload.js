@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electron', {
     port: PORT
   },
   requestStopQQBot: () => ipcRenderer.invoke('request-stop-qqbot'),
+  requestStopFeishuBot : () => ipcRenderer.invoke('request-stop-feishubot'),
 });
 
 // 暴露安全接口

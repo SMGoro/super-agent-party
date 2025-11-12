@@ -350,6 +350,15 @@
       "nickNameList": [],
       "wakeWord": "小派"
     },
+    "feishuBotConfig": {
+      "FeishuAgent":"super-model",
+      "memoryLimit": 30,
+      "appid": "",
+      "secret": "",
+      "separators": ["。", "\n", "？", "！"],
+      "reasoningVisible": true,
+      "quickRestart": true
+    },
     "VRMConfig": {
       "name": "default",
       "enabledExpressions": false,
