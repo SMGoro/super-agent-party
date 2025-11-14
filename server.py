@@ -4045,7 +4045,7 @@ def hotwords_to_json(input_str):
     return json.dumps(result, ensure_ascii=False)
 
 # ASR WebSocket处理
-@app.websocket("/asr_ws")
+@app.websocket("/ws/asr")
 async def asr_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     

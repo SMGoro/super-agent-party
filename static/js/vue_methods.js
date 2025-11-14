@@ -5028,7 +5028,7 @@ handleCreateDiscordSeparator(val) {
       
       const http_protocol = window.location.protocol;
       const ws_protocol = http_protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws_url = `${ws_protocol}//${window.location.host}/asr_ws`;
+      const ws_url = `${ws_protocol}//${window.location.host}/ws/asr`;
 
       this.asrWs = new WebSocket(ws_url);
       
