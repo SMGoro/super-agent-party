@@ -333,18 +333,23 @@ class DiscordClient(discord.Client):
 
     async def _send_segment(self, msg: discord.Message, seg: str):
         if self.config.enable_tts:
-            await self._send_voice(msg, seg)
+            pass
         else:
             await msg.channel.send(seg)
 
     async def _send_voice(self, msg: discord.Message, text: str):
+        from py.get_setting import load_settings
+        settings = await load_settings()
+        tts_settings = settings.get("ttsSettings", {})
+        index = 0
         text = self.clean_markdown(text)
         payload = {
             "text": text,
             "voice": "default",
-            "format": "opus",
-            "mobile_optimized": True,
-            "ttsSettings": (await load_settings()).get("ttsSettings", {}),
+            "ttsSettings": tts_settings,
+            "index": index,
+            "mobile_optimized": True,  
+            "format": "opus"           # 明确请求opus格式
         }
         async with aiohttp.ClientSession() as s:
             async with s.post(f"http://127.0.0.1:{get_port()}/tts", json=payload) as r:
