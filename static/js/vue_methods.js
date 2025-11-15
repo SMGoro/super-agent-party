@@ -1078,6 +1078,7 @@ let vue_methods = {
           this.qqBotConfig = data.data.qqBotConfig || this.qqBotConfig;
           this.feishuBotConfig = data.data.feishuBotConfig || this.feishuBotConfig;
           this.discordBotConfig = data.data.discordBotConfig || this.discordBotConfig;
+          this.telegramBotConfig = data.data.telegramBotConfig || this.telegramBotConfig;
           this.targetLangSelected = data.data.targetLangSelected || this.targetLangSelected;
           this.allBriefly = data.data.allBriefly || this.allBriefly;
           this.BotConfig = data.data.BotConfig || this.BotConfig;
@@ -1921,6 +1922,7 @@ let vue_methods = {
           qqBotConfig : this.qqBotConfig,
           feishuBotConfig: this.feishuBotConfig,
           discordBotConfig: this.discordBotConfig,
+          telegramBotConfig: this.telegramBotConfig,
           targetLangSelected: this.targetLangSelected,
           allBriefly: this.allBriefly,
           BotConfig: this.BotConfig,
@@ -4003,6 +4005,87 @@ async checkFeishuBotStatus() {
 },
 handleCreateFeishuSeparator(val) {
   this.feishuBotConfig.separators.push(val);
+},
+
+async requestTelegramBotStopIfRunning() {
+  try {
+    const res = await fetch('/telegram_bot_status');
+    const st = await res.json();
+    if (st.is_running) await this.stopTelegramBot();
+  } catch (e) {
+    console.error('检查或停止 Telegram 机器人失败:', e);
+  }
+},
+async startTelegramBot() {
+  this.isTelegramStarting = true;
+  try {
+    showNotification('正在连接 Telegram 机器人...', 'info');
+    const res = await fetch('/start_telegram_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.telegramBotConfig)
+    });
+    const json = await res.json();
+    if (json.success) {
+      this.isTelegramBotRunning = true;
+      showNotification('Telegram 机器人启动成功', 'success');
+    } else {
+      showNotification(`启动失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isTelegramStarting = false;
+  }
+},
+async stopTelegramBot() {
+  this.isTelegramStopping = true;
+  try {
+    const res = await fetch('/stop_telegram_bot', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      this.isTelegramBotRunning = false;
+      showNotification('Telegram 机器人已停止', 'success');
+    } else {
+      showNotification(`停止失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isTelegramStopping = false;
+  }
+},
+async reloadTelegramBotConfig() {
+  this.isTelegramReloading = true;
+  try {
+    const res = await fetch('/reload_telegram_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.telegramBotConfig)
+    });
+    const json = await res.json();
+    if (json.success) {
+      showNotification('Telegram 机器人已重载', 'success');
+    } else {
+      showNotification(`重载失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isTelegramReloading = false;
+  }
+},
+async checkTelegramBotStatus() {
+  try {
+    const res = await fetch('/telegram_bot_status');
+    const st = await res.json();
+    this.isTelegramBotRunning = st.is_running;
+  } catch (e) {
+    console.error('检查 Telegram 机器人状态失败', e);
+  }
+},
+handleCreateTelegramSeparator(val) {
+  this.telegramBotConfig.separators.push(val);
 },
 
 /* ------- Discord 机器人 ------- */

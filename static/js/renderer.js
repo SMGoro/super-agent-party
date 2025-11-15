@@ -87,6 +87,7 @@ const app = Vue.createApp({
       window.stopQQBotHandler = this.requestStopQQBotIfRunning;
       window.stopFeishuBotHandler = this.requestFeishuBotStopIfRunning;
       window.stopDiscordBotHandler = this.requestDiscordBotStopIfRunning;
+      window.stopTelegramBotHandler = this.requestTelegramBotStopIfRunning;
       window.electronAPI.onWindowState((_, state) => {
         this.isMaximized = state === 'maximized'
       });
@@ -160,6 +161,7 @@ const app = Vue.createApp({
       delete window.stopQQBotHandler;
       delete window.stopFeishuBotHandler;
       delete window.stopDiscordBotHandler;
+      delete window.stopTelegramBotHandler;
     }
     if (this.ttsWebSocket) {
       this.ttsWebSocket.close();
@@ -399,6 +401,20 @@ const app = Vue.createApp({
     },
     filteredFeishuSeparators() {
       const current = this.feishuBotConfig.separators;
+      const defaults = this.defaultSeparators;
+      const custom = current
+        .filter(s => !defaults.some(d => d.value === s))
+        .map(s => ({
+          label: `(${this.formatSeparator(s)})`,
+          value: s
+        }));
+      return [...this.defaultSeparators, ...custom];
+    },
+    isTelegramBotConfigValid() {
+      return this.feishuBotConfig.appid && this.feishuBotConfig.secret;
+    },
+    filteredTelegramSeparators() {
+      const current = this.telegramBotConfig.separators;
       const defaults = this.defaultSeparators;
       const custom = current
         .filter(s => !defaults.some(d => d.value === s))

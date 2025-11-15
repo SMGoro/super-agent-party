@@ -4664,9 +4664,9 @@ async def text_to_speech(request: Request):
         if text == "":
             return JSONResponse(status_code=400, content={"error": "Text is empty"})
         
-        # 飞书专用：强制使用opus格式
-        is_feishu = data.get('mobile_optimized', False)
-        target_format = "opus" if is_feishu else data.get('format', 'mp3')
+        # 移动端专用：强制使用opus格式
+        mobile_optimized = data.get('mobile_optimized', False)
+        target_format = "opus" if mobile_optimized else data.get('format', 'mp3')
         
         new_voice = data.get('voice','default')
         tts_settings = data['ttsSettings']
@@ -4675,7 +4675,7 @@ async def text_to_speech(request: Request):
         index = data['index']
         tts_engine = tts_settings.get('engine', 'edgetts')
         
-        print(f"TTS请求 - 引擎: {tts_engine}, 格式: {target_format}, 飞书优化: {is_feishu}")
+        print(f"TTS请求 - 引擎: {tts_engine}, 格式: {target_format}, 移动端优化: {mobile_optimized}")
         
         if tts_engine == 'edgetts':
             edgettsLanguage = tts_settings.get('edgettsLanguage', 'zh-CN')
@@ -4684,7 +4684,7 @@ async def text_to_speech(request: Request):
             full_voice_name = f"{edgettsLanguage}-{edgettsVoice}"
             
             # 飞书优化：稍微降低语速
-            if is_feishu:
+            if mobile_optimized:
                 rate = min(rate * 0.95, 1.1)
             
             rate_text = "+0%"
@@ -4745,7 +4745,7 @@ async def text_to_speech(request: Request):
                 "speed": tts_settings.get('customTTSspeed', 1.0)
             }
             
-            if is_feishu:
+            if mobile_optimized:
                 params["speed"] = min(params["speed"] * 0.95, 1.2)
             
             custom_tts_servers_list = tts_settings.get('customTTSserver', 'http://127.0.0.1:9880').split('\n')
@@ -4817,7 +4817,7 @@ async def text_to_speech(request: Request):
                 "seed": 42,
             }
             
-            if is_feishu:
+            if mobile_optimized:
                 gsv_params["speed_factor"] = min(gsv_params["speed_factor"] * 0.95, 1.1)
             
             gsvServer_list = tts_settings.get('gsvServer', 'http://127.0.0.1:9880').split('\n')
@@ -4864,7 +4864,7 @@ async def text_to_speech(request: Request):
                 raise HTTPException(status_code=400, detail="OpenAI API密钥未配置")
             
             speed = float(openai_config['speed'])
-            if is_feishu:
+            if mobile_optimized:
                 speed = min(speed * 0.95, 1.2)
             
             speed = max(0.25, min(4.0, speed))
@@ -6302,6 +6302,82 @@ async def reload_discord_bot(config: DiscordBotConfig):
     await asyncio.sleep(1)
     discord_bot_manager.start_bot(config)
     return {"success": True, "message": "Discord 机器人已重载"}
+
+
+from py.telegram_bot_manager import TelegramBotManager, TelegramBotConfig
+
+# 全局 Telegram 机器人管理器
+telegram_bot_manager = TelegramBotManager()
+
+@app.post("/start_telegram_bot")
+async def start_telegram_bot(config: TelegramBotConfig):
+    """
+    启动 Telegram 机器人（与飞书接口完全对称）
+    """
+    try:
+        telegram_bot_manager.start_bot(config)
+        return {
+            "success": True,
+            "message": "Telegram 机器人已成功启动",
+            "environment": "thread-based"
+        }
+    except Exception as e:
+        logger.error(f"启动 Telegram 机器人失败: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": f"启动失败: {str(e)}",
+                "error_type": "startup_error"
+            }
+        )
+
+
+@app.post("/stop_telegram_bot")
+async def stop_telegram_bot():
+    """
+    停止 Telegram 机器人
+    """
+    try:
+        telegram_bot_manager.stop_bot()
+        return {"success": True, "message": "Telegram 机器人已停止"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": str(e)}
+        )
+
+
+@app.get("/telegram_bot_status")
+async def telegram_bot_status():
+    """
+    获取 Telegram 机器人状态
+    """
+    status = telegram_bot_manager.get_status()
+    if status.get("startup_error") and not status.get("is_running"):
+        status["error_message"] = f"启动失败: {status['startup_error']}"
+    return status
+
+
+@app.post("/reload_telegram_bot")
+async def reload_telegram_bot(config: TelegramBotConfig):
+    """
+    重新加载 Telegram 机器人（先停后启）
+    """
+    try:
+        telegram_bot_manager.stop_bot()
+        await asyncio.sleep(1)  # 等待完全停止
+        telegram_bot_manager.start_bot(config)
+        return {
+            "success": True,
+            "message": "Telegram 机器人已重新加载",
+            "config_changed": True
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": str(e)}
+        )
 
 
 @app.post("/add_workflow")

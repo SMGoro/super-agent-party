@@ -8530,6 +8530,193 @@ if ('serviceWorker' in navigator) {
                     </el-form>
                   </div>
 
+                  <!-- Telegram 机器人配置页面 -->
+                  <div v-show="subMenu === 'telegram_bot'">
+                    <el-form class="settings-form" :model="telegramBotConfig" label-position="top">
+                      <div class="tool-item">
+                        <!-- 头部 -->
+                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                          <span>
+                            <el-icon><i class="fa-solid fa-paper-plane"></i></el-icon>
+                            {{ t('telegram_bot_config') }}
+                            <el-link
+                              type="primary"
+                              :underline="false"
+                              href="https://t.me/BotFather"
+                              target="_blank"
+                            >
+                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                              {{ t('gotoTelegramBot') }}
+                            </el-link>
+                            <el-link
+                              type="primary"
+                              :underline="false"
+                              href="https://core.telegram.org/bots/api"
+                              target="_blank"
+                            >
+                              <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
+                              {{ t('telegramBotNotice') }}
+                            </el-link>
+                          </span>
+
+                          <!-- 按钮组 -->
+                          <div>
+                            <el-tooltip :content="t('start_bot')" placement="top">
+                              <el-button
+                                type="primary"
+                                @click="startTelegramBot"
+                                :disabled="!isTelegramBotConfigValid || isTelegramBotRunning || isTelegramStarting"
+                                circle
+                              >
+                                <template v-if="isTelegramStarting">
+                                  <i class="fa-solid fa-spinner fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-play"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('stop_bot')" placement="top">
+                              <el-button
+                                type="danger"
+                                @click="stopTelegramBot"
+                                :disabled="!isTelegramBotRunning || isTelegramStopping"
+                                circle
+                              >
+                                <template v-if="isTelegramStopping">
+                                  <i class="fa-solid fa-spinner fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-stop"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('reload_bot')" placement="top">
+                              <el-button
+                                @click="reloadTelegramBotConfig"
+                                :disabled="!isTelegramBotRunning || isTelegramReloading"
+                                circle
+                              >
+                                <template v-if="isTelegramReloading">
+                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-rotate"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+                          </div>
+                        </div>
+
+                        <!-- 表单 -->
+                        <div class="tool-content">
+                          <!-- 主智能体 -->
+                          <el-form-item :label="t('mainAgent')" required>
+                            <el-select v-model="telegramBotConfig.TelegramAgent" @change="autoSaveSettings">
+                              <el-option :label="t('defaultAgent')" value="super-model" />
+                              <el-option
+                                v-for="(agent, id) in agents"
+                                :key="id"
+                                :label="agent.name"
+                                :value="id"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 角色卡 / 记忆 -->
+                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                            <el-switch
+                              v-model="memorySettings.is_memory"
+                              @change="changeMemory"
+                            ></el-switch>
+                          </el-form-item>
+                          <el-form-item :label="t('selectMemory')">
+                            <el-select
+                              v-model="memorySettings.selectedMemory"
+                              :placeholder="t('selectMemoryPlaceholder')"
+                              class="full-width-input"
+                              @change="changeMemory"
+                            >
+                              <el-option
+                                v-for="mem in memories"
+                                :key="mem.id"
+                                :label="mem.name"
+                                :value="mem.id"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 分隔符 -->
+                          <el-form-item :label="t('separators')">
+                            <el-select
+                              v-model="telegramBotConfig.separators"
+                              multiple
+                              filterable
+                              allow-create
+                              @create="handleCreateTelegramSeparator"
+                              @change="autoSaveSettings"
+                            >
+                              <el-option
+                                v-for="sep in filteredTelegramSeparators"
+                                :key="sep.value"
+                                :label="sep.label"
+                                :value="sep.value"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 记忆轮数 -->
+                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                            <el-slider
+                              v-model="telegramBotConfig.memoryLimit"
+                              :min="0"
+                              :max="1000"
+                              :step="2"
+                              @input="autoSaveSettings"
+                            />
+                          </el-form-item>
+
+                          <!-- 推理显示 -->
+                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                            <el-switch
+                              v-model="telegramBotConfig.reasoningVisible"
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </el-form-item>
+
+                          <!-- 快速重启 -->
+                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                            <el-switch
+                              v-model="telegramBotConfig.quickRestart"
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </el-form-item>
+
+                          <!-- 启用 TTS -->
+                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                            <el-switch
+                              v-model="telegramBotConfig.enableTTS"
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </el-form-item>
+
+                          <!-- Bot Token -->
+                          <el-form-item label="Bot Token" required>
+                            <el-input
+                              v-model="telegramBotConfig.bot_token"
+                              :placeholder="t('enterTelegramBotToken')"
+                              show-password
+                              class="full-width-input"
+                              @change="autoSaveSettings"
+                            />
+                          </el-form-item>
+                        </div>
+                      </div>
+                    </el-form>
+                  </div>
+
                   <!-- Discord 机器人配置页面 -->
                   <div v-show="subMenu === 'discord_bot'">
                     <el-form class="settings-form" :model="discordBotConfig" label-position="top">

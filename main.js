@@ -994,6 +994,15 @@ app.whenReady().then(async () => {
         `);
       }
     });
+    ipcMain.handle('request-stop-telegrambot', async (event) => {
+      const win = BrowserWindow.getAllWindows()[0]; // 获取主窗口
+      if (win && !win.isDestroyed()) {
+        // 通过webContents执行渲染进程方法
+        await win.webContents.executeJavaScript(`
+          window.stopTelegramBotHandler && window.stopTelegramBotHandler()
+        `);
+      }
+    });
     ipcMain.handle('request-stop-discordbot', async (event) => {
       const win = BrowserWindow.getAllWindows()[0]; // 获取主窗口
       if (win && !win.isDestroyed()) {

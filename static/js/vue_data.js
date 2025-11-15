@@ -1193,6 +1193,19 @@ let vue_data = {
     isFeishuStarting: false,
     isFeishuStopping: false,
     isFeishuReloading: false,
+    telegramBotConfig: {
+      TelegramAgent: 'super-model',
+      memoryLimit: 20,
+      separators: ['。', '\n', '？', '！'],
+      reasoningVisible: false,
+      quickRestart: true,
+      enableTTS: false,
+      bot_token: ''
+    },
+    isTelegramBotRunning: false,
+    isTelegramStarting: false,
+    isTelegramStopping: false,
+    isTelegramReloading: false,
     discordBotConfig: {
       token: '',
       llm_model: 'super-model',
@@ -1238,6 +1251,7 @@ let vue_data = {
       { id: 'qq_bot', title: 'qqBot', icon: 'fa-brands fa-qq' },
       { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-paper-plane' },
       { id: 'discord_bot', title: 'discordBot', icon: 'fa-brands fa-discord' },
+      { id: 'telegram_bot', title: 'telegramBot', icon: 'fa-brands fa-telegram' },
       { id: 'read_bot', title: 'readBot', icon: "fa-solid fa-book-open-reader"}, 
       { id: 'translate_bot', title: 'translateBot', icon: "fa-solid fa-language"}, 
       { id: 'bot_config', title: 'bot_config', icon: 'fa-solid fa-robot' }

@@ -361,6 +361,15 @@
       "quickRestart": true,
       "enableTTS":false
     },
+    "telegramBotConfig": {
+      "TelegramAgent": "super-model",
+      "memoryLimit": 20,
+      "separators": ["。", "\n", "？", "！"],
+      "reasoningVisible": false,
+      "quickRestart": true,
+      "enableTTS": false,
+      "bot_token": ""
+    },
     "discordBotConfig": {
       "token": "",
       "llm_model": "super-model",
