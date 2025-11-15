@@ -26,7 +26,7 @@
 
 - ✅ Rich Extension Ecosystem: Supports custom extension development, with community sharing via the official [Extension Marketplace](https://super-agent-party.github.io/plugins.html) to meet personalized needs.  
 
-- ✅ Standardized Open Interfaces: Provides OpenAI API-compatible interfaces and MCP protocol support, facilitating seamless integration with external systems for rapid agent capability transfer and secondary development. The VRM desktop pet supports the VMC protocol, enabling cross-application motion synchronization.
+- ✅ Standardized interface openness: Provides OpenAI API-compatible interfaces and MCP protocol support, facilitating developers' direct integration with external systems for rapid agent capability transfer and secondary development. The VRM desktop pet supports the VMC protocol, enabling cross-application action synchronization. The VRM desktop pet interface also supports the webXR protocol, allowing immersive experiences on XR-compatible devices.
 
 - ✅ Seamless capability enhancement: It is possible to achieve an enterprise-level upgrade of the LLM API without code modification, seamlessly integrating knowledge bases, real-time networking, permanent memory, compatible SillyTavern Character Card, code execution, multimodal capabilities (vision/drawing/audition/speech), Automation capabilities (controlling smart homes, controlling browsers), deep thinking control and research, and other modular functions into the existing model interface, creating a pluggable LLM enhancement platform.
 
