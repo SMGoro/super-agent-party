@@ -10650,6 +10650,24 @@ if ('serviceWorker' in navigator) {
                           </template>
                         </el-input>
                       </el-form-item>
+
+                      <!-- API key -->
+                      <el-form-item :label="t('openaiStyleAPIKey')" class="form-item-align" label-position="top">
+                        <el-input
+                          value="super-secret-key"
+                          readonly
+                          class="full-width-input"
+                        >
+                          <template #append>
+                            <el-button
+                              @click="copyEndpoint"
+                              class="copy-btn"
+                            >
+                            <i class="fa-solid fa-copy"></i>
+                            </el-button>
+                          </template>
+                        </el-input>
+                      </el-form-item>
                       <!-- 在index.html的API配置区块内添加 -->
                       <el-form-item :label="t('exampleLanguage')" class="form-item-align" label-position="top">
                         <el-select
