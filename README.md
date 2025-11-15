@@ -18,15 +18,17 @@
 
 ## Introduction
 
-### 🚀 **A 3D AI desktop companion with endless possibilities!**  
+### 🚀 **An AI desktop companion with endless possibilities!**  
+
+- ✅ Omnichannel One-Click Deployment: Supports rapid deployment of agent configurations to multiple terminals, already compatible with scenarios such as classic chat interfaces, desktop companion, QQ, Feishu, Discord, Telegram chatbots, Bilibili, YouTube, Twitch live-streaming bots, and more—ready to use out of the box.  
+
+- ✅ Ecosystem Tool Interconnectivity: Freely integrates third-party agents and workflows as toolchains (already adapted for systems like Home Assistant, Claude Code, Qwen Code, Dify, ComfyUI, MCP, A2A, etc.), enabling cross-platform capability aggregation through the Agent-Party architecture.  
+
+- ✅ Rich Extension Ecosystem: Supports custom extension development, with community sharing via the official [Extension Marketplace](https://super-agent-party.github.io/plugins.html) to meet personalized needs.  
+
+- ✅ Standardized Open Interfaces: Provides OpenAI API-compatible interfaces and MCP protocol support, facilitating seamless integration with external systems for rapid agent capability transfer and secondary development. The VRM desktop pet supports the VMC protocol, enabling cross-application motion synchronization.
 
 - ✅ Seamless capability enhancement: It is possible to achieve an enterprise-level upgrade of the LLM API without code modification, seamlessly integrating knowledge bases, real-time networking, permanent memory, compatible SillyTavern Character Card, code execution, multimodal capabilities (vision/drawing/audition/speech), Automation capabilities (controlling smart homes, controlling browsers), deep thinking control and research, and other modular functions into the existing model interface, creating a pluggable LLM enhancement platform.
-
-- ✅ One-click deployment across all channels: It supports the rapid deployment of intelligent agents to multiple types of terminals, and is compatible with scenarios such as classic chat interfaces, QQ official robots, Bilibili live interaction, and VRM virtual desktop pets, ready to use out of the box.
-
-- ✅ Ecological tool interconnection: It can freely access third-party intelligent entities and workflows as a tool chain (already adapted to systems such as Home Assistant/Claude code/Dify/ComfyUI/MCP/A2A), and achieve cross-platform capability aggregation through the agent-party architecture.
-
-- ✅ Standardized interface opening: Provide OpenAI API-compatible interfaces and MCP protocol support, making it easy for developers to directly connect to external systems and achieve rapid transfer and secondary development of the agent's capabilities.
 
 - ✅ Compatible and adaptable across all platforms: It covers the native running environments of Windows/macOS/Linux, supports Docker containerized deployment and web-based cloud services, and meets the needs of multi-scene technology stacks.
 
@@ -108,12 +110,7 @@ We provide two mainstream Linux installation package formats for your convenienc
   ```shell
   git clone https://github.com/heshengtao/super-agent-party.git
   cd super-agent-party
-  uv sync
-  npm install
-  cd static
-  npm install
-  cd ..
-  npm run dev
+  uv sync && npm install && (cd static && npm install) && npm run dev
   ```
 
 ## Software Screenshots
@@ -200,8 +197,8 @@ Please refer to the following document for the main functions:
 | Supported Model Service Providers | Supports common local deployment engine interfaces and cloud service provider interfaces, such as: openai/ollama/dify, etc. |
 | Multimodal Model Integration | Integrates various types of models including role-playing, reasoning, vision, image generation, speech recognition, and speech synthesis for combined use. |
 | VRM Desktop Pet Robot | Highly customizable with support for custom avatars, custom animations, voice interaction, and dialogue interruption.It can be streamed transparently to screen recording software such as OBS, and supports bidirectional VMC protocol! |
-| Messaging Platform Bots | Currently supports QQ; more platforms will be supported in the future. |
-| Live Streaming Bots | Currently supports Bilibili; more platforms will be supported in the future. |
+| Messaging Platform Bots | Currently supports QQ, Feishu, Discord, Telegram, with more platforms to be added later |
+| Live Streaming Bots | Currently supports Bilibili, YouTube, Twitch, with more platforms to be added later |
 | Announcer Bot | Supports long text narration, multi-voice narration, digital human video narration, batch conversion of ultra-long texts to speech (with download capability), and parsing of common ebook formats like EPUB. Chapter-based conversion will be developed later. |
 | Chat Interface | The chat interface supports front-end rendering features such as mathematical formulas, mermaid diagrams, and HTML code graphics. Images can be downloaded or copied.Supports capsule mode and assistant mode, making it easy to shrink and dock the conversation interface. Combined with desktop vision and screenshots, it seamlessly integrates into work and entertainment |
 | Role-Playing | Supports uploading, editing, and downloading tavern character cards. Allows configuring different voices and avatars for different characters. Features long-term memory, multi-voice support when using character cards, narrator voice for non-character text, and supports emojis and memes. |
