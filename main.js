@@ -381,7 +381,10 @@ async function startBackend() {
         'server.py',
         '--port', PORT.toString(),
         '--host', BACKEND_HOST,
-      ], spawnOptions);
+      ], {...spawnOptions,
+        stdio: 'inherit',
+      }
+    );
     } else {
       // 生产模式
       let serverExecutable = process.platform === 'win32' ? 'server.exe' : 'server'
