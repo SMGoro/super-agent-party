@@ -5367,12 +5367,14 @@ if ('serviceWorker' in navigator) {
                         <el-input
                           v-model="sqlSettings.user"
                           @input="autoSaveSettings"
+                          placeholder="root"
                         />
                       </el-form-item>
                       <el-form-item v-if="sqlSettings.engine!='sqlite'" :label="t('password')" class="form-item-align">
                         <el-input
                           v-model="sqlSettings.password"
                           show-password
+                          placeholder="password"
                           @input="autoSaveSettings"
                         />
                       </el-form-item>
@@ -5380,6 +5382,7 @@ if ('serviceWorker' in navigator) {
                         <div style="display: flex; gap: 10px; width: 100%;">
                           <el-input
                             v-model="sqlSettings.host"
+                            placeholder="localhost"
                             @input="autoSaveSettings"
                             style="flex: 1 1 0; min-width: 0;"
                           ></el-input>
@@ -5396,12 +5399,14 @@ if ('serviceWorker' in navigator) {
                       <el-form-item v-if="sqlSettings.engine!='sqlite'" :label="t('dbname')" class="form-item-align">
                         <el-input
                           v-model="sqlSettings.dbname"
+                          placeholder="dbname"
                           @input="autoSaveSettings"
                         />
                       </el-form-item>
                       <el-form-item v-if="sqlSettings.engine =='sqlite'" :label="t('dbpath')" class="form-item-align">
                         <el-input
                           v-model="sqlSettings.dbpath"
+                          placeholder="/absolute/path/to/database.db"
                           @input="autoSaveSettings"
                         />
                       </el-form-item>
