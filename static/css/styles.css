@@ -1216,6 +1216,43 @@ body {
   max-width: 100%;
 }
 
+.scroll-on-hover {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.scroll-on-hover:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.3) transparent;
+}
+
+/* Webkit 浏览器平滑动画 */
+.scroll-on-hover::-webkit-scrollbar {
+  width: 8px;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover::-webkit-scrollbar-track {
+  background: transparent;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.scroll-on-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+
 .user-content {
   padding: 12px;
   border-radius: 12px;
