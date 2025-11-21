@@ -6113,7 +6113,7 @@ handleCreateDiscordSeparator(val) {
             
         try {
           this.currentAudio = new Audio(audioChunk.url);
-          this.currentAudio.volume = this.vrmOnline ? 0.01 : 1;
+          this.currentAudio.volume = this.vrmOnline ? 0.0000001 : 1;
           // 发送 Base64 数据到 VRM
           this.sendTTSStatusToVRM('startSpeaking', {
             audioDataUrl: this.cur_audioDatas[currentIndex],
