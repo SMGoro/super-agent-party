@@ -189,6 +189,7 @@ const locales = {
     paste: '粘贴',
     copyImage: '复制图片',
     copyImageLink: '复制图片链接',
+    saveImageAs: '图片另存为...',
     supportedFiles: '支持的文件',
     allFiles: '所有文件',
     supportedimages: '支持的图片',
@@ -201,6 +202,7 @@ const locales = {
     paste: 'Paste',
     copyImage: 'Copy Image',
     copyImageLink: 'Copy Image Link',
+    saveImageAs: 'Save Image As...',
     supportedFiles: 'Supported Files',
     allFiles: 'All Files',
     supportedimages: 'Supported Images',
@@ -989,11 +991,73 @@ app.whenReady().then(async () => {
       const size = mainWindow.getSize();
       mainWindow.webContents.send('window-resized', size);
     });
+
+    // ★ 新增：增强型复制函数（同时支持粘贴为图片和粘贴为文件）
+    function copyImageToClipboardWithFile(image) {
+      try {
+        // 1. 保存图片到临时目录
+        const tempDir = os.tmpdir();
+        // 生成带时间戳的文件名，避免冲突
+        const fileName = `image_${Date.now()}.png`;
+        const filePath = path.join(tempDir, fileName);
+        
+        // 将 nativeImage 转换为 buffer 并写入磁盘
+        const buffer = image.toPNG();
+        fs.writeFileSync(filePath, buffer);
+
+        // 2. 准备剪贴板数据对象
+        const clipboardData = {
+          image: image, // 写入位图数据 (用于粘贴到聊天框/PS)
+        };
+
+        // 3. 根据系统添加文件路径数据 (用于粘贴到文件夹)
+        if (process.platform === 'win32') {
+          // --- Windows (CF_HDROP) ---
+          // 构造 DROPFILES 结构体
+          // 结构: offset(4) + pt(8) + fNC(4) + fWide(4) + path(UTF16) + double-null
+          const pathBuffer = Buffer.from(filePath, 'ucs2');
+          const dropFiles = Buffer.alloc(20 + pathBuffer.length + 4);
+          
+          dropFiles.writeUInt32LE(20, 0); // pFiles (offset)
+          dropFiles.writeUInt32LE(1, 16); // fWide (Unicode flag)
+          pathBuffer.copy(dropFiles, 20); // 写入路径
+          dropFiles.writeUInt32LE(0, 20 + pathBuffer.length); // 结尾的双 null
+
+          clipboardData['CF_HDROP'] = dropFiles;
+          
+        } else if (process.platform === 'darwin') {
+          // --- macOS (NSFilenamesPboardType) ---
+          // 写入 Property List XML
+          const plist = `
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+              <array>
+                <string>${filePath}</string>
+              </array>
+            </plist>
+          `;
+          clipboardData['NSFilenamesPboardType'] = plist;
+        }
+        // Linux 通常支持 text/uri-list，这里暂从略，如有需要可补充
+
+        // 4. 一次性写入所有格式
+        clipboard.write(clipboardData);
+        
+        console.log(`已复制图片及文件路径: ${filePath}`);
+
+      } catch (err) {
+        console.error('增强复制失败，回退到普通复制:', err);
+        // 如果出错，至少尝试写入纯图片
+        clipboard.writeImage(image);
+      }
+    }
+
     // 修改 show-context-menu 的 IPC 处理
     ipcMain.handle('show-context-menu', async (event, { menuType, data }) => {
       let menuTemplate;
       
-      if (menuType === 'image') {
+    if (menuType === 'image') {
         menuTemplate = [
           {
             label: locales[currentLanguage].copyImageLink,
@@ -1002,22 +1066,80 @@ app.whenReady().then(async () => {
           {
             label: locales[currentLanguage].copyImage,
             click: async () => {
+              // 恢复为最基础、最稳定的图片复制（仅像素数据）
+              // 解决之前写入文件路径导致的兼容性问题
               try {
-                // 处理网络图片
-                if (data.src.startsWith('http')) {
+                if (data.src.startsWith('data:')) {
+                  const image = nativeImage.createFromDataURL(data.src);
+                  clipboard.writeImage(image);
+                } else if (data.src.startsWith('http')) {
                   const response = await fetch(data.src);
                   const blob = await response.blob();
                   const buffer = await blob.arrayBuffer();
                   const image = nativeImage.createFromBuffer(Buffer.from(buffer));
                   clipboard.writeImage(image);
-                }
-                // 处理本地图片
-                else {
+                } else {
                   const image = nativeImage.createFromPath(data.src);
                   clipboard.writeImage(image);
                 }
               } catch (error) {
                 console.error('复制图片失败:', error);
+              }
+            }
+          },
+          // ★ 新增：图片另存为功能
+          {
+            label: locales[currentLanguage].saveImageAs,
+            click: async () => {
+              try {
+                const win = BrowserWindow.fromWebContents(event.sender);
+                let buffer = null;
+                let defaultExtension = 'png';
+
+                // 1. 获取图片数据 Buffer
+                if (data.src.startsWith('data:')) {
+                  // 处理 Base64
+                  const image = nativeImage.createFromDataURL(data.src);
+                  buffer = image.toPNG();
+                  defaultExtension = 'png';
+                } else if (data.src.startsWith('http')) {
+                  // 处理网络图片
+                  const response = await fetch(data.src);
+                  const blob = await response.blob();
+                  buffer = Buffer.from(await blob.arrayBuffer());
+                  // 简单猜测扩展名，默认 png
+                  if (data.src.toLowerCase().endsWith('.jpg') || data.src.toLowerCase().endsWith('.jpeg')) {
+                    defaultExtension = 'jpg';
+                  } else if (data.src.toLowerCase().endsWith('.gif')) {
+                    defaultExtension = 'gif';
+                  } else if (data.src.toLowerCase().endsWith('.webp')) {
+                    defaultExtension = 'webp';
+                  }
+                } else {
+                  // 处理本地文件
+                  buffer = fs.readFileSync(data.src);
+                  defaultExtension = path.extname(data.src).replace('.', '') || 'png';
+                }
+
+                // 2. 弹出保存对话框
+                const { filePath } = await dialog.showSaveDialog(win, {
+                  title: locales[currentLanguage].saveImageAs,
+                  defaultPath: `image_${Date.now()}.${defaultExtension}`,
+                  filters: [
+                    { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
+                    { name: 'All Files', extensions: ['*'] }
+                  ]
+                });
+
+                // 3. 写入文件
+                if (filePath) {
+                  fs.writeFileSync(filePath, buffer);
+                  // 可选：提示保存成功，或者不做打扰
+                  // console.log('图片已保存至:', filePath);
+                }
+              } catch (error) {
+                console.error('图片另存为失败:', error);
+                dialog.showErrorBox('保存失败', '无法保存该图片: ' + error.message);
               }
             }
           }
