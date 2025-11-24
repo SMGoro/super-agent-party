@@ -6579,7 +6579,7 @@ if ('serviceWorker' in navigator) {
                           <el-collapse-item name="advanced">
                             <template #title>
                               <div class="collapse-title">
-                                <span class="font-medium">{{ t('advancedSettings') }}</span>
+                                <span class="font-medium">{{ t('advancedSettingsClickExpand') }}</span>
                               </div>
                             </template>
 
@@ -6627,18 +6627,14 @@ if ('serviceWorker' in navigator) {
                       </el-form>
                       <!-- 文件上传区域 -->
                       <el-form-item>
-                        <div
-                          class="drop-zone"
-                          @dragover.prevent
-                          @drop.prevent="handleKbDrop"
+                        <el-button 
+                          type="primary"
                           @click="browseKbFiles"
+                          class="add-server-btn"
                         >
-                          <el-icon :size="50">
-                            <i class="fa-solid fa-upload"></i>
-                          </el-icon>
-                          <p>{{ t('clickOrDrop') }}</p>
-                        </div>
-
+                          <i class="fa-solid fa-upload"></i>
+                          {{t('uploadFile')}}
+                        </el-button>
                         <!-- 紧凑型文件列表 -->
                         <div class="compact-file-list" v-if="newKbFiles.length">
                           <div
@@ -6651,7 +6647,7 @@ if ('serviceWorker' in navigator) {
                               @click.stop="removeKbFile(index)"
                               class="delete-icon"
                               circle
-                            />
+                            >
                             <i class="fa-solid fa-trash"></i>
                             </el-button>
                           </div>
