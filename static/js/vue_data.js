@@ -1709,4 +1709,6 @@ main();`,
     },
     isReadPaused: false, 
     currentReadAudio: null,
+    showLogDialog: false,
+    logContent: '', // 日志内容
 };

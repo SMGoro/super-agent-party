@@ -6113,7 +6113,7 @@ handleCreateDiscordSeparator(val) {
             
         try {
           this.currentAudio = new Audio(audioChunk.url);
-          this.currentAudio.volume = this.vrmOnline ? 0.01 : 1;
+          this.currentAudio.volume = this.vrmOnline ? 0.0000001 : 1;
           // 发送 Base64 数据到 VRM
           this.sendTTSStatusToVRM('startSpeaking', {
             audioDataUrl: this.cur_audioDatas[currentIndex],
@@ -7435,7 +7435,7 @@ handleCreateDiscordSeparator(val) {
         // 自动保存设置
         await this.autoSaveSettings();
         
-        showNotification(t("VRMAactionDeleted"));
+        showNotification(this.t("VRMAactionDeleted"));
       } else {
         showNotification(`error: ${result.message}`, 'error');
       }
@@ -7906,43 +7906,102 @@ resumeRead() {
     },
 
 
-    // 获取音频MIME类型
-    getAudioMimeType() {
-      return this.ttsSettings.audioFormat === 'wav' 
-        ? 'audio/wav' 
-        : 'audio/mpeg';
+
+    // 1. 修改 downloadAudio：不再需要传入 MIME 类型，交给内部探测
+    downloadAudio() {
+      if (this.audioChunksCount === 0) {
+        showNotification(this.t('noAudioToDownload'));
+        return;
+      }
+
+      // 过滤无效片段
+      const validChunks = this.readState.audioChunks.filter(chunk => chunk && chunk.url);
+      if (validChunks.length === 0) {
+        showNotification(this.t('noValidAudioChunks'));
+        return;
+      }
+
+      try {
+        // 直接调用，不需要传参，函数内部会自己识别格式
+        this.createCombinedAudio(validChunks);
+      } catch (error) {
+        console.error('Audio download failed:', error);
+        showNotification(this.t('audioDownloadFailed'));
+      }
     },
 
-    // 创建并下载合并后的音频
-    async createCombinedAudio(chunks, mimeType) {
+    // 2. 重写 createCombinedAudio：核心修改是“自动识别真实格式”
+    async createCombinedAudio(chunks) {
+      if (!chunks || chunks.length === 0) return;
+
+      showNotification(this.t('audioProcessingStarted') || '正在处理音频...');
+
       try {
-        // 1. 获取所有音频的ArrayBuffer
-        const arrayBuffers = await Promise.all(
-          chunks.map(async (chunk) => {
-            const response = await fetch(chunk.url);
-            return response.arrayBuffer();
-          })
-        );
-
-        // 2. 合并ArrayBuffer
-        const totalLength = arrayBuffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
-        const combinedBuffer = new Uint8Array(totalLength);
+        // ================= 关键步骤：探测真实格式 =================
+        // 先 Fetch 第一个片段，查看 HTTP 头或 Blob 类型，以此为准
+        const firstResponse = await fetch(chunks[0].url);
+        const firstBlob = await firstResponse.blob();
         
-        let offset = 0;
-        arrayBuffers.forEach(buffer => {
-          combinedBuffer.set(new Uint8Array(buffer), offset);
-          offset += buffer.byteLength;
-        });
+        // 获取真实的 MIME (例如: "audio/ogg; codecs=opus" -> "audio/ogg")
+        const realMimeType = firstBlob.type.split(';')[0]; 
+        
+        console.log('Detected Real Audio Format:', realMimeType);
 
-        // 3. 创建Blob并提供下载
-        const blob = new Blob([combinedBuffer], { type: mimeType });
+        // 根据真实 MIME 推导后缀名和处理逻辑
+        let extension = 'mp3'; // 默认
+        let isWav = false;
+
+        if (realMimeType.includes('wav')) {
+          extension = 'wav';
+          isWav = true;
+        } else if (realMimeType.includes('ogg')) {
+          extension = 'ogg';
+        } else if (realMimeType.includes('aac')) {
+          extension = 'aac';
+        } else if (realMimeType.includes('flac')) {
+          extension = 'flac';
+        } else if (realMimeType.includes('webm')) {
+          extension = 'webm';
+        } else if (realMimeType.includes('mp4') || realMimeType.includes('m4a')) {
+          extension = 'm4a';
+        }
+
+        // ================= 开始获取所有数据 =================
+        // 重用第一个 Blob，减少一次请求
+        const firstBuffer = await firstBlob.arrayBuffer();
+        
+        // 并发获取剩余片段
+        const restPromises = chunks.slice(1).map(async (chunk) => {
+          const response = await fetch(chunk.url);
+          return response.arrayBuffer();
+        });
+        
+        const restBuffers = await Promise.all(restPromises);
+        const allBuffers = [firstBuffer, ...restBuffers];
+
+        // ================= 根据真实格式合并 =================
+        let combinedBuffer;
+
+        if (isWav) {
+          // WAV 专用处理：去头
+          combinedBuffer = this.mergeWavBuffers(allBuffers);
+        } else {
+          // 其他格式（MP3, OGG等）：直接拼接
+          // 注意：OGG 直接拼接在浏览器中播放可能只能听第一句（Chained Ogg），
+          // 但下载后用本地播放器（VLC/PotPlayer）是完整的。这是无损拼接的特性。
+          combinedBuffer = this.mergeGeneralBuffers(allBuffers);
+        }
+
+        // ================= 下载文件 =================
+        const blob = new Blob([combinedBuffer], { type: realMimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        
         a.href = url;
-        a.download = `tts-audio-${new Date().toISOString().slice(0, 19)}.${
-          mimeType === 'audio/wav' ? 'wav' : 'mp3'
-        }`;
+        // 使用探测到的真实后缀名
+        a.download = `tts-merged-${timestamp}.${extension}`; 
         
         document.body.appendChild(a);
         a.click();
@@ -7954,11 +8013,66 @@ resumeRead() {
         }, 100);
         
         showNotification(this.t('audioDownloadStarted'));
+
       } catch (error) {
         console.error('Audio merging failed:', error);
         showNotification(this.t('audioMergeFailed'));
       }
     },
+
+    // --- 辅助函数保持不变 ---
+    
+    // 通用拼接 (MP3/OGG/AAC)
+    mergeGeneralBuffers(buffers) {
+      const totalLength = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
+      const result = new Uint8Array(totalLength);
+      
+      let offset = 0;
+      buffers.forEach(buffer => {
+        result.set(new Uint8Array(buffer), offset);
+        offset += buffer.byteLength;
+      });
+      
+      return result;
+    },
+
+    // WAV 专用拼接
+    mergeWavBuffers(buffers) {
+      if (buffers.length === 0) return new Uint8Array(0);
+      if (buffers.length === 1) return new Uint8Array(buffers[0]);
+
+      const HEADER_SIZE = 44; 
+      let totalDataLength = 0;
+      
+      buffers.forEach((buffer, index) => {
+        if (index === 0) totalDataLength += buffer.byteLength;
+        else totalDataLength += Math.max(0, buffer.byteLength - HEADER_SIZE);
+      });
+
+      const result = new Uint8Array(totalDataLength);
+      
+      // 写入第一个文件（含头）
+      result.set(new Uint8Array(buffers[0]), 0);
+      let offset = buffers[0].byteLength;
+
+      // 写入后续文件（去头）
+      for (let i = 1; i < buffers.length; i++) {
+        const buffer = new Uint8Array(buffers[i]);
+        if (buffer.byteLength > HEADER_SIZE) {
+            const dataChunk = buffer.subarray(HEADER_SIZE);
+            result.set(dataChunk, offset);
+            offset += dataChunk.byteLength;
+        }
+      }
+
+      // 修正 WAV 头
+      const view = new DataView(result.buffer);
+      view.setUint32(4, result.byteLength - 8, true); 
+      view.setUint32(40, result.byteLength - HEADER_SIZE, true);
+
+      return result;
+    },
+
 
 // 修改 stopRead 方法
 stopRead() {
@@ -10292,6 +10406,26 @@ clearSegments() {
     } catch (e) {
       this.gitInstalling = false;
       this.$message.error(this.t('installGitFail'));
+    }
+  },
+  async openLogDialog() {
+    this.showLogDialog = true;
+    await this.fetchLogs();
+    // 自动滚动到底部
+    this.$nextTick(() => {
+      if (this.$refs.logContainer) {
+        this.$refs.logContainer.scrollTop = this.$refs.logContainer.scrollHeight;
+      }
+    });
+  },
+
+  async fetchLogs() {
+    if (window.electronAPI) {
+      try {
+        this.logContent = await window.electronAPI.getBackendLogs();
+      } catch (e) {
+        this.logContent = 'Failed to load logs: ' + e.message;
+      }
     }
   },
 }

@@ -1216,6 +1216,43 @@ body {
   max-width: 100%;
 }
 
+.scroll-on-hover {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.scroll-on-hover:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.3) transparent;
+}
+
+/* Webkit 浏览器平滑动画 */
+.scroll-on-hover::-webkit-scrollbar {
+  width: 8px;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover::-webkit-scrollbar-track {
+  background: transparent;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.scroll-on-hover:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.scroll-on-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+
 .user-content {
   padding: 12px;
   border-radius: 12px;
@@ -4068,4 +4105,51 @@ body {
 .fill-input {
   flex: 1;           /* 动态占满剩余宽度 */
   min-width: 0;      /* 防止 flex 子项溢出 */
+}
+
+.log-dialog .el-dialog__body {
+  padding: 10px 20px;
+}
+
+.log-container {
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  padding: 15px;
+  border-radius: 4px;
+  height: 500px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap; /* 允许自动换行 */
+  word-break: break-all;
+}
+
+/* 滚动条整体宽高 */
+.log-container::-webkit-scrollbar {
+  width: 10px;  /* 垂直滚动条宽度 */
+  height: 10px; /* 水平滚动条高度 */
+}
+
+/* 滚动条轨道 (背景) */
+.log-container::-webkit-scrollbar-track {
+  background: #2b2b2b; /* 比容器背景稍亮一点或保持一致 */
+  border-radius: 4px;
+}
+
+/* 滚动条滑块 (Handle) */
+.log-container::-webkit-scrollbar-thumb {
+  background: #4c4c4c; /* 深灰色滑块 */
+  border-radius: 4px;
+  border: 2px solid #2b2b2b; /* 给滑块加个边框，产生间隙感 */
+}
+
+/* 鼠标悬停在滑块上 */
+.log-container::-webkit-scrollbar-thumb:hover {
+  background: #6e6e6e; /* 悬停时变亮 */
+}
+
+/* 滚动条角落 (横竖滚动条交汇处) */
+.log-container::-webkit-scrollbar-corner {
+  background: #1e1e1e;
 }

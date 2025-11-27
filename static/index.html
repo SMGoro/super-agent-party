@@ -140,6 +140,16 @@ if ('serviceWorker' in navigator) {
             <i :class="!sidebarVisible ? 'fa-solid fa-bars' : 'fa-solid fa-bars-staggered'"></i>
           </el-icon>
       </el-button>
+        <el-button 
+          v-if="!isAssistantMode&&!isMobile"
+          @click="openLogDialog"
+          class="top-bar-btn"
+          text
+          :title="t('serverLogs') || 'Server Logs'">
+          <el-icon>
+            <i class="fa-solid fa-terminal"></i>
+          </el-icon>
+        </el-button>
         <!-- 新增展开/收起按钮 -->
         <el-button 
           v-if="!isAssistantMode&&!isMobile"
@@ -272,6 +282,29 @@ if ('serviceWorker' in navigator) {
         class="sidebar-mask"
         v-show="isMobile && sidebarVisible"
         @click="sidebarVisible = false"></div>
+
+    <!-- 后端日志弹窗 -->
+    <el-dialog
+      v-model="showLogDialog"
+      :title="t('serverLogs') || 'Backend Logs'"
+      width="70%"
+      top="5vh"
+      class="log-dialog"
+      :append-to-body="true"
+    >
+      <div class="log-container" ref="logContainer">
+        <pre>{{ logContent }}</pre>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="fetchLogs">
+            <el-icon><i class="fa-solid fa-rotate-right"></i></el-icon> {{ t('refresh') || 'Refresh' }}
+          </el-button>
+          <el-button type="primary" @click="showLogDialog = false">{{ t('confirm') || 'OK' }}</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
       <el-dialog
         v-model="showModelDialog"
         :title="t('mainModel')"
@@ -474,10 +507,15 @@ if ('serviceWorker' in navigator) {
                     <div v-else-if="message.role === 'assistant'"  class="markdown-body" v-html="message.briefly ? formatMessage(message.pure_content??msg.content,index) : formatMessage(message.content,index)"></div>
                     <!-- 系统消息内容 -->
                     <div v-else class="system-content" data-mjx-disabled="true" >
-                      <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" 
-                      :style="{ 'max-height' : index===0 ? '200px' : 'none','overflow-y' : index===0 ? 'auto' : 'hidden'}"
-                       @click="openEditDialog(message.role, message.content,index)">
-                      </div>
+                      <div 
+                        v-html="index===0 ? (t('system_prompt') + message.content):message.content" 
+                        :style="{ 
+                          'max-height': index===0 ? '200px' : 'none',
+                          'overflow-y': index===0 ? 'auto' : 'hidden'
+                        }"
+                        class="scroll-on-hover"
+                        @click="openEditDialog(message.role, message.content,index)"
+                      ></div>
                     </div>
                   </div>
                   <!-- 添加复制按钮 -->
@@ -2322,7 +2360,7 @@ if ('serviceWorker' in navigator) {
                           >
                             <el-option :key="null" :value="null" :label="t('noRefAudio')"></el-option>
                             <el-option
-                              v-for="audio in newTTSConfig.gsvAudioOptions"
+                              v-for="audio in ttsSettings.gsvAudioOptions"
                               :key="audio.path"
                               :label="audio.name"
                               :value="audio.path"
@@ -2586,7 +2624,7 @@ if ('serviceWorker' in navigator) {
                             class="full-width-input"
                           >
                             <el-option
-                              v-for="audio in newTTSConfig.gsvAudioOptions"
+                              v-for="audio in ttsSettings.gsvAudioOptions"
                               :key="audio.path"
                               :label="audio.name"
                                :value="audio.path"
