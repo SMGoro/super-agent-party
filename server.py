@@ -1,6 +1,6 @@
 # -- coding: utf-8 --
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import glob
 from io import BytesIO
 import io
@@ -10,13 +10,7 @@ import pickle
 import socket
 import sys
 import tempfile
-import threading
-import aiohttp
-import aiofiles
-import faiss
 import httpx
-from scipy.io import wavfile
-import numpy as np
 import websockets
 
 from py.load_files import get_file_content
@@ -25,7 +19,6 @@ if hasattr(sys, '_MEIPASS'):
     # 打包后的程序
     os.environ['PYTHONPATH'] = sys._MEIPASS
     os.environ['PATH'] = sys._MEIPASS + os.pathsep + os.environ.get('PATH', '')
-import edge_tts
 import asyncio
 import copy
 from functools import partial
@@ -50,13 +43,10 @@ from contextlib import asynccontextmanager
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import argparse
-from mem0 import Memory
-from py.qq_bot_manager import QQBotConfig, QQBotManager
 from py.dify_openai_async import DifyOpenAIAsync
 
 from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
-from py.sherpa_asr import sherpa_recognize
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
 
@@ -182,40 +172,43 @@ configure_host_port(args.host, args.port)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. 准备所有独立的初始化任务
     from py.get_setting import init_db, init_covs_db
-    await init_db()
-    await init_covs_db()
+    from tzlocal import get_localzone
+    
+    # 将所有不依赖 Settings 的任务并行化
+    # 比如：数据库初始化、加载本地化文件、获取时区
+    init_db_task = init_db()
+    init_covs_task = init_covs_db()
+    load_locales_task = asyncio.to_thread(lambda: json.load(open(base_path + "/config/locales.json", "r", encoding="utf-8")))
+    settings_task = load_settings() # 这是一个 async 任务
+    timezone_task = asyncio.to_thread(get_localzone)
+    
+    # 2. 并行执行这些耗时操作
+    results = await asyncio.gather(
+        init_db_task, 
+        init_covs_task, 
+        load_locales_task, 
+        settings_task, 
+        timezone_task
+    )
+    
+    # 3. 解包结果
+    # init_db 和 init_covs 没有返回值(None)
     global settings, client, reasoner_client, mcp_client_list, local_timezone, logger, locales
+    _, _, locales, settings, local_timezone = results
+    
     # 创建带时间戳的日志文件路径
     timestamp = time.time()
     log_path = os.path.join(LOG_DIR, f"backend_{timestamp}.log")
     
     # 创建并配置logger
     logger = logging.getLogger("app")
-    logger.setLevel(logging.INFO)
-    
-    # 创建文件处理器
-    file_handler = logging.FileHandler(log_path, mode='a')
-    file_handler.setLevel(logging.INFO)
-    
-    # 设置日志格式
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    file_handler.setFormatter(formatter)
-    
-    # 清除现有处理器（避免重复）
-    if logger.hasHandlers():
-        logger.handlers.clear()
-    
-    # 添加文件处理器
-    logger.addHandler(file_handler)
-    
-    # 添加控制台处理器（可选）
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    if not logger.handlers:
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        logger.addHandler(handler)
     
     # 测试日志
     logger.info("===== 日志系统初始化成功 =====")
@@ -226,13 +219,11 @@ async def lifespan(app: FastAPI):
 
     try:
         from py.sherpa_asr import _get_recognizer
-        _get_recognizer()
+        asyncio.get_running_loop().run_in_executor(None, _get_recognizer)
     except Exception as e:
         logger.error(f"尝试启动sherpa失败: {e}")
         pass
-    from tzlocal import get_localzone
-    local_timezone = get_localzone()
-    settings = await load_settings()
+
     vendor = 'OpenAI'
     for modelProvider in settings['modelProviders']: 
         if modelProvider['id'] == settings['selectedProvider']:
@@ -353,31 +344,36 @@ async def lifespan(app: FastAPI):
                 except asyncio.CancelledError:
                     pass
 
-    if settings:
-        # 创建所有初始化任务
-        for server_name, server_config in settings['mcpServers'].items():
-            task = asyncio.create_task(init_mcp_with_timeout(server_name, server_config))
-            mcp_init_tasks.append(task)
-        # 立即继续执行不等待
-        # 通过回调处理结果
-        async def check_results():
-            """后台收集任务结果"""
-            logger.info("check_results started with %d tasks", len(mcp_init_tasks))
-            for task in asyncio.as_completed(mcp_init_tasks):
-                server_name, mcp_client, error = await task
-                if error:
-                    logger.error(f"MCP client {server_name} initialization failed: {error}")
-                    settings['mcpServers'][server_name]['disabled'] = True
-                    settings['mcpServers'][server_name]['processingStatus'] = 'server_error'
-                    mcp_client_list[server_name] = McpClient()
-                    mcp_client_list[server_name].disabled = True
-                else:
-                    logger.info(f"MCP client {server_name} initialized successfully")
-                    mcp_client_list[server_name] = mcp_client
-            await save_settings(settings)  # 所有任务完成后统一保存
-            await broadcast_settings_update(settings)  # 所有任务完成后统一广播
-        # 在后台运行结果收集
-        asyncio.create_task(check_results())
+    async def check_results():
+        """后台收集任务结果"""
+        logger.info("check_results started with %d tasks", len(mcp_init_tasks))
+        for task in asyncio.as_completed(mcp_init_tasks):
+            server_name, mcp_client, error = await task
+            if error:
+                logger.error(f"MCP client {server_name} initialization failed: {error}")
+                settings['mcpServers'][server_name]['disabled'] = True
+                settings['mcpServers'][server_name]['processingStatus'] = 'server_error'
+                mcp_client_list[server_name] = McpClient()
+                mcp_client_list[server_name].disabled = True
+            else:
+                logger.info(f"MCP client {server_name} initialized successfully")
+                mcp_client_list[server_name] = mcp_client
+        await save_settings(settings)  # 所有任务完成后统一保存
+        await broadcast_settings_update(settings)  # 所有任务完成后统一广播
+
+    if settings and settings.get('mcpServers'):
+        # 只有当有配置时才创建任务
+        mcp_init_tasks = [
+            asyncio.create_task(init_mcp_with_timeout(server_name, server_config))
+            for server_name, server_config in settings['mcpServers'].items()
+        ]
+        
+        if mcp_init_tasks:  # 只在有任务时启动后台收集
+            asyncio.create_task(check_results())
+    else:
+        mcp_init_tasks = []
+        # 直接广播空配置
+        asyncio.create_task(broadcast_settings_update(settings or {}))
     yield
 
 # WebSocket端点增加连接管理
@@ -811,9 +807,9 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             if stickerPack["enabled"]:
                 sticker_message = f"\n\n图片库名称：{stickerPack['name']}，包含的图片：{json.dumps(stickerPack['stickers'])}\n\n"
                 content_append(request.messages, 'system', sticker_message)
-        content_append(request.messages, 'system', "\n\n当你需要使用图片时，请将图片的URL放在markdown的图片标签中，例如：\n\n![图片名](图片URL)\n\n，图片markdown必须另起并且独占一行！")
+        content_append(request.messages, 'system', "\n\n当你需要使用图片时，请将图片的URL放在markdown的图片标签中，例如：\n\n<silence>![图片名](图片URL)</silence>\n\n，图片markdown必须另起并且独占一行！<silence>和</silence>是控制TTS的静音标签，表示这个图片部分不会进入语音合成\n\n你必须在回复中正确使用 <silence> 标签来包裹图片的 Markdown 语法\n\n")
     if settings['text2imgSettings']['enabled']:
-        text2img_messages = "\n\n当你使用画图工具后，必须将图片的URL放在markdown的图片标签中，例如：\n\n![图片名](图片URL)\n\n，图片markdown必须另起并且独占一行！请主动发给用户，工具返回的结果，用户看不到！"
+        text2img_messages = "\n\n当你使用画图工具后，必须将图片的URL放在markdown的图片标签中，例如：\n\n<silence>![图片名](图片URL)</silence>\n\n，图片markdown必须另起并且独占一行！请主动发给用户，工具返回的结果，用户看不到！<silence>和</silence>是控制TTS的静音标签，表示这个图片部分不会进入语音合成\n\n你必须在回复中正确使用 <silence> 标签来包裹图片的 Markdown 语法\n\n"
         content_append(request.messages, 'system', text2img_messages)
     if settings['VRMConfig']['enabledExpressions']:
         Expression_messages = "\n\n你可以使用以下表情：<happy> <angry> <sad> <neutral> <surprised> <relaxed>\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头，才能在说这句话的时候同步做表情，例如：<angry>我真的生气了。<surprised>哇！<happy>我好开心。\n\n一定要把表情符号跟要做表情的句子放在同一行，如果表情符号和要做表情的句子中间有换行符，表情也将不会生效，例如：\n\n<happy>\n我好开心。\n\n此时，表情符号将不会生效。"
@@ -935,6 +931,7 @@ def get_drs_stage_system_message(DRS_STAGE,user_prompt,full_content):
     return search_prompt
 
 async def generate_stream_response(client,reasoner_client, request: ChatRequest, settings: dict,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search,async_tools_id):
+    from mem0 import Memory
     global mcp_client_list,HA_client,ChromeMCP_client,sql_client
     DRS_STAGE = 1 # 1: 明确用户需求阶段 2: 工具调用阶段 3: 生成结果阶段
     if len(request.messages) > 2:
@@ -2649,6 +2646,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         )
 
 async def generate_complete_response(client,reasoner_client, request: ChatRequest, settings: dict,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search):
+    from mem0 import Memory
     global mcp_client_list,HA_client,ChromeMCP_client,sql_client
     DRS_STAGE = 1 # 1: 明确用户需求阶段 2: 工具调用阶段 3: 生成结果阶段
     if len(request.messages) > 2:
@@ -3860,6 +3858,8 @@ def convert_audio_to_pcm16(audio_bytes: bytes, target_sample_rate: int = 16000) 
     """
     将音频数据转换为PCM16格式，采样率16kHz
     """
+    import numpy as np
+    from scipy.io import wavfile
     try:
         # 创建临时文件
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
@@ -4230,6 +4230,7 @@ async def asr_websocket_endpoint(websocket: WebSocket):
                             funasr_websocket = None
 
                         elif asr_engine == "sherpa":
+                            from py.sherpa_asr import sherpa_recognize
                             # 新增Sherpa处理
                             result = await sherpa_recognize(audio_bytes)
                             print(f"Sherpa result: {result}")
@@ -4307,6 +4308,7 @@ async def asr_transcription(
             result = await funasr_recognize_offline(audio_bytes, asr_settings)
             
         elif asr_engine == "sherpa":
+            from py.sherpa_asr import sherpa_recognize
             # Sherpa ASR
             print("Using Sherpa ASR engine")
             result = await sherpa_recognize(audio_bytes)
@@ -4661,6 +4663,7 @@ async def get_tts_status():
 
 @app.post("/tts")
 async def text_to_speech(request: Request):
+    import edge_tts
     try:
         data = await request.json()
         text = data['text']
@@ -6194,7 +6197,7 @@ async def create_sticker_pack(
         logger.error(f"创建表情包时出错: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
-
+from py.qq_bot_manager import QQBotConfig, QQBotManager
 # 全局机器人管理器
 qq_bot_manager = QQBotManager()
 
@@ -6525,7 +6528,8 @@ def get_faiss_path(mid: str) -> str:
 def get_pkl_path(mid: str) -> str:
     return os.path.join(get_dir(mid), "agent-party.pkl")
 
-def load_index_and_meta(mid: str) -> Tuple[faiss.Index, Dict[str, Any]]:
+def load_index_and_meta(mid: str):
+    import faiss
     fpath, ppath = get_faiss_path(mid), get_pkl_path(mid)
     if not (os.path.exists(fpath) and os.path.exists(ppath)):
         raise HTTPException(status_code=404, detail="memory not found")
@@ -6536,7 +6540,8 @@ def load_index_and_meta(mid: str) -> Tuple[faiss.Index, Dict[str, Any]]:
     meta_dict = raw[0] if isinstance(raw, tuple) else raw
     return index, meta_dict
 
-def save_index_and_meta(mid: str, index: faiss.Index, meta: List[Dict[Any, Any]]):
+def save_index_and_meta(mid: str, index, meta: List[Dict[Any, Any]]):
+    import faiss
     faiss.write_index(index, get_faiss_path(mid))
     with open(get_pkl_path(mid), "wb") as f:
         pickle.dump(meta, f)
@@ -6612,6 +6617,8 @@ async def update_text(
 # ---------- 3. 删除（按行号） ----------
 @app.delete("/memory/{memory_id}/{idx}")
 async def delete_text(memory_id: str, idx: int) -> dict:
+    import faiss
+    import numpy as np
     index, meta_dict = load_index_and_meta(memory_id)
     meta_list = dict_to_list(meta_dict)
     if not (0 <= idx < len(meta_list)):
