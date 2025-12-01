@@ -432,15 +432,6 @@ async function startBackend() {
           if (output.trim()) {
             console.log(`[BACKEND] ${output}`)
           }
-        } else {
-          // 生产模式：写入日志文件
-          if (!logStream) {
-            logStream = fs.createWriteStream(
-              path.join(logDir, `backend-${Date.now()}.log`),
-              { flags: 'a' }
-            )
-          }
-          logStream.write(`[STDOUT] ${new Date().toISOString()} ${data}`)
         }
       })
     }
@@ -460,14 +451,6 @@ async function startBackend() {
               console.error(`[BACKEND] ${output}`)
             }
           }
-        } else {
-          if (!logStream) {
-            logStream = fs.createWriteStream(
-              path.join(logDir, `backend-${Date.now()}.log`),
-              { flags: 'a' }
-            )
-          }
-          logStream.write(`[STDERR] ${new Date().toISOString()} ${data}`)
         }
       })
     }
