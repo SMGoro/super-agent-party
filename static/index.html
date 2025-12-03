@@ -1237,7 +1237,7 @@ if ('serviceWorker' in navigator) {
                   />
                 </el-select>
               </el-form-item>
-              <el-form-item :label="t('availableVoice')"></el-form-item>
+              <el-form-item v-if="ttsSettings.newtts.length > 0 " :label="t('availableVoice')"></el-form-item>
               <div class="knowledge-dialog-content">
                 <div v-for="(config, name) in ttsSettings.newtts" :key="name" class="knowledge-item">
                   <el-switch v-model="config.enabled" @change="autoSaveSettings"></el-switch>

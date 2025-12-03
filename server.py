@@ -12,7 +12,6 @@ import sys
 import tempfile
 import httpx
 import websockets
-
 from py.load_files import get_file_content
 # 在程序最开始设置
 if hasattr(sys, '_MEIPASS'):
@@ -42,6 +41,7 @@ from py.mcp_clients import McpClient
 from contextlib import asynccontextmanager
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import aiofiles
 import argparse
 from py.dify_openai_async import DifyOpenAIAsync
 
