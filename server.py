@@ -996,7 +996,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         "model": cur_memory['model'],
                         "api_key": cur_memory['api_key'],
                         "openai_base_url":cur_memory["base_url"],
-                        "embedding_dims":1024
+                        "embedding_dims":cur_memory.get("embedding_dims", 1024)
                     },
                 },
                 "llm": {
@@ -1013,7 +1013,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         "collection_name": "agent-party",
                         "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
                         "distance_strategy": "euclidean",
-                        "embedding_model_dims": 1024
+                        "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
                     }
                 }
             }
@@ -2709,7 +2709,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         "model": cur_memory['model'],
                         "api_key": cur_memory['api_key'],
                         "openai_base_url":cur_memory["base_url"],
-                        "embedding_dims":1024,
+                        "embedding_dims":cur_memory.get("embedding_dims", 1024)
                     },
                 },
                 "llm": {
@@ -2726,7 +2726,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         "collection_name": "agent-party",
                         "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
                         "distance_strategy": "euclidean",
-                        "embedding_model_dims": 1024
+                        "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
                     }
                 }
             }
@@ -6845,6 +6845,9 @@ app.include_router(extensions_router)
 
 from py.sherpa_model_manager import router as sherpa_model_router
 app.include_router(sherpa_model_router)
+
+from py.ebd_api import router as embedding_router
+app.include_router(embedding_router)
 
 mcp = FastApiMCP(
     app,

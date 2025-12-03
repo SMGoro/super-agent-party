@@ -3669,48 +3669,92 @@ let vue_methods = {
     },
     async addMemory() {
       this.selectMemoryProvider(this.newMemory.providerId);
-      /* 把新字段组装成一个“记忆”对象 */
-      const build = () => ({
+
+      /* ---- 0. 备份旧数据（更新场景用） ---- */
+      const oldMemory = this.newMemory.id
+        ? this.memories.find(m => m.id === this.newMemory.id)
+        : 1024;
+
+      /* ---- 1. 立即生成内存对象（用户可瞬间看到） ---- */
+      const build = (dims = 1024) => ({
         id: this.newMemory.id || uuid.v4(),
         name: this.newMemory.name,
         providerId: this.newMemory.providerId,
         model: this.newMemory.model,
         api_key: this.newMemory.api_key,
         base_url: this.newMemory.base_url,
+        embedding_dims: dims,
         vendor: this.newMemory.providerId
           ? this.modelProviders.find(p => p.id === this.newMemory.providerId)?.vendor || ''
           : '',
-
-        /* 酒馆 V3 字段 */
-        description:   this.newMemory.description,
-        avatar:      this.newMemory.avatar,
-        personality:   this.newMemory.personality,
-        mesExample:    this.newMemory.mesExample,
-        systemPrompt:  this.newMemory.systemPrompt,
-        firstMes:      this.newMemory.firstMes,
+        description: this.newMemory.description,
+        avatar: this.newMemory.avatar,
+        personality: this.newMemory.personality,
+        mesExample: this.newMemory.mesExample,
+        systemPrompt: this.newMemory.systemPrompt,
+        firstMes: this.newMemory.firstMes,
         alternateGreetings: this.newMemory.alternateGreetings.filter(Boolean),
-        characterBook: this.newMemory.characterBook.filter(
-          e => e.keysRaw.trim() || e.content.trim()
-        )
+        characterBook: this.newMemory.characterBook.filter(e => e.keysRaw.trim() || e.content.trim())
       });
 
-      /* 新增 or 更新 */
+      let memory;
+      let insertIdx = -1;          // 用于更新场景
       if (this.newMemory.id === null) {
-        const newMem = build();
-        this.memories.push(newMem);
+        memory = build();
+        this.memories.push(memory);
         if (this.memorySettings.selectedMemory === null) {
-          this.memorySettings.selectedMemory = newMem.id;
+          this.memorySettings.selectedMemory = memory.id;
         }
       } else {
-        const idx = this.memories.findIndex(m => m.id === this.newMemory.id);
-        if (idx !== -1) {
-          this.memories.splice(idx, 1, build());
-        }
+        insertIdx = this.memories.findIndex(m => m.id === this.newMemory.id);
+        if (insertIdx === -1) return;
+        memory = build(oldMemory?.embedding_dims ?? 1024);
+        this.memories.splice(insertIdx, 1, memory);
       }
-      this.resetNewMemory(); // 重置表单
-      this.changeMemory(); // 切换到新记忆
-      await this.autoSaveSettings();
       this.showAddMemoryDialog = false;
+
+      /* ---- 2. 异步探测维度（失败则回滚） ---- */
+      try {
+        const resp = await fetch('/api/embedding_dims', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key:  this.newMemory.api_key,
+            base_url: this.newMemory.base_url,
+            model:    this.newMemory.model
+          })
+        });
+
+        // ******** 关键点 ********
+        if (!resp.ok) {                           // 4xx/5xx 都进这里
+          const txt = await resp.text();
+          throw new Error(`Embedding 接口异常 ${resp.status}: ${txt}`);
+        }
+
+        const { dims } = await resp.json();
+        memory.embedding_dims = dims;
+        await this.autoSaveSettings();          // 真正落盘
+      } catch (e) {
+        /* ---- 3. 回滚 & 提示 ---- */
+        if (this.newMemory.id === null) {
+          // 新增：直接 pop
+          this.memories.pop();
+          if (this.memorySettings.selectedMemory === memory.id) {
+            this.memorySettings.selectedMemory = null;
+          }
+        } else {
+          // 更新：把旧记忆写回去
+          if (oldMemory) this.memories.splice(insertIdx, 1, oldMemory);
+        }
+        // 保证能拿到 t 函数
+        showNotification(this.t('EmbeddingFailed'), 'error');
+        console.error('[addMemory] 探测维度失败', e);
+        return;   // 不再继续
+      }
+
+      /* ---- 4. 收尾 ---- */
+      this.resetNewMemory();
+      this.changeMemory();
     },
     
     async removeMemory(id) {
