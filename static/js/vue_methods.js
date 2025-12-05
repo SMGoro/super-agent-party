@@ -7684,6 +7684,7 @@ async deleteGaussSceneOption(sceneId) {
       });
       
       this.conversations = [];
+      this.conversationId = null;
       await this.saveConversations();
     } catch (error) {
       // 用户取消操作
@@ -7702,6 +7703,9 @@ async deleteGaussSceneOption(sceneId) {
       this.conversations = this.conversations.filter(conv => 
         conv.timestamp && conv.timestamp >= oneWeekAgo
       );
+      if (this.conversations == []){
+        this.conversationId = null; // 清空当前对话ID
+      }
       
       await this.saveConversations();
     } catch (error) {
