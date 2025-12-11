@@ -42,19 +42,19 @@
 
 ### Windows portable package (Recommended! Installation-free source version, support one-click synchronization to the latest version of the warehouse, no need to wait for the desktop version to be packaged)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/super-agent-party-win-v0.3.3.7z)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/super-agent-party-win-v0.3.4.7z)
 
 ⭐ Note!  You can double-click `一键更新(update).bat` to update the software, or you can double-click `一键启动(start).bat` to start the software.
 
 ### Windows Desktop Installation
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/Super-Agent-Party-Setup-0.3.3.exe)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/Super-Agent-Party-Setup-0.3.4.exe)
 
 ⭐ Note! Choose to install only for the current user during installation, otherwise, administrator privileges will be required to start.
 
 ### macOS portable package (Currently only M chips are supported, developer-oriented, no-install source version, one-click sync to latest repo, no need to wait for desktop build)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/super-agent-party-mac-v0.3.3.7z)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/super-agent-party-mac-v0.3.4.7z)
 
 ⭐ Note! You can update the software in Terminal with `one-click update(update).sh` or launch it with `one-click start(start).sh`. Remember to grant permissions before use!
 
@@ -67,7 +67,7 @@
 
 ### MacOS Desktop Installation (Currently only M chips are supported.)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/Super-Agent-Party-0.3.3-Mac.dmg)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/Super-Agent-Party-0.3.4-Mac.dmg)
 
 ⭐Attention! After downloading, drag the app file of the dmg file into the `/Applications` directory, then open end point, execute the following command and enter the root password to remove the attached Quarantine attribute from the network download:
 
@@ -83,11 +83,11 @@ We provide two mainstream Linux installation package formats for your convenienc
 
 `.AppImage` is a Linux application format that does not require installation and can be used immediately. Suitable for most Linux distributions.
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/Super-Agent-Party-0.3.3-Linux.AppImage)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/Super-Agent-Party-0.3.4-Linux.AppImage)
 
 #### 2. Install using `.deb` package (Suitable for Ubuntu/Debian systems)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.3/Super-Agent-Party-0.3.3-Linux.deb)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.4/Super-Agent-Party-0.3.4-Linux.deb)
 
 ### Docker Deployment (This version of the table pet can only be viewed through the browser.)
 
