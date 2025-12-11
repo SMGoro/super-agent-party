@@ -391,25 +391,28 @@ if ('serviceWorker' in navigator) {
               
               <!-- 右上角按钮组 -->
               <div class="btn-top-right">
-                <!-- 浏览器打开按钮 -->
-                <el-button
-                  type="default"
-                  circle
-                  size="small"
-                  @click.stop="openExtension(ext);switchExtension(ext)">
-                  <i class="fa-solid fa-external-link"></i>
-                </el-button>
-                
-                <!-- 独立窗口打开按钮（仅在Electron环境下显示） -->
-                <el-button
-                  v-if="isElectron"
-                  type="primary"
-                  circle
-                  size="small"
-                  @click.stop="openExtensionInWindow(ext)"
-                  style="margin-left: 8px;">
-                  <i class="fa-solid fa-window-restore"></i>
-                </el-button>
+                <el-tooltip :content="t('openExtensionInBrowser')" placement="top">
+                  <!-- 浏览器打开按钮 -->
+                  <el-button
+                    type="default"
+                    circle
+                    size="small"
+                    @click.stop="openExtension(ext)">
+                    <i class="fa-solid fa-external-link"></i>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip :content="t('openExtensionInWindow')" placement="top">
+                  <!-- 独立窗口打开按钮（仅在Electron环境下显示） -->
+                  <el-button
+                    v-if="isElectron"
+                    type="primary"
+                    circle
+                    size="small"
+                    @click.stop="openExtensionInWindow(ext)"
+                    style="margin-left: 8px;">
+                    <i class="fa-solid fa-window-restore"></i>
+                  </el-button>
+                </el-tooltip>
               </div>
 
               <div class="extension-info">
@@ -1112,12 +1115,28 @@ if ('serviceWorker' in navigator) {
                       
                       <!-- 右上角图标 -->
                       <div class="btn-top-right">
-                        <el-button
-                          type="primary"
-                          circle
-                          @click.stop="openExtension(ext);switchExtension(ext)">
-                          <i class="fa-solid fa-external-link"></i>
-                        </el-button>
+                        <el-tooltip :content="t('openExtensionInBrowser')" placement="top">
+                          <!-- 浏览器打开按钮 -->
+                          <el-button
+                            type="default"
+                            circle
+                            size="small"
+                            @click.stop="openExtension(ext)">
+                            <i class="fa-solid fa-external-link"></i>
+                          </el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('openExtensionInWindow')" placement="top">
+                          <!-- 独立窗口打开按钮（仅在Electron环境下显示） -->
+                          <el-button
+                            v-if="isElectron"
+                            type="primary"
+                            circle
+                            size="small"
+                            @click.stop="openExtensionInWindow(ext)"
+                            style="margin-left: 8px;">
+                            <i class="fa-solid fa-window-restore"></i>
+                          </el-button>
+                        </el-tooltip>
                       </div>
 
                       <div class="extension-info">
@@ -11199,16 +11218,34 @@ if ('serviceWorker' in navigator) {
                         </el-button>
                       </el-tooltip>
                       <div class="card-actions">
-                        <el-button v-if="isElectron" @click="openExtensionInWindow(extension)" type="primary" circle size="small">
-                          <i class="fa-solid fa-window-restore"></i>
-                        </el-button>
-                        <el-button @click="openExtension(extension)" type="default" circle size="small">
-                          <i class="fa-solid fa-external-link"></i>
-                        </el-button>
-                        <!-- 更新删除按钮样式 -->
-                        <el-button @click="removeExtension(extension)" type="danger" circle size="small">
-                          <i class="fa-solid fa-trash"></i>
-                        </el-button>
+                        <el-tooltip :content="t('openExtensionInBrowser')" placement="top">
+                          <!-- 浏览器打开按钮 -->
+                          <el-button
+                            type="default"
+                            circle
+                            size="small"
+                            @click.stop="openExtension(extension)">
+                            <i class="fa-solid fa-external-link"></i>
+                          </el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('openExtensionInWindow')" placement="top">
+                          <!-- 独立窗口打开按钮（仅在Electron环境下显示） -->
+                          <el-button
+                            v-if="isElectron"
+                            type="primary"
+                            circle
+                            size="small"
+                            @click.stop="openExtensionInWindow(extension)"
+                            style="margin-left: 8px;">
+                            <i class="fa-solid fa-window-restore"></i>
+                          </el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('deleteExtension')" placement="top">
+                          <!-- 更新删除按钮样式 -->
+                          <el-button @click="removeExtension(extension)" type="danger" circle size="small">
+                            <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </el-tooltip>
                       </div>
                     </div>
                     <div class="kb-content">

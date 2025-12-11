@@ -10240,7 +10240,6 @@ clearSegments() {
     const url = await this.getExtensionURL(extension);   // ⬅️ 同样先启动/拿地址
 
     // 下面逻辑你原来就有，只把 url 换成异步得到的即可
-    this.loadExtension(extension);   // 侧边栏也同步加载（可选）
     this.showExtensionsDialog = false;
     this.messages[0].content = extension.systemPrompt || '';
 

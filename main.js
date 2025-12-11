@@ -1416,7 +1416,4 @@ app.on('web-contents-created', (_event, wc) => {
   });
 });
 
-if (isDev){
-  app.commandLine.appendSwitch('disable-http-cache')
-}
-
+app.commandLine.appendSwitch('disable-http-cache');
