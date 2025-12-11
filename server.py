@@ -1,4 +1,6 @@
 # -- coding: utf-8 --
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import base64
 from datetime import datetime
 import glob

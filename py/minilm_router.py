@@ -32,10 +32,10 @@ class MiniLMOnnxPredictor:
                 raise FileNotFoundError(model_path)
             self.session = ort.InferenceSession(model_path, providers=providers)
             self.input_names = [i.name for i in self.session.get_inputs()]
-            print(f"✅ MiniLM ONNX Predictor loaded from: {model_path}")
+            print(f"MiniLM ONNX Predictor loaded from: {model_path}")
             self.is_loaded = True
         except Exception as e:
-            print(f"❌ Error loading MiniLM ONNX Predictor: {e}")
+            print(f"Error loading MiniLM ONNX Predictor: {e}")
             self.is_loaded = False
 
     def _check_files_exist(self) -> bool:
