@@ -2,68 +2,54 @@ import onnxruntime as ort
 from transformers import BertTokenizerFast
 import numpy as np
 import os
-from typing import List, Union, Any, Dict
+import threading
+from typing import List, Union, Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import asyncio
 import time
 
-from py.get_setting import DEFAULT_EBD_DIR 
+from py.get_setting import DEFAULT_EBD_DIR
+
 MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 MODEL_PATH = os.path.join(DEFAULT_EBD_DIR, MODEL_NAME)
 
-# ------------------------------------------------
-# 1. MiniLM ONNX Predictor 类 (保持不变)
-# ------------------------------------------------
-
+# ---------- MiniLM ONNX Predictor ----------
 class MiniLMOnnxPredictor:
-    # ... (此处包含您提供的 MiniLMOnnxPredictor 类的完整代码) ...
-    """
-    MiniLM ONNX 模型预测器，用于生成词嵌入。
-    （代码保持不变，为节省空间在此省略）
-    """
     def __init__(self, model_dir: str, use_gpu: bool = False):
         self.model_dir = model_dir
         self.is_loaded = False
-        
         if not self._check_files_exist():
             return
-
         try:
             self.tokenizer = BertTokenizerFast.from_pretrained(model_dir)
-            
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if use_gpu else ['CPUExecutionProvider']
-            model_path_o4 = os.path.join(model_dir, "model_O4.onnx")
-            model_path_generic = os.path.join(model_dir, "model.onnx")
-            model_path = model_path_o4 if os.path.exists(model_path_o4) else model_path_generic
-            
+            providers = (["CUDAExecutionProvider", "CPUExecutionProvider"]
+                         if use_gpu else ["CPUExecutionProvider"])
+            model_path = (os.path.join(model_dir, "model_O4.onnx")
+                          if os.path.exists(os.path.join(model_dir, "model_O4.onnx"))
+                          else os.path.join(model_dir, "model.onnx"))
             if not os.path.exists(model_path):
-                raise FileNotFoundError()
-            
+                raise FileNotFoundError(model_path)
             self.session = ort.InferenceSession(model_path, providers=providers)
             self.input_names = [i.name for i in self.session.get_inputs()]
-            
             print(f"✅ MiniLM ONNX Predictor loaded from: {model_path}")
             self.is_loaded = True
-            
         except Exception as e:
             print(f"❌ Error loading MiniLM ONNX Predictor: {e}")
             self.is_loaded = False
 
     def _check_files_exist(self) -> bool:
-        onnx_exists = os.path.exists(os.path.join(self.model_dir, "model_O4.onnx")) or \
-                      os.path.exists(os.path.join(self.model_dir, "model.onnx"))
-        tokenizer_exists = os.path.exists(os.path.join(self.model_dir, "tokenizer.json")) or \
-                           os.path.exists(os.path.join(self.model_dir, "vocab.txt"))
-        return onnx_exists and tokenizer_exists
+        onnx_ok = os.path.exists(os.path.join(self.model_dir, "model_O4.onnx")) or \
+                  os.path.exists(os.path.join(self.model_dir, "model.onnx"))
+        tok_ok  = os.path.exists(os.path.join(self.model_dir, "tokenizer.json")) or \
+                  os.path.exists(os.path.join(self.model_dir, "vocab.txt"))
+        return onnx_ok and tok_ok
 
     def mean_pooling(self, model_output: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
         token_embeddings = model_output
-        input_mask_expanded = np.expand_dims(attention_mask, -1)
-        input_mask_expanded = np.broadcast_to(input_mask_expanded, token_embeddings.shape).astype(float)
-        sum_embeddings = np.sum(token_embeddings * input_mask_expanded, axis=1)
-        sum_mask = np.clip(input_mask_expanded.sum(axis=1), a_min=1e-9, a_max=None)
-        return sum_embeddings / sum_mask
+        mask = np.expand_dims(attention_mask, -1).astype(float)
+        mask = np.broadcast_to(mask, token_embeddings.shape)
+        return np.sum(token_embeddings * mask, axis=1) / np.clip(mask.sum(axis=1), a_min=1e-9, a_max=None)
 
     def normalize(self, v: np.ndarray) -> np.ndarray:
         norm = np.linalg.norm(v, axis=1, keepdims=True)
@@ -72,37 +58,45 @@ class MiniLMOnnxPredictor:
     def predict(self, sentences: List[str]) -> np.ndarray:
         if not self.is_loaded:
             raise RuntimeError("Model not loaded. Cannot run prediction.")
-            
-        inputs = self.tokenizer(
-            sentences, padding=True, truncation=True, max_length=512, return_tensors="np" 
-        )
-        ort_inputs = {
-            'input_ids': inputs['input_ids'].astype(np.int64),
-            'attention_mask': inputs['attention_mask'].astype(np.int64)
-        }
-        if 'token_type_ids' in self.input_names:
-            if 'token_type_ids' in inputs:
-                ort_inputs['token_type_ids'] = inputs['token_type_ids'].astype(np.int64)
-            else:
-                ort_inputs['token_type_ids'] = np.zeros_like(inputs['input_ids'], dtype=np.int64)
-
+        inputs = self.tokenizer(sentences, padding=True, truncation=True, max_length=512, return_tensors="np")
+        ort_inputs = {"input_ids": inputs["input_ids"].astype(np.int64),
+                      "attention_mask": inputs["attention_mask"].astype(np.int64)}
+        if "token_type_ids" in self.input_names:
+            tti = inputs.get("token_type_ids")
+            ort_inputs["token_type_ids"] = (tti.astype(np.int64) if tti is not None else
+                                            np.zeros_like(inputs["input_ids"], dtype=np.int64))
         outputs = self.session.run(None, ort_inputs)
-        last_hidden_state = outputs[0] 
+        embeddings = self.mean_pooling(outputs[0], inputs["attention_mask"])
+        return self.normalize(embeddings).astype(np.float32)
 
-        embeddings = self.mean_pooling(last_hidden_state, inputs['attention_mask'])
-        embeddings = self.normalize(embeddings)
+# ---------- 带热重载的池子 ----------
+class MiniLMPool:
+    def __init__(self, model_dir: str, use_gpu: bool = False):
+        self.model_dir = model_dir
+        self.use_gpu   = use_gpu
+        self._predictor: Optional[MiniLMOnnxPredictor] = None
+        self._lock     = threading.Lock()
 
-        return embeddings.astype(np.float32)
+    def _really_load(self) -> MiniLMOnnxPredictor:
+        return MiniLMOnnxPredictor(self.model_dir, self.use_gpu)
 
-# ------------------------------------------------
-# 2. FastAPI 模型和路由设置
-# ------------------------------------------------
+    def get(self) -> MiniLMOnnxPredictor:
+        if self._predictor and self._predictor.is_loaded:
+            return self._predictor
+        with self._lock:
+            if self._predictor and self._predictor.is_loaded:
+                return self._predictor
+            if not MiniLMOnnxPredictor(model_dir=self.model_dir)._check_files_exist():
+                raise RuntimeError("Model files not found")
+            self._predictor = self._really_load()
+            if not self._predictor.is_loaded:
+                raise RuntimeError("Model failed to load")
+            return self._predictor
 
-# 初始化全局预测器和路由
-global_minilm_predictor = MiniLMOnnxPredictor(MODEL_PATH, use_gpu=False)
+minilm_pool = MiniLMPool(MODEL_PATH, use_gpu=False)
+
+# ---------- FastAPI 数据模型 ----------
 router = APIRouter(prefix="/minilm", tags=["MiniLM Embeddings (OpenAI Compatible)"])
-
-# --- Pydantic 模型定义 ---
 
 class EmbeddingRequest(BaseModel):
     input: Union[str, List[str]]
@@ -119,57 +113,35 @@ class EmbeddingResponse(BaseModel):
     model: str
     usage: Dict[str, Any]
 
-# --- 依赖注入函数 ---
-
+# ---------- 依赖 ----------
 def get_minilm_predictor() -> MiniLMOnnxPredictor:
-    """依赖注入函数，检查模型是否已加载"""
-    if not global_minilm_predictor.is_loaded:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Model '{MODEL_NAME}' is not installed or failed to load. Please download it first."
-        )
-    return global_minilm_predictor
-
-# --- 路由定义 ---
-
-@router.post("/embeddings", response_model=EmbeddingResponse)
-async def create_embeddings(
-    request: EmbeddingRequest,
-    predictor: MiniLMOnnxPredictor = Depends(get_minilm_predictor)
-):
-    """
-    OpenAI 兼容的词嵌入接口。
-    """
-    start_time = time.time()
-    
-    if isinstance(request.input, str):
-        texts = [request.input]
-    else:
-        texts = request.input
-        
-    # 计算 Token 数 (近似值)
-    num_tokens = sum(len(predictor.tokenizer.tokenize(t)) for t in texts)
-    
-    # 在后台线程中运行同步的 ONNX 推理
     try:
-        embeddings_np = await asyncio.to_thread(predictor.predict, texts)
-        
-    except Exception as e:
-        print(f"MiniLM Prediction Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+        return minilm_pool.get()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503,
+                            detail=f"Model '{MODEL_NAME}' is not installed or failed to load. ({e})")
 
-    # 格式化响应数据
-    response_data = [
-        EmbeddingData(embedding=emb.tolist(), index=i) 
-        for i, emb in enumerate(embeddings_np)
-    ]
-        
-    return EmbeddingResponse(
-        model=request.model,
-        data=response_data,
-        usage={
-            "prompt_tokens": num_tokens,
-            "total_tokens": num_tokens,
-            "inference_time_ms": int((time.time() - start_time) * 1000)
-        }
-    )
+# ---------- 嵌入接口 ----------
+@router.post("/embeddings", response_model=EmbeddingResponse)
+async def create_embeddings(request: EmbeddingRequest,
+                            predictor: MiniLMOnnxPredictor = Depends(get_minilm_predictor)):
+    start = time.time()
+    texts = [request.input] if isinstance(request.input, str) else request.input
+    num_tokens = sum(len(predictor.tokenizer.tokenize(t)) for t in texts)
+    try:
+        embs = await asyncio.to_thread(predictor.predict, texts)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+    data = [EmbeddingData(embedding=emb.tolist(), index=i) for i, emb in enumerate(embs)]
+    return EmbeddingResponse(model=request.model,
+                             data=data,
+                             usage={"prompt_tokens": num_tokens,
+                                    "total_tokens": num_tokens,
+                                    "inference_time_ms": int((time.time() - start) * 1000)})
+
+# ---------- 强制重载接口 ----------
+@router.post("/reload")
+async def reload_model():
+    with minilm_pool._lock:
+        minilm_pool._predictor = None
+    return {"msg": "reload triggered, next request will load model"}

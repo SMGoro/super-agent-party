@@ -10388,7 +10388,7 @@ clearSegments() {
         this.minilmEventSource = es;
         
         // 监听消息流
-        es.onmessage = e => {
+        es.onmessage = async e => {
             let data;
             try {
                 // 后端会发送 JSON 格式的进度数据
@@ -10407,8 +10407,13 @@ clearSegments() {
                 es.close();
                 this.minilmDownloading = false;
                 this.minilmPercent = 100;
-                this.minilmModelStatus(); // 刷新模型存在状态
-                // 假设 showNotification 是一个可用的全局/混入函数
+
+                // 1. 通知后端热重载
+                await fetch('/minilm/reload', { method: 'POST' });
+
+                // 2. 再刷新一次存在状态（此时一定为 true）
+                await this.minilmModelStatus();
+
                 if (typeof showNotification === 'function') {
                     showNotification(this.t('modelDownloadSuccess'));
                 }
