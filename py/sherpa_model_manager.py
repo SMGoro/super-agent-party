@@ -162,9 +162,19 @@ async def download(source: str):
         def cleanup_progress_files():
             for key in file_map:
                 try:
-                    Path(DEFAULT_ASR_DIR / f"{file_map[key]['id']}.json").unlink(missing_ok=True)
+                    file_id = file_map[key].get('id')
+                    if file_id:
+                        progress_file = Path(DEFAULT_ASR_DIR) / f"{file_id}.json"
+                        progress_file.unlink(missing_ok=True)
                 except Exception as e:
-                    print(f"Cleanup error for {file_map[key]['filename']}: {e}")
+                    # 安全地获取错误信息，避免触发异常对象的 __str__() 方法中的错误
+                    try:
+                        error_msg = str(e)
+                    except:
+                        error_msg = f"Error type: {type(e).__name__}"
+                    
+                    filename = file_map[key].get('filename', 'unknown')
+                    print(f"Cleanup error for {filename}: {error_msg}")
 
         try:
             while completed_files < num_files:
