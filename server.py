@@ -3837,17 +3837,16 @@ async def simple_chat_endpoint(request: ChatRequest):
         return JSONResponse(content=response.model_dump())
 
     # --------------- 流式：保持原来的 StreamingResponse ---------------
-    async def openai_format_stream():
+    async def openai_raw_stream():
         async for chunk in response:
-            yield f"data: {chunk.model_dump_json()}\n\n"
-        yield "data: [DONE]\n\n"
+            yield chunk.model_dump_json() + '\n'
+        # 不发送 [DONE]
 
     return StreamingResponse(
-        openai_format_stream(),
-        media_type="text/event-stream",
+        openai_raw_stream(),
+        media_type="text/plain",      # 也可以保持 "text/event-stream"
         headers={"Cache-Control": "no-cache"}
     )
-
 
 # 存储活跃的ASR WebSocket连接
 asr_connections = []

@@ -1795,115 +1795,102 @@ let vue_methods = {
       }
     },
     async translateMessage(index) {
-        const msg = this.messages[index];
-        const originalContent = msg.content;
-        if (msg.isTranslating) return;
-        if (originalContent.trim() === '') return;
-        // 直接修改原消息状态
-        this.messages[index] = {
-            ...msg,
-            content: this.t('translating') + '...',
-            isTranslating: true,
-            originalContent
-        };
+      const msg = this.messages[index];
+      const originalContent = msg.content;
+      if (msg.isTranslating) return;
+      if (originalContent.trim() === '') return;
 
-        try {
-            const abortController = new AbortController();
-            this.abortController = abortController;
-            // 遍历this.ttsSettings.newtts，获取所有包含enabled: true的key,放到newttsList中
-            let newttsList = [];
-            if (this.ttsSettings.newtts){
-              for (const key in this.ttsSettings.newtts) {
-                if (this.ttsSettings.newtts[key].enabled) {
-                  newttsList.push(key);
-                }
-              }
-            }
-            let tts_msg = ""
-            if (newttsList?.length == 0 || !this.ttsSettings.enabled){
-                tts_msg = "如果被翻译的文字与目标语言一致，则返回原文即可"
-            }else{
-                tts_msg = `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`
-            }
-            const response = await fetch('/simple_chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: this.mainAgent,
-                    messages: [
-                        {
-                            role: "system",
-                            content: `你是一位专业翻译，请将用户提供的任何内容严格翻译为${this.target_lang}，保持原有格式（如Markdown、换行等），不要添加任何额外内容。只需返回翻译结果。${tts_msg}`
-                        },
-                        {
-                            role: "user",
-                            content: `请翻译以下内容到${this.target_lang}：\n\n${originalContent}`
-                        }
-                    ],
-                    stream: true,
-                    temperature: 0.1
-                }),
-                signal: abortController.signal
-            });
+      // 1. 先占坑
+      this.messages[index] = {
+        ...msg,
+        content: this.t('translating') + '...',
+        isTranslating: true,
+        originalContent
+      };
 
-            if (!response.ok) throw new Error('Translation failed');
+      try {
+        const abortController = new AbortController();
+        this.abortController = abortController;
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let translated = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                buffer += decoder.decode(value, { stream: true });
-                
-                // 流式更新逻辑
-                const chunks = buffer.split('\n\n');
-                for (const chunk of chunks.slice(0, -1)) {
-                    if (chunk.startsWith('data: ')) {
-                        const jsonStr = chunk.slice(6);
-                        if (jsonStr === '[DONE]') continue;
-                        
-                        try {
-                            const { choices } = JSON.parse(jsonStr);
-                            if (choices?.[0]?.delta?.content) {
-                                translated += choices[0].delta.content;
-                                // Vue3 的响应式数组可以直接修改
-                                this.messages[index].content = translated;
-                            }
-                        } catch (e) {
-                            console.error('Parse error', e);
-                        }
-                    }
-                }
-                buffer = chunks[chunks.length - 1];
-            }
-
-            // 最终状态更新
-            this.messages[index] = {
-                ...this.messages[index],
-                isTranslating: false,
-                translated: true
-            };
-
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                // 恢复原始内容
-                this.messages[index] = {
-                    ...msg,
-                    content: originalContent,
-                    isTranslating: false
-                };
-            } else {
-                // 显示错误信息
-                this.messages[index].content = `Translation error: ${error.message}`;
-                this.messages[index].isTranslating = false;
-            }
-        } finally {
-            this.abortController = null;
+        // 2. 组装 TTS 提示
+        let newttsList = [];
+        if (this.ttsSettings?.newtts) {
+          for (const key in this.ttsSettings.newtts) {
+            if (this.ttsSettings.newtts[key].enabled) newttsList.push(key);
+          }
         }
+        const ttsMsg = (newttsList.length === 0 || !this.ttsSettings?.enabled)
+          ? '如果被翻译的文字与目标语言一致，则返回原文即可'
+          : `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList.join(', ')}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`;
+
+        // 3. 发起流式请求
+        const response = await fetch('/simple_chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.mainAgent,
+            messages: [
+              {
+                role: 'system',
+                content: `你是一位专业翻译，请将用户提供的任何内容严格翻译为${this.target_lang}，保持原有格式（如Markdown、换行等），不要添加任何额外内容。只需返回翻译结果。${ttsMsg}`
+              },
+              {
+                role: 'user',
+                content: `请翻译以下内容到${this.target_lang}：\n\n${originalContent}`
+              }
+            ],
+            stream: true,
+            temperature: 0.1
+          }),
+          signal: abortController.signal
+        });
+
+        if (!response.ok) throw new Error('Translation failed');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';      // 残余半截行
+        let translated = '';  // 累积结果
+
+        // 4. 逐块读
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // 最后一行可能不完整，留到下一轮
+
+          for (const line of lines) {
+            if (!line) continue;          // 空行跳过
+            try {
+              const chunk = JSON.parse(line);
+              const delta = chunk.choices?.[0]?.delta?.content ?? '';
+              if (delta) {
+                translated += delta;
+                this.messages[index].content = translated; // 实时渲染
+              }
+            } catch (e) {
+              // 忽略解析失败
+            }
+          }
+        }
+
+        // 5. 翻译完成
+        this.messages[index].isTranslating = false;
+        this.messages[index].translated = true;
+
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          // 用户中断，恢复原文
+          this.messages[index] = { ...msg, content: originalContent, isTranslating: false };
+        } else {
+          this.messages[index].content = `Translation error: ${error.message}`;
+          this.messages[index].isTranslating = false;
+        }
+      } finally {
+        this.abortController = null;
+      }
     },
     stopGenerate() {
       if (this.abortController) {
@@ -9051,23 +9038,24 @@ stopTTSActivities() {
     if (!this.sourceText.trim() || this.isTranslating) return;
     this.isTranslating = true;
     this.translatedText = this.t('translating') + '…';
-    const controller = new AbortController()
-    this.translateAbortController = controller
 
-    /* 构造 system prompt 与 TTS 标签逻辑，与你给出的 translateMessage 保持一致 */
+    const controller = new AbortController();
+    this.translateAbortController = controller;
+
+    // 构造 TTS 提示（与 translateMessage 保持一致）
     let newttsList = [];
-    if (this.ttsSettings.newtts) {
+    if (this.ttsSettings?.newtts) {
       for (const key in this.ttsSettings.newtts) {
         if (this.ttsSettings.newtts[key].enabled) newttsList.push(key);
       }
     }
-    let ttsPrompt = '';
-    ttsPrompt = "如果被翻译的文字与目标语言一致，则返回原文即可"
-    // if (newttsList?.length == 0 || !this.ttsSettings.enabled){
-    //     ttsPrompt = "如果被翻译的文字与目标语言一致，则返回原文即可"
-    // }else{
-    //     ttsPrompt = `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`
-    // }
+    const ttsPrompt =
+      newttsList.length === 0 || !this.ttsSettings?.enabled
+        ? '如果被翻译的文字与目标语言一致，则返回原文即可'
+        : `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList.join(
+            ', '
+          )}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`;
+
     try {
       const res = await fetch('/simple_chat', {
         method: 'POST',
@@ -9077,49 +9065,50 @@ stopTTSActivities() {
           messages: [
             {
               role: 'system',
-              content: `你是一位专业翻译，请将用户提供的任何内容严格翻译为${this.target_lang}，保持原有格式（如Markdown、换行等），不要添加任何额外内容。只需返回翻译结果。${ttsPrompt}`,
+              content: `你是一位专业翻译，请将用户提供的任何内容严格翻译为${this.target_lang}，保持原有格式（如Markdown、换行等），不要添加任何额外内容。只需返回翻译结果。${ttsPrompt}`
             },
             {
               role: 'user',
-              content: `请翻译以下内容到${this.target_lang}：\n\n${this.sourceText}`,
-            },
+              content: `请翻译以下内容到${this.target_lang}：\n\n${this.sourceText}`
+            }
           ],
           stream: true,
           temperature: 0.1
         }),
-        signal: controller.signal,
+        signal: controller.signal
       });
 
       if (!res.ok) throw new Error('Network error');
+
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let buffer = ''; // 残余半截行
       let result = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split('\n\n');
-        for (const chunk of chunks.slice(0, -1)) {
-          if (chunk.startsWith('data: ')) {
-            const jsonStr = chunk.slice(6);
-            if (jsonStr === '[DONE]') continue;
-            try {
-              const { choices } = JSON.parse(jsonStr);
-              if (choices?.[0]?.delta?.content) {
-                result += choices[0].delta.content;
-                this.translatedText = result;
-              }
-            } catch {}
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // 最后一行可能不完整，留到下一轮
+
+        for (const line of lines) {
+          if (!line) continue; // 跳过空行
+          try {
+            const chunk = JSON.parse(line);
+            const delta = chunk.choices?.[0]?.delta?.content ?? '';
+            if (delta) {
+              result += delta;
+              this.translatedText = result; // 实时渲染
+            }
+          } catch {
+            // 忽略解析失败
           }
         }
-        buffer = chunks[chunks.length - 1];
       }
     } catch (e) {
-      if (e.name === 'AbortError') {
-        
-      } else {
+      if (e.name !== 'AbortError') {
         this.translatedText = `Translation error: ${e.message}`;
       }
     } finally {
@@ -9155,31 +9144,34 @@ stopTTSActivities() {
   },
   async handleQuickGen() {
     if (!this.quickCreatePrompt.trim() || this.isGenerating) return;
+
     this.isGenerating = true;
     showNotification(this.t('startGen'));
-    const controller = new AbortController()
-    this.QuickGenAbortController = controller
+
+    const controller = new AbortController();
+    this.QuickGenAbortController = controller;
+
     const systemPrompt = `你是一名专业的角色设计师。  
-生成的角色卡内容必须与用户输入的语言保持一致。  
-用户会提供一个简短的创意，你必须仅回复一段**有效的 JSON**，并放在一个标准的Markdown 代码块中。  
-JSON 结构必须为：
+  生成的角色卡内容必须与用户输入的语言保持一致。  
+  用户会提供一个简短的创意，你必须仅回复一段**有效的 JSON**，并放在一个标准的Markdown 代码块中。  
+  JSON 结构必须为：
 
-  {
-    "name": "角色名称",
-    "description": "简要背景/世界观设定，尽可能详细",
-    "personality": "性格特征",
-    "mesExample": "展示 2~5 轮聊天示例，格式：用户:xxx\n角色:xxx",
-    "systemPrompt": "用于驱动角色的系统提示",
-    "firstMes": "角色的第一句问候语",
-    "alternateGreetings": ["可选问候2","可选问候3"],
-    "characterBook": [
-        {"keysRaw":"关键词1\n关键词2","content":"这里填入当用户提到关键词1或关键词2时，需要返回给AI看的内容……"},
-        {"keysRaw":"关键词3","content":"这里填入当用户提到关键词3时，需要返回给AI看的内容……"}
-    ]
-  }
+    {
+      "name": "角色名称",
+      "description": "简要背景/世界观设定，尽可能详细",
+      "personality": "性格特征",
+      "mesExample": "展示 2~5 轮聊天示例，格式：用户:xxx\n角色:xxx",
+      "systemPrompt": "用于驱动角色的系统提示",
+      "firstMes": "角色的第一句问候语",
+      "alternateGreetings": ["可选问候2","可选问候3"],
+      "characterBook": [
+          {"keysRaw":"关键词1\n关键词2","content":"这里填入当用户提到关键词1或关键词2时，需要返回给AI看的内容……"},
+          {"keysRaw":"关键词3","content":"这里填入当用户提到关键词3时，需要返回给AI看的内容……"}
+      ]
+    }
 
-所有字段都必须提供；characterBook也请尽可能的丰富，最好可以在10条以上，每条的字数可以不用太多。alternateGreetings最好也有5条以上。
-绝不可包含 avatar 字段。`;
+  所有字段都必须提供；characterBook也请尽可能的丰富，最好可以在10条以上，每条的字数可以不用太多。alternateGreetings最好也有5条以上。
+  绝不可包含 avatar 字段。`;
 
     try {
       const res = await fetch('/simple_chat', {
@@ -9190,68 +9182,90 @@ JSON 结构必须为：
             { role: 'system', content: systemPrompt },
             { role: 'user', content: this.quickCreatePrompt }
           ],
-          stream: false,          // 非流式，直接拿完整 JSON
+          stream: true,   // ★ 打开流式
           temperature: 0.8
         }),
-        signal: controller.signal,
+        signal: controller.signal
       });
 
       if (!res.ok) throw new Error('Network error');
 
-      // 解析返回的 choices[0].message.content
-      const data = await res.json();
-      let raw  = data.choices?.[0]?.message?.content ?? '';
-      // 1. 去掉首尾空格
-      raw = raw.trim();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';      // 残余半截行
+      let fullText = '';    // 累积完整回复
 
-      // 2. 如果被 ```json … ``` 包裹，先提取
+      // 1. 实时读流
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // 最后一行可能不完整
+
+        for (const line of lines) {
+          if (!line) continue;
+          try {
+            const chunk = JSON.parse(line);
+            const delta = chunk.choices?.[0]?.delta?.content ?? '';
+            if (delta) {
+              fullText += delta;
+              this.quickCreatePrompt = fullText; // 实时显示
+            }
+          } catch {
+            // 忽略解析失败
+          }
+        }
+      }
+
+      // 2. 流结束，再走原来的解析逻辑
+      let raw = fullText.trim();
+
+      // 去 code-block
       const codeBlock = raw.match(/^```json\s*([\s\S]*?)```$/);
       if (codeBlock) raw = codeBlock[1];
-
-      // 3. 再试一次「裸」提取（有时只写 ``` 不带语言标记）
       const tildeBlock = raw.match(/^```\s*([\s\S]*?)```$/);
       if (tildeBlock) raw = tildeBlock[1];
 
-      // 4. 解析
+      // 解析 JSON
       let json;
-      console.log(raw)
       try {
         json = JSON.parse(raw);
       } catch (e) {
         throw new Error('AI 返回的不是合法 JSON：' + e.message);
       }
 
-      // 把结果写入 newMemory（不会自动保存，用户仍可手动改）
+      // 3. 写入 newMemory 并保存
       Object.assign(this.newMemory, {
-        name:        json.name        ?? '',
-        providerId: null, // 强制空
+        name: json.name ?? '',
+        providerId: null,
         model: '',
         base_url: '',
         api_key: '',
         vendor: '',
         description: json.description ?? '',
         personality: json.personality ?? '',
-        mesExample:  json.mesExample  ?? '',
-        systemPrompt:json.systemPrompt?? '',
-        firstMes:    json.firstMes    ?? '',
+        mesExample: json.mesExample ?? '',
+        systemPrompt: json.systemPrompt ?? '',
+        firstMes: json.firstMes ?? '',
         alternateGreetings: json.alternateGreetings?.filter(Boolean) ?? [],
         characterBook: (json.characterBook ?? []).map(b => ({
           keysRaw: b.keysRaw ?? '',
           content: b.content ?? ''
         })),
-        avatar: ''   // 强制空
+        avatar: ''
       });
-      this.newMemory.id=null;
-      // 保存
+      this.newMemory.id = null;
       this.addMemory();
       showNotification(this.t('genSuccess'));
+
     } catch (e) {
       if (e.name === 'AbortError') {
         console.log('QuickGen aborted');
-      }else{
+      } else {
         showNotification(this.t('genFailed') + ': ' + e.message, 'error');
       }
-      
     } finally {
       this.isGenerating = false;
       this.QuickGenAbortController = null;
@@ -9263,11 +9277,14 @@ JSON 结构必须为：
   },
   async handleSystemPromptQuickGen() {
     if (!this.quickCreateSystemPrompt.trim() || this.isSystemPromptGenerating) return;
+    
     this.isSystemPromptGenerating = true;
-    this.promptForm.name = this.quickCreateSystemPrompt
+    this.promptForm.name = this.quickCreateSystemPrompt;
     showNotification(this.t('startGen'));
-    const controller = new AbortController()
-    this.QuickGenSystemPromptAbortController = controller
+    
+    const controller = new AbortController();
+    this.QuickGenSystemPromptAbortController = controller;
+    
     try {
       const res = await fetch('/simple_chat', {
         method: 'POST',
@@ -9278,8 +9295,8 @@ JSON 结构必须为：
             {
               role: 'system',
               content: `你需要将用户发给你的简短的系统提示词优化成可以驱动大模型更好的工作的详细的系统提示词。
-注意！生成的系统提示词必须与用户输入的语言保持一致。如果用户说英文，你就必须生成英文的系统提示词；如果用户说中文，你就必须生成中文的系统提示词。以此类推！
-你可以从这几个方面来写，但也不要限于这些方面：角色名、角色定位、核心能力、回答风格、约束、输出格式示例等等`,
+  注意！生成的系统提示词必须与用户输入的语言保持一致。如果用户说英文，你就必须生成英文的系统提示词；如果用户说中文，你就必须生成中文的系统提示词。以此类推！
+  你可以从这几个方面来写，但也不要限于这些方面：角色名、角色定位、核心能力、回答风格、约束、输出格式示例等等`,
             },
             {
               role: 'user',
@@ -9293,6 +9310,7 @@ JSON 结构必须为：
       });
 
       if (!res.ok) throw new Error('Network error');
+      
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -9301,32 +9319,66 @@ JSON 结构必须为：
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split('\n\n');
-        for (const chunk of chunks.slice(0, -1)) {
-          if (chunk.startsWith('data: ')) {
-            const jsonStr = chunk.slice(6);
-            if (jsonStr === '[DONE]') continue;
-            try {
-              const { choices } = JSON.parse(jsonStr);
-              if (choices?.[0]?.delta?.content) {
-                result += choices[0].delta.content;
+        const lines = buffer.split('\n');
+        
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          try {
+            const data = JSON.parse(line);
+            
+            // 适配新的流式响应格式
+            if (data.choices && data.choices[0]) {
+              const choice = data.choices[0];
+              
+              // 处理流式响应中的增量内容
+              if (choice.delta && choice.delta.content) {
+                result += choice.delta.content;
                 this.quickCreateSystemPrompt = result;
               }
-            } catch {}
+              // 或者处理 finish_reason 为 stop 的最终响应
+              else if (choice.finish_reason === 'stop') {
+                // 最终完成，不需要额外处理
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse SSE line:', line, e);
           }
         }
-        buffer = chunks[chunks.length - 1];
+        
+        buffer = lines[lines.length - 1];
       }
+      
+      // 处理可能剩余的缓冲数据
+      if (buffer.trim()) {
+        try {
+          const data = JSON.parse(buffer);
+          if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+            result += data.choices[0].delta.content;
+            this.quickCreateSystemPrompt = result;
+          }
+        } catch (e) {
+          console.warn('Failed to parse remaining buffer:', buffer, e);
+        }
+      }
+      
+      // 保存生成的提示词
       this.promptForm.content = this.quickCreateSystemPrompt;
       this.promptForm.id = null;
-      this.savePrompt();
+      await this.savePrompt();
+      
       showNotification(this.t('genSuccess'));
       this.quickCreateSystemPrompt = '';
+      
     } catch (e) {
       if (e.name === 'AbortError') {
-        
+        // 用户取消了生成，不需要显示错误
+        console.log('System prompt generation was aborted');
       } else {
+        console.error('System prompt generation failed:', e);
         showNotification(this.t('genFailed') + ': ' + e.message, 'error');
       }
     } finally {
@@ -9344,10 +9396,12 @@ JSON 结构必须为：
       showNotification(this.t('noSystemPromptToExtend'), 'error');
       return;
     }
+    
     showNotification(this.t('startGen'));
     this.isQuickGenerating = true;
     const abortController = new AbortController();
     this.abortController = abortController;
+    
     try {
       const res = await fetch('/simple_chat', {
         method: 'POST',
@@ -9358,8 +9412,8 @@ JSON 结构必须为：
             {
               role: 'system',
               content: `你需要将用户发给你的简短的系统提示词优化成可以驱动大模型更好的工作的详细的系统提示词。
-注意！生成的系统提示词必须与用户输入的语言保持一致。如果用户说英文，你就必须生成英文的系统提示词；如果用户说中文，你就必须生成中文的系统提示词。以此类推！
-你可以从这几个方面来写，但也不要限于这些方面：角色名、角色定位、核心能力、回答风格、约束、输出格式示例等等`
+  注意！生成的系统提示词必须与用户输入的语言保持一致。如果用户说英文，你就必须生成英文的系统提示词；如果用户说中文，你就必须生成中文的系统提示词。以此类推！
+  你可以从这几个方面来写，但也不要限于这些方面：角色名、角色定位、核心能力、回答风格、约束、输出格式示例等等`
             },
             {
               role: 'user',
@@ -9373,6 +9427,7 @@ JSON 结构必须为：
       });
 
       if (!res.ok) throw new Error('Network error');
+      
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -9381,29 +9436,62 @@ JSON 结构必须为：
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split('\n\n');
-        for (const chunk of chunks.slice(0, -1)) {
-          if (chunk.startsWith('data: ')) {
-            const jsonStr = chunk.slice(6);
-            if (jsonStr === '[DONE]') continue;
-            try {
-              const { choices } = JSON.parse(jsonStr);
-              if (choices?.[0]?.delta?.content) {
-                result += choices[0].delta.content;
+        const lines = buffer.split('\n');
+        
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          try {
+            const data = JSON.parse(line);
+            
+            // 适配新的流式响应格式
+            if (data.choices && data.choices[0]) {
+              const choice = data.choices[0];
+              
+              // 处理流式响应中的增量内容
+              if (choice.delta && choice.delta.content) {
+                result += choice.delta.content;
                 this.messages[index].content = result;
                 this.scrollToBottom();
               }
-            } catch {}
+              // 或者处理 finish_reason 为 stop 的最终响应
+              else if (choice.finish_reason === 'stop') {
+                // 最终完成，不需要额外处理
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse SSE line:', line, e);
           }
         }
-        buffer = chunks[chunks.length - 1];
+        
+        buffer = lines[lines.length - 1];
       }
+      
+      // 处理可能剩余的缓冲数据
+      if (buffer.trim()) {
+        try {
+          const data = JSON.parse(buffer);
+          if (data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content) {
+            result += data.choices[0].delta.content;
+            this.messages[index].content = result;
+            this.scrollToBottom();
+          }
+        } catch (e) {
+          console.warn('Failed to parse remaining buffer:', buffer, e);
+        }
+      }
+      
       showNotification(this.t('genSuccess'));
+      
     } catch (e) {
       if (e.name === 'AbortError') {
-        
+        // 用户取消了生成，不需要显示错误
+        console.log('Quick generation was aborted');
       } else {
+        console.error('Quick generation failed:', e);
         showNotification(this.t('genFailed') + ': ' + e.message, 'error');
       }
     } finally {
