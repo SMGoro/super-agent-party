@@ -416,7 +416,7 @@ let vue_data = {
     editingAgent: false,
     currentLanguage: 'zh-CN',
     translations: translations,
-    themeValues: ['light', 'dark','midnight','desert','neon','marshmallow','ink','party'],
+    themeValues: ['light', 'dark','midnight','desert','neon','marshmallow','ink','party',"rainbow"],
     isBrowserOpening: false,
     expandedSections: {
       settingsBase: true,

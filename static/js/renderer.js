@@ -236,7 +236,7 @@ const app = Vue.createApp({
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'loose',
-          theme: newVal === 'dark' || newVal === 'midnight' || newVal === 'neon' ? 'dark' : 'default'
+          theme : ['dark','midnight','neon'].includes(newVal) ? 'dark' : 'default'
         });
 
         // 完整的主题色映射
@@ -249,6 +249,7 @@ const app = Vue.createApp({
           marshmallow: '#f5a5c3',  // Marshmallow 粉色
           ink: '#2c3e50',        // 墨水蓝
           party: '#ed7d00',        // 派对黄
+          rainbow: '#845ec2',        // 彩虹
         };
 
         // 获取当前主题色

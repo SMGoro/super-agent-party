@@ -350,6 +350,187 @@
   --hljs-attr: #76c893;           /* 翡翠绿 */
 }
 
+/* =========================================
+   NEW THEME: RAINBOW (Holographic Prism)
+   ========================================= */
+
+[data-theme="rainbow"] {
+  /* --- 核心背景：珍珠母贝质感的微光渐变 --- */
+  --bg-color: #f8f9fe;
+  --bg-gradient: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+  
+  /* --- 文字系统：深邃的靛青色，而非纯黑 --- */
+  --text-color: #43436a; 
+  --text-secondary: #7e7e9e;
+  
+  /* --- 边框：半透明的炫彩 --- */
+  --border-color: rgba(255, 255, 255, 0.6);
+  --border-gradient: linear-gradient(to right, #a18cd1 0%, #fbc2eb 100%);
+
+  /* --- 核心主色：梦幻紫 (作为锚点颜色) --- */
+  --el-color-primary: #845ec2; 
+  --el-color-primary-light-3: #9b7ad6;
+  --el-color-primary-light-5: #b397e0;
+  --el-color-primary-light-7: #ccb5eb;
+  --el-color-primary-light-9: #e6d6f5;
+  --el-color-primary-rgb: 132, 94, 194 !important;
+
+  /* --- 全局组件覆盖 --- */
+  --el-bg-color: rgba(255, 255, 255, 0.85) !important; /* 卡片背景半透明 */
+  --el-bg-color-page: #f4f6f9 !important;
+  --el-bg-color-overlay: #ffffff !important;
+  
+  --el-text-color-primary: var(--text-color) !important;
+  --el-text-color-regular: #5e5e80 !important;
+  --el-text-color-secondary: var(--text-secondary) !important;
+  
+  --el-border-color: #e6e8f0 !important;
+  --el-border-color-light: #f0f2f7 !important;
+
+  /* --- 特殊组件颜色 --- */
+  --el-button-bg-color: var(--el-color-primary) !important;
+  --el-input-bg-color: rgba(255, 255, 255, 0.9) !important;
+  --el-menu-bg-color: transparent !important; /* 菜单透明以显示背景 */
+  --el-tag-bg-color: rgba(132, 94, 194, 0.1) !important;
+
+  /* --- 状态颜色 (采用马卡龙色系) --- */
+  --el-color-success: #00b894 !important; /* 薄荷绿 */
+  --el-color-warning: #fdcb6e !important; /* 芥末黄 */
+  --el-color-danger: #ff7675 !important;  /* 柔和红 */
+  --el-color-info: #74b9ff !important;    /* 天空蓝 */
+
+  /* --- 核心特征：彩色弥散阴影 --- */
+  --el-box-shadow-light: 0 8px 32px 0 rgba(132, 94, 194, 0.15);
+  --card-shadow: 0 10px 40px -10px rgba(161, 140, 209, 0.3);
+  
+  /* --- 代码块 --- */
+  --code-bg: #ffffff;
+  --code-border: #e6e8f0;
+  
+  /* 定义彩虹渐变变量供后续使用 */
+  --rainbow-gradient: linear-gradient(120deg, #845ec2, #d65db1, #ff6f91, #ff9671, #ffc75f, #f9f871);
+}
+
+/* -----------------------------------
+   Rainbow 主题专属样式覆盖
+   ----------------------------------- */
+
+/* 1. 全局背景动画效果 */
+[data-theme="rainbow"] body {
+  background: 
+    radial-gradient(at 0% 0%, hsla(253,16%,7%,0) 0, transparent 50%), 
+    radial-gradient(at 50% 0%, hsla(225,39%,30%,0) 0, transparent 50%), 
+    radial-gradient(at 100% 0%, hsla(339,49%,30%,0) 0, transparent 50%);
+  background-color: #f3f4f6;
+  background-image: 
+    radial-gradient(at 80% 0%, hsla(189,100%,56%,0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 50%, hsla(355,100%,93%,0.1) 0px, transparent 50%),
+    radial-gradient(at 80% 50%, hsla(340,100%,76%,0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, hsla(22,100%,77%,0.1) 0px, transparent 50%),
+    radial-gradient(at 80% 100%, hsla(240,100%,70%,0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 0%, hsla(343,100%,76%,0.1) 0px, transparent 50%);
+  background-attachment: fixed; /* 固定背景，营造高级感 */
+}
+
+/* 2. 侧边栏：磨砂玻璃 */
+[data-theme="rainbow"] .sidebar {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-right: 1px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 3. 卡片系统：浮光效果 */
+[data-theme="rainbow"] .provider-card, 
+[data-theme="rainbow"] .vendor-card,
+[data-theme="rainbow"] .settings-form,
+[data-theme="rainbow"] .highlight-block,
+[data-theme="rainbow"] .highlight-block-reasoning {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03), 
+              0 0 0 1px rgba(255, 255, 255, 0.5) inset !important;
+}
+
+/* 卡片悬停：彩虹光晕 */
+[data-theme="rainbow"] .provider-card:hover,
+[data-theme="rainbow"] .vendor-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 30px rgba(132, 94, 194, 0.15), 
+              0 5px 15px rgba(255, 150, 113, 0.1) !important;
+  border-color: #d65db1 !important;
+}
+
+/* 4. 按钮：流光渐变 */
+[data-theme="rainbow"] .el-button--primary {
+  background-image: linear-gradient(to right, #845ec2 0%, #b39cd0 51%, #845ec2 100%) !important;
+  background-size: 200% auto !important;
+  border: none !important;
+  transition: 0.5s !important;
+  box-shadow: 0 4px 15px 0 rgba(132, 94, 194, 0.35);
+}
+
+[data-theme="rainbow"] .el-button--primary:hover {
+  background-position: right center !important;
+  box-shadow: 0 4px 15px 0 rgba(132, 94, 194, 0.5);
+  transform: scale(1.02);
+}
+
+/* 5. 用户消息气泡：全息色彩 */
+[data-theme="rainbow"] .message.user .message-content {
+  background: var(--rainbow-gradient) !important;
+  color: white !important;
+  box-shadow: 0 4px 15px rgba(255, 111, 145, 0.3) !important;
+  border: none !important;
+}
+
+/* 6. AI 消息气泡：纯净白 + 炫彩边框 */
+[data-theme="rainbow"] .message.assistant .message-content {
+  background: #ffffff !important;
+  border: 1px solid transparent !important;
+  background-image: linear-gradient(#fff, #fff), var(--rainbow-gradient);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+}
+
+/* 7. 选中状态优化 */
+[data-theme="rainbow"] .el-menu-item.is-active {
+  background: linear-gradient(90deg, rgba(132, 94, 194, 0.1), transparent) !important;
+  color: #845ec2 !important;
+  border-left: 3px solid #845ec2;
+}
+
+/* 8. 滚动条：细长的彩虹 */
+[data-theme="rainbow"] ::-webkit-scrollbar-thumb {
+  background-image: linear-gradient(to bottom, #845ec2, #ff9671);
+  border-radius: 10px;
+}
+
+/* =========================================
+   Rainbow 主题代码高亮 (Light Elegant)
+   ========================================= */
+[data-theme="rainbow"] {
+  --hljs-text: #43436a;
+  --hljs-bg: #fdfdff;
+  --hljs-border: rgba(132, 94, 194, 0.2);
+  
+  /* 采用高明度的光谱色 */
+  --hljs-keyword: #845ec2;        /* 皇家紫 */
+  --hljs-string: #00b894;         /* 宝石绿 */
+  --hljs-number: #ff9671;         /* 珊瑚橘 */
+  --hljs-comment: #b0b0d0;        /* 雾霾蓝灰 */
+  --hljs-title: #d65db1;          /* 兰花紫 */
+  --hljs-built_in: #2c98f0;       /* 海洋蓝 */
+  --hljs-literal: #ff6f91;        /* 亮粉红 */
+  --hljs-class: #f9f871;          /* 柠檬黄(需深色背景) -> 调整为深金黄 */
+  --hljs-class: #f9c440;          /* 金黄色 */
+  --hljs-function: #845ec2;
+  --hljs-params: #4b4b4b;
+  --hljs-attr: #0097e6;
+}
+
 
 /* 沙漠主题 */
 [data-theme="desert"] {
