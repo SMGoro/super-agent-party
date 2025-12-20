@@ -28,6 +28,7 @@ class Extension(BaseModel):
     transparent: bool = False
     width: int = 800
     height: int = 600
+    enableVrmWindowSize: bool = False
 
 class ExtensionsResponse(BaseModel):
     extensions: List[Extension]
@@ -106,7 +107,8 @@ async def list_extensions():
                                 category=package_data.get("category", ""),
                                 transparent=package_data.get("transparent", False),
                                 width=package_data.get("width", 800),
-                                height=package_data.get("height", 600)
+                                height=package_data.get("height", 600),
+                                enableVrmWindowSize=package_data.get("enableVrmWindowSize", False)
                             ))
                         except json.JSONDecodeError:
                             extensions.append(Extension(id=ext_id, name=ext_id))

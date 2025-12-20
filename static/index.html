@@ -2427,7 +2427,7 @@ if ('serviceWorker' in navigator) {
                       </el-tooltip>
                     </el-form-item>
 
-                  <div class="tool-item" v-show="ttsSettings.engine === 'systemtts'">
+                  <div class="tool-item" v-show="newTTSConfig.engine === 'systemtts'">
                     <div class="tool-header">
                       <div class="header-left">
                         <span>
@@ -2974,7 +2974,7 @@ if ('serviceWorker' in navigator) {
                       <el-form-item :label="t('windowWidth')" class="form-item-align">
                         <el-slider
                           v-model="newAppearanceConfig.windowWidth"
-                          :min="450"
+                          :min="300"
                           :max="2560"
                           :step="10"
                           show-input
@@ -8505,7 +8505,7 @@ if ('serviceWorker' in navigator) {
                 <el-icon>
                   <i class="fa-solid fa-file"></i>
                 </el-icon>
-                <span>中文文档：</span>
+                <span>中文使用指南：</span>
                 <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc" 
                   target="_blank" 
                   class="social-link">
@@ -8517,7 +8517,7 @@ if ('serviceWorker' in navigator) {
                 <el-icon>
                   <i class="fa-solid fa-file"></i>
                 </el-icon>
-                <span>English Doc：</span>
+                <span>English Usage Guide：</span>
                 <a href="https://temporal-lantern-7e8.notion.site/super-agent-party-211b2b2cb6f180c899d1c27a98c4965d" 
                   target="_blank" 
                   class="social-link">
@@ -9813,7 +9813,7 @@ if ('serviceWorker' in navigator) {
                             <el-form-item :label="t('windowWidth')" class="form-item-align">
                               <el-slider
                                 v-model="VRMConfig.windowWidth"
-                                :min="450"
+                                :min="300"
                                 :max="2560"
                                 :step="10"
                                 show-input

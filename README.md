@@ -10,8 +10,8 @@
 <div align="center">
   <a href="https://space.bilibili.com/26978344">B站</a> ·
   <a href="https://www.youtube.com/@LLM-party">youtube</a> ·
-  <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc">中文文档</a> ·
-  <a href="https://temporal-lantern-7e8.notion.site/super-agent-party-211b2b2cb6f180c899d1c27a98c4965d">English doc</a> ·
+  <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc">中文使用指南</a> ·
+  <a href="https://temporal-lantern-7e8.notion.site/super-agent-party-211b2b2cb6f180c899d1c27a98c4965d">English Usage Guide</a> ·
   <a href="https://pan.baidu.com/share/init?surl=VBSnq4Ga3fRX_NcyPwsV7Q&pwd=2333">网盘下载</a> · 
   <a href="#quick-start">Quick Start</a>
 </div>

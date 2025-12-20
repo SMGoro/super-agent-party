@@ -1532,9 +1532,21 @@ async function startLipSyncForChunk(data) {
         }
 
         // 处理表情
+        // 允许的表情清单（顺序随意，这里按常见度排了一下）
+        const ALLOW_EXPS = [
+        'surprised','happy','angry','sad','neutral','relaxed',
+        'blink','blinkLeft','blinkRight'
+        ];
+
+        // 取后端返回的干净数组
         const expressions = data.expressions || [];
-        if (expressions.length > 0) {
-            chunkState.expression = expressions[0].replace(/<|>/g, '');
+
+        // 找到第一个命中项
+        const hit = expressions.find(e => ALLOW_EXPS.includes(e));
+
+        // 如果命中就存下来，否则保持原来的值（或 undefined）
+        if (hit !== undefined) {
+        chunkState.expression = hit;
         }
 
         // 创建音频元素

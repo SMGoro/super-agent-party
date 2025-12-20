@@ -7001,6 +7001,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         "data": {"text": extension_system_prompt}
                     })
 
+            # 新增：处理扩展页面发送的关闭窗口
+            elif data.get("type") == "trigger_close_extension":
+                extension_system_prompt = data.get("data", {}).get("text", "")
+                # 广播给所有连接的客户端
+                for connection in active_connections:
+                    await connection.send_json({
+                        "type": "trigger_close_extension",
+                        "data": {}
+                    })
+
             # 新增：处理扩展页面请求发送消息
             elif data.get("type") == "trigger_send_message":
                 # 广播给所有连接的客户端
