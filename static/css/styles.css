@@ -4702,7 +4702,7 @@ body {
   /* --- 核心修改开始 --- */
   display: block;                /* 保持块级特性（换行） */
   width: fit-content;            /* 关键：宽度适配内容 */
-  min-width: 200px;              /* 关键：设置最小宽度，防止表格太窄时下载按钮遮挡表头 */
+  min-width: 50px;              /* 关键：设置最小宽度，防止表格太窄时下载按钮遮挡表头 */
   max-width: 100%;               /* 防止超出父容器宽度 */
   overflow-x: auto;              /* 如果表格比屏幕宽，允许横向滚动 */
   /* --- 核心修改结束 --- */
@@ -5075,4 +5075,203 @@ body {
 .a2ui-card-desc ul {
   padding-left: 20px; /* 确保列表符号显示 */
   margin: 5px 0;
+}
+
+/* ========================================= */
+/* A2UI 新增交互组件样式 (Form Controls) */
+/* ========================================= */
+
+/* 1. 单选框 & 多选框组 (Radio & Checkbox) */
+/* 让选项组自动换行，避免手机端溢出 */
+.a2ui-root .el-radio-group,
+.a2ui-root .el-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+/* 增强带边框的选项样式 (使其看起来像小卡片) */
+.a2ui-root .el-radio.is-bordered,
+.a2ui-root .el-checkbox.is-bordered {
+  margin-right: 0 !important; /* 移除 Element 默认右边距，改用 gap 控制 */
+  background-color: rgba(125, 125, 125, 0.04); /* 微弱的背景填充 */
+  border-color: rgba(128, 128, 128, 0.2);     /* 半透明边框 */
+  transition: all 0.2s;
+}
+
+/* 选中状态：使用主题主色，并增加不透明度 */
+.a2ui-root .el-radio.is-bordered.is-checked,
+.a2ui-root .el-checkbox.is-bordered.is-checked {
+  background-color: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary);
+}
+
+/* 2. 评分组件 (Rate) */
+.a2ui-root .el-rate {
+  height: auto;
+  padding: 5px 0;
+  display: flex;
+  align-items: center;
+}
+.a2ui-root .el-rate__text {
+  /* 确保评分后的文字 (如"满意") 颜色跟随主题 */
+  color: var(--el-text-color-regular) !important;
+  margin-left: 10px;
+}
+
+/* 3. 滑块组件 (Slider) */
+.a2ui-root .el-slider__runway {
+  /* 滑块轨道背景适配 */
+  background-color: var(--el-border-color-lighter);
+}
+/* 修复滑块输入框在某些主题下的背景 */
+.a2ui-root .el-slider__input .el-input__wrapper {
+  background-color: transparent; 
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+}
+
+/* 4. 警告/提示条 (Alert) */
+.a2ui-root .el-alert {
+  margin: 0;
+  border: 1px solid transparent;
+  /* 稍微圆润一点，符合聊天气泡风格 */
+  border-radius: 8px;
+}
+
+/* 针对不同类型的 Alert 微调背景透明度 (可选，Element Plus 默认其实不错) */
+/* 这里主要是为了修复 Markdown 在 Alert 里的边距问题 */
+.a2ui-root .el-alert .el-alert__content {
+  width: 100%; /* 确保内容占满 */
+}
+
+/* 修复：Alert 内部 Markdown <p> 标签会导致垂直间距过大 */
+.a2ui-root .el-alert .el-alert__description p {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+.a2ui-root .el-alert .el-alert__description p:first-child {
+  margin-top: 0;
+}
+.a2ui-root .el-alert .el-alert__description p:last-child {
+  margin-bottom: 0;
+}
+
+/* 5. 日期选择器 (DatePicker) */
+.a2ui-root .el-date-editor.el-input,
+.a2ui-root .el-date-editor.el-input__wrapper {
+  width: 100%; /* 强制占满容器 */
+  box-sizing: border-box;
+}
+
+/* ========================================= */
+/* 移动端适配微调 */
+/* ========================================= */
+@media (max-width: 768px) {
+  /* 手机上 Radio/Checkbox 占满一行，便于点击 */
+  .a2ui-root .el-radio.is-bordered,
+  .a2ui-root .el-checkbox.is-bordered {
+    width: 100%; 
+    justify-content: center; /* 文字居中 */
+  }
+  
+  /* 手机上 Slider 的输入框可能太挤，可以隐藏或缩小 */
+  .a2ui-root .el-slider__input {
+    width: 60px;
+  }
+  .a2ui-root .el-slider__runway.show-input {
+    margin-right: 75px; /* 给输入框留位置 */
+  }
+}
+
+/* ========================================= */
+/* A2UI Code 组件样式 (Mac 风格终端) */
+/* ========================================= */
+
+.a2ui-code-block {
+  margin-bottom: 15px;
+  border-radius: 8px;
+  overflow: hidden; /* 确保圆角不被内部溢出破坏 */
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  
+  /* 自动适配背景色：
+     亮色模式：非常浅的灰色
+     深色模式：深黑灰色 (接近 VSCode)
+  */
+  background-color: var(--code-bg-color, #282c34);
+}
+
+
+/* 顶部栏 (语言标签 + 复制按钮) */
+.a2ui-code-block .code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  /* 顶部栏背景：稍微比代码区深一点或浅一点，形成层次感 */
+  background-color: rgba(128, 128, 128, 0.1);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+  user-select: none;
+}
+
+.a2ui-code-block .lang-tag {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 复制按钮 */
+.a2ui-code-block .copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.a2ui-code-block .copy-btn:hover {
+  background-color: rgba(128, 128, 128, 0.15);
+  color: var(--el-color-primary);
+}
+
+/* 代码内容区 */
+.a2ui-code-block .code-body {
+  padding: 12px;
+  overflow-x: auto; /* 超出宽度横向滚动 */
+}
+
+/* 核心 Pre/Code 样式 */
+.a2ui-code-block .code-body pre {
+  margin: 0;
+  padding: 0;
+  background-color: var(--code-bg-color, #282c34);
+  border: none;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+
+.a2ui-code-block .code-body pre code {
+  font-size: 13px;
+  /* 确保代码颜色在深浅模式下可见 */
+  color: var(--el-text-color-secondary);
+  white-space: pre; /* 保持格式 */
+  word-wrap: normal;
+}
+
+/* 移除 markdown 内容中最后一个元素的底部边距 */
+.markdown-body > *:last-child,
+.markdown-body > div > *:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* 针对你代码中的特定结构，可能还需要深入一层 */
+.markdown-body p:last-child {
+    margin-bottom: 0 !important;
 }

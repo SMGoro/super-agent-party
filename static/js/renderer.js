@@ -81,6 +81,23 @@ const A2UIRendererComponent = {
               v-html="renderMarkdown(item.props.content)"
             ></div>
 
+            <!-- 16. Code (代码块 - 独立渲染，无额外 wrapper) -->
+            <div 
+              v-if="item.type === 'Code'" 
+              class="a2ui-code-block"
+            >
+              <div class="code-header">
+                <span class="lang-tag">{{ item.props.language || 'text' }}</span>
+                <div class="copy-btn" @click="copyToClipboard(item.props.content, $event)">
+                  <i class="fa-regular fa-copy"></i>
+                  <span>copy</span>
+                </div>
+              </div>
+              <div class="code-body">
+                <pre><code>{{ item.props.content }}</code></pre>
+              </div>
+            </div>
+
             <!-- 4. Divider -->
             <el-divider 
               v-if="item.type === 'Divider'" 
@@ -89,14 +106,15 @@ const A2UIRendererComponent = {
 
             <!-- 5. Group -->
             <div v-if="item.type === 'Group'" class="a2ui-group-container">
-              <!-- 如果 Group 也有标题，也可以显示一下 -->
                <div v-if="item.props && item.props.title" style="width: 100%; font-weight: bold; margin-bottom: 8px; font-size: 14px;">
                   {{ item.props.title }}
                </div>
+              <!-- ★ 修改点：添加 :shared-form-data="formData" -->
               <a2-u-i-renderer 
                 v-for="(child, cIdx) in item.children" 
                 :key="cIdx" 
                 :config="child"
+                :shared-form-data="formData" 
                 @action="relayAction"
                 style="flex: 1; min-width: auto;" 
               />
@@ -132,22 +150,30 @@ const A2UIRendererComponent = {
                 </div>
               </template>
               
-              <div v-if="item.children && item.children.length > 0">
-                 <a2-u-i-renderer 
-                    v-for="(child, ccIdx) in item.children" 
-                    :key="ccIdx" 
-                    :config="child"
-                    @action="relayAction"
-                 />
-              </div>
-
-              <!-- ★ 修复点：Card 内容也支持 Markdown -->
-              <div v-else class="a2ui-card-desc markdown-body">
+              <!-- ★ 修复点 1：独立渲染 Card 的 content，不再使用 v-else -->
+              <!-- 这样，无论有没有 children，只要 content 存在就会显示 -->
+              <div 
+                v-if="item.props.content || item.props.description" 
+                class="a2ui-card-desc markdown-body"
+                style="margin-bottom: 15px;"
+              >
                 <div v-if="Array.isArray(item.props.content)">
                     <div v-for="(line, lIdx) in item.props.content" :key="lIdx" v-html="renderMarkdown(line)"></div>
                 </div>
                 <div v-else-if="item.props.content" v-html="renderMarkdown(item.props.content)"></div>
                 <div v-else-if="item.props.description" v-html="renderMarkdown(item.props.description)"></div>
+              </div>
+
+              <!-- ★ 修复点 2：独立渲染 Card 的 children -->
+              <div v-if="item.children && item.children.length > 0">
+                 <!-- ★ 修改点：添加 :shared-form-data="formData" -->
+                 <a2-u-i-renderer 
+                    v-for="(child, ccIdx) in item.children" 
+                    :key="ccIdx" 
+                    :config="child"
+                    :shared-form-data="formData"
+                    @action="relayAction"
+                 />
               </div>
 
               <div class="tags" v-if="item.props.tags" style="margin-top: 12px;">
@@ -198,18 +224,133 @@ const A2UIRendererComponent = {
               </el-button>
             </div>
 
+            <!-- 9. Slider (滑块) -->
+            <el-form-item 
+              v-if="item.type === 'Slider'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px; flex: 1; min-width: 200px;"
+            >
+              <div style="display: flex; align-items: center; width: 100%;">
+                <el-slider 
+                  v-model="formData[item.props.key]" 
+                  :min="item.props.min || 0" 
+                  :max="item.props.max || 100"
+                  :step="item.props.step || 1"
+                  show-input
+                  size="default"
+                  style="flex: 1; margin-right: 10px;"
+                />
+                <span v-if="item.props.unit" style="font-size: 12px; color: #909399;">{{ item.props.unit }}</span>
+              </div>
+            </el-form-item>
+
+            <!-- 10. Switch (开关) -->
+            <el-form-item 
+              v-if="item.type === 'Switch'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px;"
+            >
+              <el-switch 
+                v-model="formData[item.props.key]" 
+                :active-text="item.props.activeText || '开'"
+                :inactive-text="item.props.inactiveText || '关'"
+              />
+            </el-form-item>
+
+            <!-- 11. Radio (单选组) -->
+            <el-form-item 
+              v-if="item.type === 'Radio'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px;"
+            >
+              <el-radio-group v-model="formData[item.props.key]">
+                <el-radio 
+                  v-for="(opt, oIdx) in item.props.options" 
+                  :key="oIdx" 
+                  :label="isObj(opt) ? opt.value : opt"
+                  border
+                >
+                  {{ isObj(opt) ? opt.label : opt }}
+                </el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <!-- 12. Checkbox (多选组) -->
+            <el-form-item 
+              v-if="item.type === 'Checkbox'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px;"
+            >
+              <el-checkbox-group v-model="formData[item.props.key]">
+                <el-checkbox 
+                  v-for="(opt, oIdx) in item.props.options" 
+                  :key="oIdx" 
+                  :label="isObj(opt) ? opt.value : opt"
+                >
+                  {{ isObj(opt) ? opt.label : opt }}
+                </el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+
+            <!-- 13. DatePicker (日期选择) -->
+            <el-form-item 
+              v-if="item.type === 'DatePicker'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px;"
+            >
+              <el-date-picker
+                v-model="formData[item.props.key]"
+                :type="item.props.subtype || 'date'" 
+                :placeholder="item.props.placeholder || '选择日期'"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%;"
+              />
+            </el-form-item>
+            
+            <!-- 14. Rate (评分) -->
+            <el-form-item 
+              v-if="item.type === 'Rate'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px;"
+            >
+              <el-rate 
+                v-model="formData[item.props.key]" 
+                allow-half 
+                show-text
+                :texts="['极差', '失望', '一般', '满意', '惊喜']"
+              />
+            </el-form-item>
+
+             <!-- 15. Alert (提示条) -->
+             <div v-if="item.type === 'Alert'" style="margin-bottom: 15px; width: 100%;">
+                <el-alert
+                    :title="item.props.title"
+                    :type="item.props.variant || 'info'"
+                    :show-icon="item.props.showIcon !== false"
+                    :closable="false"
+                >
+                    <template #default v-if="item.props.content">
+                        <div v-html="renderMarkdown(item.props.content)"></div>
+                    </template>
+                </el-alert>
+             </div>
+
           </template>
         </div>
       </el-form>
     </div>
   `,
   props: {
-    config: { type: Object, required: true, default: () => ({}) }
+    config: { type: Object, required: true, default: () => ({}) },
+    sharedFormData: { type: Object, default: null } 
   },
   data() {
-    return { formData: {}, isSubmitted: false };
+    return { internalFormData: {}, isSubmitted: false };
   },
   computed: {
+    formData() {
+      return this.sharedFormData || this.internalFormData;
+    },
     uiConfig() {
       if (Array.isArray(this.config)) return { children: this.config };
       return this.config || {};
@@ -242,15 +383,50 @@ const A2UIRendererComponent = {
   },
   created() {
     this.normalizedChildren.forEach((child, idx) => {
-      if (['Input', 'Select'].includes(child.type)) {
-         const key = (child.props && child.props.key) || ('input_' + idx);
+      // 需要绑定数据的组件列表
+      const formComponents = ['Input', 'Select', 'Slider', 'Switch', 'Radio', 'Checkbox', 'DatePicker', 'Rate'];
+      
+      if (formComponents.includes(child.type)) {
+         const key = (child.props && child.props.key) || (child.type.toLowerCase() + '_' + idx);
+         
          if (this.formData[key] === undefined) {
-            this.formData[key] = '';
+            // 根据组件类型初始化默认值
+            if (child.type === 'Checkbox') {
+                this.formData[key] = []; // 多选必须初始化为数组
+            } else if (child.type === 'Slider' || child.type === 'Rate') {
+                this.formData[key] = child.props.min || 0; // 数字类型
+            } else if (child.type === 'Switch') {
+                this.formData[key] = child.props.defaultValue || false; // 布尔类型
+            } else {
+                this.formData[key] = ''; // 字符串类型
+            }
          }
       }
     });
   },
   methods: {
+    async copyToClipboard(text, event) {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        
+        // 简单的交互反馈：修改按钮文字
+        const btn = event.currentTarget;
+        const originalHtml = btn.innerHTML;
+        const span = btn.querySelector('span');
+        if(span) span.innerText = 'Copied!';
+        
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+        }, 2000);
+        
+        // 如果你有全局提示组件，也可以用：
+        // showNotification('代码已复制', 'success');
+      } catch (err) {
+        console.error('复制失败:', err);
+      }
+    },
+
     // 渲染 Markdown 的核心方法
     renderMarkdown(text) {
         if (!text) return '';
@@ -281,25 +457,39 @@ const A2UIRendererComponent = {
       if (item.props.action === 'search' && extraValue) {
           payload = `搜索：${extraValue}`;
       }
+      // ★ 修复点：优化 submit 动作
       else if (item.props.action === 'submit') {
-        let details = [];
-        for (const [key, val] of Object.entries(this.formData)) {
-             const field = this.normalizedChildren.find(c => c.props && c.props.key === key);
-             const label = field ? field.props.label : key;
-             
-             let displayVal = val;
-             if (field && field.type === 'Select' && Array.isArray(field.props.options)) {
-                 const selectedOpt = field.props.options.find(o => 
-                    (this.isObj(o) ? o.value : o) === val
-                 );
-                 if (selectedOpt && this.isObj(selectedOpt)) {
-                     displayVal = `${selectedOpt.label} (${val})`; 
+        const formDataKeys = Object.keys(this.formData);
+        
+        // 如果只有一个表单项，并且有值，则使用简洁格式
+        if (formDataKeys.length === 1 && this.formData[formDataKeys[0]]) {
+            const singleValue = this.formData[formDataKeys[0]];
+            // 最终 payload 变成 "执行：date"
+            payload = `${item.props.label}：${singleValue}`;
+        } 
+        // 否则，使用原来的多字段表单格式
+        else {
+            let details = [];
+            for (const [key, val] of Object.entries(this.formData)) {
+                 if (!val) continue; // 忽略空值
+                 const field = this.normalizedChildren.find(c => c.props && c.props.key === key);
+                 const label = field ? field.props.label : key;
+                 
+                 let displayVal = val;
+                 if (field && field.type === 'Select' && Array.isArray(field.props.options)) {
+                     const selectedOpt = field.props.options.find(o => 
+                        (this.isObj(o) ? o.value : o) === val
+                     );
+                     if (selectedOpt && this.isObj(selectedOpt)) {
+                         displayVal = `${selectedOpt.label} (${val})`; 
+                     }
                  }
-             }
-
-             details.push(`${label}：${displayVal}`);
+                 details.push(`${label}：${displayVal}`);
+            }
+            if (details.length > 0) {
+                payload = `表单提交：\n${details.join('\n')}`;
+            }
         }
-        if (details.length > 0) payload = `表单提交：\n${details.join('\n')}`;
       } 
       else if (item.props.data) {
           payload = `选择操作：${item.props.label} (ID:${item.props.data})`;
