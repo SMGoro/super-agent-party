@@ -6,7 +6,266 @@ document.addEventListener('DOMContentLoaded', function() {
   }, 100);
 });
 
-// 创建Vue应用
+// ==========================================
+// 1. 定义 A2UI 渲染组件 (递归版：支持 List/Group/Divider/Card嵌套)
+// ==========================================
+const A2UIRendererComponent = {
+  name: 'A2UIRenderer',
+  // 允许组件在模板中调用自己，实现无限嵌套
+  components: {}, 
+  template: `
+    <div :class="['a2ui-root', isSelfContained ? 'a2ui-root-clean' : 'a2ui-root-boxed']">
+      
+      <!-- 根标题 (非 Card/Group 时显示) -->
+      <div v-if="uiConfig.props && uiConfig.props.title && !isSelfContained" class="a2ui-title">
+        {{ uiConfig.props.title }}
+      </div>
+
+      <el-form :model="formData" label-position="top" size="default" @submit.prevent>
+        
+        <div :class="containerClass">
+          
+          <template v-for="(item, index) in normalizedChildren" :key="index">
+            
+            <!-- === 1. Input 输入框 === -->
+            <el-form-item 
+              v-if="item.type === 'Input'" 
+              :label="item.props.label" 
+              style="margin-bottom: 15px; flex: 1; min-width: 200px;"
+            >
+              <el-input 
+                v-model="formData[item.props.key || ('input_'+index)]" 
+                :placeholder="item.props.placeholder || '请输入...'"
+                size="large"
+              >
+                <template #append v-if="item.props.action === 'search'">
+                  <el-button @click="handleAction(item, formData[item.props.key || ('input_'+index)])">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                  </el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+
+            <!-- === 2. Select 下拉框 === -->
+            <el-form-item 
+              v-if="item.type === 'Select'" 
+              :label="item.props.label"
+              style="margin-bottom: 15px; flex: 1;"
+            >
+              <el-select 
+                v-model="formData[item.props.key]" 
+                :placeholder="item.props.placeholder" 
+                style="width: 100%"
+                size="large"
+              >
+                <el-option v-for="opt in item.props.options" :key="opt" :label="opt" :value="opt" />
+              </el-select>
+            </el-form-item>
+
+            <!-- === 3. Text 文本 === -->
+            <div 
+              v-if="item.type === 'Text'" 
+              class="a2ui-text-content"
+            >
+              {{ item.props.content }}
+            </div>
+
+            <!-- === 4. Divider 分割线 (新增) === -->
+            <el-divider 
+              v-if="item.type === 'Divider'" 
+              style="margin: 18px 0; border-color: var(--el-border-color-lighter);" 
+            />
+
+            <!-- === 5. Group 分组容器 (新增递归) === -->
+            <div v-if="item.type === 'Group'" class="a2ui-group-container">
+              <!-- 递归调用自己渲染子元素 -->
+              <a2-u-i-renderer 
+                v-for="(child, cIdx) in item.children" 
+                :key="cIdx" 
+                :config="child"
+                @action="relayAction"
+                style="flex: 1; min-width: auto;" 
+              />
+            </div>
+
+            <!-- === 6. List 新闻列表 (新增) === -->
+            <div v-if="item.type === 'List'" class="a2ui-list">
+              <div 
+                v-for="(listItem, lIdx) in item.props.items" 
+                :key="lIdx" 
+                class="a2ui-list-item"
+                @click="handleManualAction('点击条目', listItem.title)"
+              >
+                <div class="a2ui-list-title">{{ listItem.title }}</div>
+                <div class="a2ui-list-desc">{{ listItem.description }}</div>
+                <div class="a2ui-list-meta">
+                  <span v-if="listItem.source" class="tag">{{ listItem.source }}</span>
+                  <span class="time">{{ listItem.timestamp }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- === 7. Card 卡片 (支持嵌套) === -->
+            <el-card 
+              v-if="item.type === 'Card'" 
+              shadow="hover" 
+              class="a2ui-inner-card"
+            >
+              <template #header v-if="item.props.title">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: bold; font-size: 16px;">{{ item.props.title }}</span>
+                  <span v-if="item.props.subtitle" style="font-size: 12px; color: #909399; font-weight: normal;">{{ item.props.subtitle }}</span>
+                </div>
+              </template>
+              
+              <!-- 情况 A: 有子组件 (嵌套) -->
+              <div v-if="item.children && item.children.length > 0">
+                 <a2-u-i-renderer 
+                    v-for="(child, ccIdx) in item.children" 
+                    :key="ccIdx" 
+                    :config="child"
+                    @action="relayAction"
+                 />
+              </div>
+
+              <!-- 情况 B: 纯内容描述 -->
+              <div v-else class="a2ui-card-desc">
+                <div v-if="Array.isArray(item.props.content)">
+                    <div v-for="(line, lIdx) in item.props.content" :key="lIdx">{{ line }}</div>
+                </div>
+                <div v-else-if="item.props.content" style="white-space: pre-wrap;">{{ item.props.content }}</div>
+                <div v-else-if="item.props.description">{{ item.props.description }}</div>
+              </div>
+
+              <!-- Tags -->
+              <div class="tags" v-if="item.props.tags" style="margin-top: 12px;">
+                <el-tag v-for="tag in item.props.tags" :key="tag" size="default" effect="plain" style="margin-right: 6px;">
+                  {{ tag }}
+                </el-tag>
+              </div>
+
+              <!-- Actions -->
+              <div v-if="item.props.actions" class="a2ui-card-actions">
+                <el-button 
+                    v-for="(btn, bIdx) in item.props.actions"
+                    :key="bIdx"
+                    :type="bIdx === item.props.actions.length - 1 ? 'primary' : ''"
+                    size="default"
+                    @click="handleManualAction(btn.label, item.props.title)"
+                >
+                    {{ btn.label }}
+                </el-button>
+              </div>
+            </el-card>
+
+            <!-- === 8. Button 按钮 === -->
+            <div 
+              v-if="item.type === 'Button'" 
+              :style="buttonStyle"
+            >
+              <el-button 
+                :type="resolveBtnType(item.props)" 
+                @click="handleAction(item)" 
+                :disabled="isSubmitted"
+                size="large" 
+                style="width: 100%; font-weight: 500;"
+              >
+                {{ item.props.label }}
+              </el-button>
+            </div>
+
+          </template>
+        </div>
+      </el-form>
+    </div>
+  `,
+  props: {
+    config: { type: Object, required: true, default: () => ({}) }
+  },
+  data() {
+    return { formData: {}, isSubmitted: false };
+  },
+  computed: {
+    uiConfig() {
+      if (Array.isArray(this.config)) return { children: this.config };
+      return this.config || {};
+    },
+    // 将 Group 也视为自包含容器，不加外框，由内部元素决定样式
+    isSelfContained() {
+      // 只要不是 Input/Select/Text 这种纯表单元素，通常都当作自包含处理，避免嵌套双重边框
+      return ['Card', 'Group', 'List', 'Divider'].includes(this.uiConfig.type);
+    },
+    normalizedChildren() {
+        const conf = this.uiConfig;
+        if (conf.children && Array.isArray(conf.children)) {
+            return conf.children;
+        }
+        if (conf.type) {
+            return [conf];
+        }
+        return [];
+    },
+    containerClass() {
+      if (this.uiConfig.type === 'Group') {
+        return 'a2ui-group-container';
+      }
+      return 'a2ui-form-container';
+    },
+    buttonStyle() {
+      if (this.uiConfig.type === 'Group') {
+        return { margin: '0 5px', flex: '1' };
+      }
+      return { textAlign: 'right', marginTop: '10px', width: '100%' };
+    }
+  },
+  created() {
+    this.normalizedChildren.forEach((child, idx) => {
+      // 自动为 Input 绑定 Key，防止无 Key 时无法输入
+      if (['Input', 'Select'].includes(child.type)) {
+         const key = (child.props && child.props.key) || ('input_' + idx);
+         this.formData[key] = '';
+      }
+    });
+  },
+  methods: {
+    resolveBtnType(props) {
+        if (props.variant === 'primary') return 'primary';
+        if (props.variant === 'danger') return 'danger';
+        return props.type || 'default'; // 兼容旧版 type
+    },
+    handleAction(item, extraValue) {
+      this.isSubmitted = true;
+      let payload = item.props.label;
+      
+      if (item.props.action === 'search' && extraValue) {
+          payload = `搜索：${extraValue}`;
+      }
+      else if (item.props.action === 'submit') {
+        let details = [];
+        for (const [key, val] of Object.entries(this.formData)) {
+             details.push(`${key}：${val}`);
+        }
+        if (details.length > 0) payload = `表单提交：\n${details.join('\n')}`;
+      } 
+      else if (item.props.data) {
+          payload = `选择操作：${item.props.label} (ID:${item.props.data})`;
+      }
+      
+      this.$emit('action', payload);
+    },
+    handleManualAction(actionName, title) {
+        this.$emit('action', `选择了：${title} - ${actionName}`);
+    },
+    // 递归组件必须显式转发事件
+    relayAction(payload) {
+        this.$emit('action', payload);
+    }
+  }
+};
+
+// ==========================================
+// 2. 创建 Vue 应用
+// ==========================================
 const app = Vue.createApp({
   data() {
     return vue_data
@@ -653,7 +912,9 @@ const app = Vue.createApp({
       );
     },
   },
-  methods: vue_methods
+  methods: {
+    ...vue_methods,
+  }
 });
 
 function showNotification(message, type = 'success') {
@@ -699,11 +960,15 @@ function removeNonAsciiTags(html) {
 // 修改图标注册方式（完整示例）
 app.use(ElementPlus);
 
+// ==========================================
+// ★ 修改点：注册 A2UI 组件
+// ==========================================
+app.component('a2-u-i-renderer', A2UIRendererComponent);
+
 // 正确注册所有图标（一次性循环注册）
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
-
 
 // 挂载应用
 app.mount('#app');

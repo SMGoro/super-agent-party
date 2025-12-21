@@ -508,7 +508,34 @@ if ('serviceWorker' in navigator) {
                       </div>
                     </div>
                     <!-- AI回复内容 -->
-                    <div v-else-if="message.role === 'assistant'"  class="markdown-body" v-html="message.briefly ? formatMessage(message.pure_content??msg.content,index) : formatMessage(message.content,index)"></div>
+                    <div v-else-if="message.role === 'assistant'" class="markdown-body">
+                        <!-- 如果开启了 Briefly 模式 -->
+                        <div v-if="message.briefly" v-html="formatMessage(message.pure_content??message.content, index)"></div>
+                        
+                        <!-- 正常模式：混合渲染 -->
+                        <div v-else>
+                            <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
+                                <!-- 文本段：使用你原有的 formatMessage 处理 markdown/latex -->
+                                <div 
+                                    v-if="segment.type === 'text'" 
+                                    v-html="formatMessage(segment.content, index)"
+                                    style="display: inline;"
+                                ></div>
+
+                                <!-- UI段：渲染组件 -->
+                                <a2-u-i-renderer 
+                                    v-else-if="segment.type === 'ui'"
+                                    :config="segment.content"
+                                    @action="handleA2UIAction"
+                                ></a2-u-i-renderer>
+                            </template>
+                            
+                            <!-- 思考中 loading (保持原样) -->
+                            <div v-if="isTyping && index === messages.length - 1 && !message.content">
+                                <i class="fa-solid fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </div>
                     <!-- 系统消息内容 -->
                     <div v-else class="system-content" data-mjx-disabled="true" >
                       <div 
@@ -5431,6 +5458,25 @@ if ('serviceWorker' in navigator) {
                     <el-alert type="info" :closable="false" class="mb-2">
                       <div class="alert-content">
                         {{ t('asyncToolsNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
+                  <!-- A2UI工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch 
+                        v-model="toolsSettings.a2ui.enabled" 
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div class="tool-card-title">
+                      <h3 class="kb-title">{{ t('a2uiTools') }}</h3>
+                    </div>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('a2uiToolsNotice') }}
                       </div>
                     </el-alert>
                   </div>

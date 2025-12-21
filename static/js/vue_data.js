@@ -174,6 +174,9 @@ let vue_data = {
       asyncTools: {
         enabled: false,
       },
+      a2ui: {
+        enabled: true,
+      },
       time: {
         enabled: false,
         triggerMode: 'beforeThinking',

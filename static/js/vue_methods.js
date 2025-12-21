@@ -10950,4 +10950,42 @@ clearSegments() {
     URL.revokeObjectURL(link.href);
   },
 
+    // [A2UI 新增] 处理用户点击操作
+    handleA2UIAction(msg) {
+      console.log('A2UI Action Triggered:', msg);
+      this.userInput = msg;
+      this.sendMessage();
+    },
+
+    // [A2UI 新增] 拆分消息内容为 文本/UI 段
+    splitMessageContent(content) {
+      if (!content) return [];
+      const segments = [];
+      const regex = /```a2ui\s*([\s\S]*?)\s*```/g;
+      
+      let lastIndex = 0;
+      let match;
+
+      while ((match = regex.exec(content)) !== null) {
+        if (match.index > lastIndex) {
+          const textPart = content.slice(lastIndex, match.index);
+          if (textPart) segments.push({ type: 'text', content: textPart });
+        }
+
+        try {
+          const uiConfig = JSON.parse(match[1]);
+          segments.push({ type: 'ui', content: uiConfig });
+        } catch (e) {
+          segments.push({ type: 'text', content: match[0] });
+        }
+        lastIndex = regex.lastIndex;
+      }
+
+      if (lastIndex < content.length) {
+        segments.push({ type: 'text', content: content.slice(lastIndex) });
+      }
+
+      return segments;
+    },
+
 }
