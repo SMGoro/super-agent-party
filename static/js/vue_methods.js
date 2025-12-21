@@ -1625,6 +1625,7 @@ let vue_methods = {
         const decoder = new TextDecoder();
         let buffer = '';
         let tts_buffer = '';
+        let isCodeBlock = false;
         this.cur_voice = 'default';   // 全局变量
         while (true) {
           const { done, value } = await reader.read();
@@ -1648,15 +1649,38 @@ let vue_methods = {
               try {
                 const parsed = JSON.parse(jsonStr);
                 const lastMessage = this.messages[this.messages.length - 1];
+                
                 if (lastMessage.content == '') {
                   // 结束计时并打印时间
                   this.stopTimer();
                   console.log(`first token processed in ${this.elapsedTime}ms`);
                   lastMessage.first_token_latency = this.elapsedTime;
                 }
+
+                // --- ✨ 核心修改：处理 content 并过滤代码块 ---
                 if (parsed.choices?.[0]?.delta?.content) {
-                  tts_buffer += parsed.choices[0].delta.content;
-                  // 处理 TTS 分割
+                  const contentChunk = parsed.choices[0].delta.content;
+
+                  // 1. 始终将完整内容添加到消息显示（界面上需要显示代码）
+                  // 注意：这一步原本是在下面做的，但为了逻辑清晰，流式数据进来先处理 TTS 过滤
+                  // (下方的 content 拼接逻辑保留，这里仅处理 tts_buffer)
+
+                  // 2. 处理 TTS 过滤逻辑：按 ``` 切割
+                  const parts = contentChunk.split('```');
+                  
+                  for (let i = 0; i < parts.length; i++) {
+                    // 只有不在代码块内时，才累加到 TTS 缓冲
+                    if (!isCodeBlock) {
+                      tts_buffer += parts[i];
+                    }
+                    
+                    // 如果 i 不是最后一个元素，说明遇到了 ``` 分隔符，切换状态
+                    if (i < parts.length - 1) {
+                      isCodeBlock = !isCodeBlock;
+                    }
+                  }
+
+                  // 3. 处理 TTS 分割与生成
                   if (this.ttsSettings.enabled) {
                     const {
                       chunks,
@@ -1664,20 +1688,24 @@ let vue_methods = {
                       remaining,
                       remaining_voice
                     } = this.splitTTSBuffer(tts_buffer);
+                    
                     // 将完整的句子添加到 ttsChunks
                     if (chunks.length > 0) {
                       lastMessage.chunks_voice.push(...chunks_voice);
                       lastMessage.ttsChunks.push(...chunks);
                     }
+                    
                     // 更新 tts_buffer 为剩余部分
                     tts_buffer = remaining;
                     this.cur_voice = remaining_voice;
                   }
                 }
+                // --- ✨ 核心修改结束 ---
+
                 // 处理 reasoning_content 逻辑
                 if (parsed.choices?.[0]?.delta?.reasoning_content) {
                   let newContent = parsed.choices[0].delta.reasoning_content;
-                  const lastMessage = this.messages[this.messages.length - 1];
+                  // const lastMessage = this.messages[this.messages.length - 1]; // 已在上面定义
                   
                   // 初始化高亮块
                   if (!this.isThinkOpen) {
@@ -1693,9 +1721,10 @@ let vue_methods = {
                   
                   this.scrollToBottom();
                 }
+
                 // 处理 tool_content 逻辑
                 if (parsed.choices?.[0]?.delta?.tool_content) {
-                  const lastMessage = this.messages[this.messages.length - 1];
+                  // const lastMessage = this.messages[this.messages.length - 1];
                   if (this.isThinkOpen) {
                     lastMessage.content += '</div>\n\n';
                     this.isThinkOpen = false; // 重置状态
@@ -1706,9 +1735,10 @@ let vue_methods = {
                   lastMessage.content += parsed.choices[0].delta.tool_content + '\n\n';
                   this.scrollToBottom();
                 }
-                // 处理 content 逻辑
+
+                // 处理 content 逻辑 (界面显示)
                 if (parsed.choices?.[0]?.delta?.content) {
-                  const lastMessage = this.messages[this.messages.length - 1];
+                  // const lastMessage = this.messages[this.messages.length - 1];
                   if (this.isThinkOpen) {
                     lastMessage.content += '</div>\n\n';
                     this.isThinkOpen = false; // 重置状态
@@ -1717,13 +1747,15 @@ let vue_methods = {
                   lastMessage.pure_content += parsed.choices[0].delta.content;
                   this.scrollToBottom();
                 }
+
                 if (parsed.usage && parsed.usage?.total_tokens) {
-                  // 这里 lastMessage 就是你当前这条 AI 消息
-                  const lastMessage = this.messages[this.messages.length - 1];
+                  // const lastMessage = this.messages[this.messages.length - 1];
                   lastMessage.total_tokens  = parsed.usage.total_tokens;
                 }
-                  this.stopTimer(); // 结束计时并打印时间
-                  lastMessage.elapsedTime = this.elapsedTime / 1000;
+                
+                this.stopTimer(); // 结束计时并打印时间
+                lastMessage.elapsedTime = this.elapsedTime / 1000;
+
                 if (parsed.choices?.[0]?.delta?.async_tool_id) {
                     // 判断parsed.choices[0].delta.async_tool_id是否在this.asyncToolsID中
                     if (this.asyncToolsID.includes(parsed.choices[0].delta.async_tool_id)) {
