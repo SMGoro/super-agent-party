@@ -468,6 +468,50 @@ const A2UIRendererComponent = {
     });
   },
   methods: {
+    resetForm() {
+      // 定义递归函数：遍历所有层级寻找表单项
+      const traverseAndReset = (items) => {
+        if (!Array.isArray(items)) return;
+
+        items.forEach(item => {
+          // 递归：如果是容器组件 (Group, Card 等)，继续深入查找
+          if (item.children && Array.isArray(item.children)) {
+            traverseAndReset(item.children);
+          }
+
+          // 处理：如果是表单组件，执行重置
+          const formComponents = ['Input', 'Select', 'Slider', 'Switch', 'Radio', 'Checkbox', 'DatePicker', 'Rate'];
+          
+          if (formComponents.includes(item.type)) {
+             // 获取绑定的 key
+             const key = (item.props && item.props.key);
+             if (!key) return; // 忽略无 key 的组件
+             
+             // 根据组件类型恢复默认值
+             if (item.type === 'Checkbox') {
+                 this.formData[key] = []; // 多选 -> 空数组
+             } else if (item.type === 'Slider' || item.type === 'Rate') {
+                 this.formData[key] = item.props.min || 0; // 数字 -> 0
+             } else if (item.type === 'Switch') {
+                 this.formData[key] = item.props.defaultValue || false; // 开关 -> false
+             } else {
+                 this.formData[key] = ''; // 其他文本类 -> 空字符串
+             }
+          }
+        });
+      };
+
+      // 从当前组件的根子节点开始递归
+      traverseAndReset(this.normalizedChildren);
+
+      // 重置提交状态
+      this.isSubmitted = false;
+      
+      // 界面反馈
+      if (typeof showNotification === 'function') {
+          showNotification('已重置所有选项', 'success');
+      }
+    },
     handleTTS(text, voice) {
       // 尝试调用根组件的 ClickToListen 方法
       if (this.$root && typeof this.$root.ClickToListen === 'function') {
@@ -524,43 +568,70 @@ const A2UIRendererComponent = {
         return props.type || 'default';
     },
     handleAction(item, extraValue) {
+      // ---------------------------------------------------------
+      // ★ 拦截 Clear/Reset 动作
+      // ---------------------------------------------------------
+      if (item.props.action === 'clear' || item.props.action === 'reset') {
+          // 如果我有 sharedFormData，说明我是子组件（嵌套在 Group/Card 里）
+          // 我不能只清空我自己（因为数据在根组件手里），必须通知根组件
+          if (this.sharedFormData) {
+              this.$emit('action', '_A2UI_RESET_ALL_'); // 发射特殊信号
+          } else {
+              // 如果没有 sharedFormData，说明我就是根组件，直接执行清空
+              this.resetForm();
+          }
+          return; // ★ 阻止事件继续向下执行（防止触发 sendMessage）
+      }
+
+      // ---------------------------------------------------------
+      // ★ 常规业务逻辑 (Submit / Search)
+      // ---------------------------------------------------------
       this.isSubmitted = true;
       let payload = item.props.label;
       
       if (item.props.action === 'search' && extraValue) {
           payload = `搜索：${extraValue}`;
       }
-      // ★ 修复点：优化 submit 动作
       else if (item.props.action === 'submit') {
         const formDataKeys = Object.keys(this.formData);
         
-        // 如果只有一个表单项，并且有值，则使用简洁格式
+        // 场景A: 单字段表单，直接发送 "标签：值"
         if (formDataKeys.length === 1 && this.formData[formDataKeys[0]]) {
             const singleValue = this.formData[formDataKeys[0]];
-            // 最终 payload 变成 "执行：date"
             payload = `${item.props.label}：${singleValue}`;
         } 
-        // 否则，使用原来的多字段表单格式
+        // 场景B: 多字段表单，发送汇总详情
         else {
             let details = [];
+            // 辅助函数：递归查找组件配置以获取 Label
+            const findFieldLabel = (nodes, targetKey) => {
+                for (const node of nodes) {
+                    if (node.props && node.props.key === targetKey) return node.props.label;
+                    if (node.children) {
+                        const found = findFieldLabel(node.children, targetKey);
+                        if (found) return found;
+                    }
+                }
+                return targetKey; // 没找到 Label 就用 key 代替
+            };
+
             for (const [key, val] of Object.entries(this.formData)) {
-                 if (!val) continue; // 忽略空值
-                 const field = this.normalizedChildren.find(c => c.props && c.props.key === key);
-                 const label = field ? field.props.label : key;
+                 // 忽略空值 (保留 0 和 false)
+                 if (val === undefined || val === '' || val === null || (Array.isArray(val) && val.length === 0)) continue;
+                 
+                 const label = findFieldLabel(this.normalizedChildren, key);
                  
                  let displayVal = val;
-                 if (field && field.type === 'Select' && Array.isArray(field.props.options)) {
-                     const selectedOpt = field.props.options.find(o => 
-                        (this.isObj(o) ? o.value : o) === val
-                     );
-                     if (selectedOpt && this.isObj(selectedOpt)) {
-                         displayVal = `${selectedOpt.label} (${val})`; 
-                     }
-                 }
+                 // 尝试美化 Select/Radio 的值 (显示 label 而不是 value)
+                 // 这里简化处理，复杂场景可复用上面的递归查找逻辑获取 options
                  details.push(`${label}：${displayVal}`);
             }
+            
             if (details.length > 0) {
                 payload = `表单提交：\n${details.join('\n')}`;
+            } else {
+                // 如果表单全是空的，也允许提交，但提示一下
+                payload = `${item.props.label} (空表单提交)`;
             }
         }
       } 
@@ -568,12 +639,27 @@ const A2UIRendererComponent = {
           payload = `选择操作：${item.props.label} (ID:${item.props.data})`;
       }
       
+      // 发送最终 payload 给父级
       this.$emit('action', payload);
     },
+
     handleManualAction(actionName, title) {
         this.$emit('action', `选择了：${title} - ${actionName}`);
     },
     relayAction(payload) {
+        // ★ 拦截特殊信号：_A2UI_RESET_ALL_
+        if (payload === '_A2UI_RESET_ALL_') {
+            if (this.sharedFormData) {
+                // 我还是子组件，继续像接力棒一样往上传
+                this.$emit('action', '_A2UI_RESET_ALL_');
+            } else {
+                // 我是根组件！终于传到我这了，执行清空
+                this.resetForm();
+            }
+            return; // ★ 拦截结束，不触发 sendMessage
+        }
+
+        // 普通消息：直接透传给上一层，最终触发 handleA2UIAction
         this.$emit('action', payload);
     }
   }

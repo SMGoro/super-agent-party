@@ -875,7 +875,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 - **Checkbox**: `{ "type": "Checkbox", "props": { "label": "标签", "key": "field_name", "options": ["篮球", "足球"] } }`
 
 ## 5. 交互动作
-- **Button**: `{ "type": "Button", "props": { "label": "提交", "action": "submit/search", "variant": "primary/danger" } }`
+- **Button**: `{ "type": "Button", "props": { "label": "按钮文字", "action": "submit/search/clear", "variant": "primary/danger/default" } }`
+  - `action="submit"`: 提交表单数据给助手。
+  - `action="search"`: 搜索（配合 Input 使用）。
+  - `action="clear"`: **清空/重置当前表单**（不会发送消息，仅在本地清除内容）。
 
 ## 6. 多媒体
 - **TTSBlock**: `{ "type": "TTSBlock", "props": { "content": "要朗读的文本", "label": "可选标签", "voice": "可选声音ID" } }` (点击即可播放语音，适合展示示范发音、语音消息)
@@ -991,6 +994,27 @@ Assistant: 好的，请听标准发音：
       } 
     },
     { "type": "Alert", "props": { "title": "提示", "content": "通常用于白天见面时。", "variant": "info" } }
+  ]
+}
+```
+
+## Ex 5: 带重置功能的表单
+User: 我想写一篇博客，需要填标题和内容，但我可能想重写。
+Assistant: 
+```a2ui
+{
+  "type": "Card",
+  "props": { "title": "撰写新文章" },
+  "children": [
+    { "type": "Input", "props": { "label": "文章标题", "key": "title" } },
+    { "type": "Input", "props": { "label": "正文内容", "key": "content" } },
+    { 
+      "type": "Group", 
+      "children": [
+        { "type": "Button", "props": { "label": "清空重写", "action": "clear", "variant": "danger" } },
+        { "type": "Button", "props": { "label": "立即发布", "action": "submit", "variant": "primary" } }
+      ]
+    }
   ]
 }
 ```
