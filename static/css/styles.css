@@ -5275,3 +5275,75 @@ body {
 .markdown-body p:last-child {
     margin-bottom: 0 !important;
 }
+
+/* A2UI TTS Block 样式 */
+.a2ui-tts-block {
+  display: flex;
+  align-items: flex-start;
+  background-color: var(--el-bg-color-page); /* 适配亮/暗模式 */
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.a2ui-tts-block:hover {
+  background-color: var(--el-bg-color-page);
+  border-color: var(--el-color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.a2ui-tts-block:active {
+  transform: translateY(0);
+}
+
+.a2ui-tts-block .tts-icon {
+  margin-right: 12px;
+  font-size: 18px;
+  color: var(--el-color-primary);
+  margin-top: 2px; /* 图标微调 */
+  flex-shrink: 0;
+}
+
+.a2ui-tts-block .tts-body {
+  flex: 1;
+  min-width: 0; /* 防止 flex 子项溢出 */
+}
+
+.a2ui-tts-block .tts-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+
+.a2ui-tts-block .tts-content {
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  line-height: 1.5;
+}
+
+/* 去除 Markdown 默认的 margin */
+.a2ui-tts-block .tts-content p {
+  margin: 0;
+}
+
+.a2ui-tts-block .tts-action-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  opacity: 0;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.a2ui-tts-block:hover .tts-action-hint {
+  opacity: 1;
+}

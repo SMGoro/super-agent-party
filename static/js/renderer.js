@@ -81,23 +81,6 @@ const A2UIRendererComponent = {
               v-html="renderMarkdown(item.props.content)"
             ></div>
 
-            <!-- 16. Code (代码块 - 独立渲染，无额外 wrapper) -->
-            <div 
-              v-if="item.type === 'Code'" 
-              class="a2ui-code-block"
-            >
-              <div class="code-header">
-                <span class="lang-tag">{{ item.props.language || 'text' }}</span>
-                <div class="copy-btn" @click="copyToClipboard(item.props.content, $event)">
-                  <i class="fa-regular fa-copy"></i>
-                  <span>copy</span>
-                </div>
-              </div>
-              <div class="code-body">
-                <pre><code>{{ item.props.content }}</code></pre>
-              </div>
-            </div>
-
             <!-- 4. Divider -->
             <el-divider 
               v-if="item.type === 'Divider'" 
@@ -335,6 +318,82 @@ const A2UIRendererComponent = {
                 </el-alert>
              </div>
 
+            <!-- 16. Code (代码块 - 独立渲染，无额外 wrapper) -->
+            <div 
+              v-if="item.type === 'Code'" 
+              class="a2ui-code-block"
+            >
+              <div class="code-header">
+                <span class="lang-tag">{{ item.props.language || 'text' }}</span>
+                <div class="copy-btn" @click="copyToClipboard(item.props.content, $event)">
+                  <i class="fa-regular fa-copy"></i>
+                  <span>copy</span>
+                </div>
+              </div>
+              <div class="code-body">
+                <pre><code>{{ item.props.content }}</code></pre>
+              </div>
+            </div>
+
+            <!-- 17. Table (表格组件) -->
+            <div 
+              v-if="item.type === 'Table'" 
+              class="a2ui-table-wrapper"
+            >
+              <div class="a2ui-table-scroll">
+                <table class="a2ui-table">
+                  <thead>
+                    <tr>
+                      <th v-for="(head, hIdx) in item.props.headers" :key="hIdx">
+                        {{ head }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, rIdx) in item.props.rows" :key="rIdx">
+                      <!-- 支持简单 HTML 或纯文本 -->
+                      <td v-for="(cell, cIdx) in row" :key="cIdx" v-html="renderMarkdown(String(cell))"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 18. 朗读文本块 -->
+            <div 
+              v-if="item.type === 'TTSBlock'" 
+              class="a2ui-tts-block"
+              @click="handleTTS(item.props.content, item.props.voice)"
+              title="点击播放语音"
+            >
+              <div class="tts-icon">
+                <i class="fa-solid fa-volume-high"></i>
+              </div>
+              <div class="tts-body">
+                <div class="tts-label" v-if="item.props.label">{{ item.props.label }}</div>
+                <div class="tts-content markdown-body" v-html="renderMarkdown(item.props.content)"></div>
+              </div>
+              <div class="tts-action-hint">
+                <i class="fa-solid fa-play"></i>
+              </div>
+            </div>
+
+            <div 
+              v-if="item.type === 'Audio'" 
+              class="a2ui-audio-player"
+              style="margin-bottom: 15px; width: 100%;"
+            >
+              <div v-if="item.props.title" style="font-weight: bold; margin-bottom: 5px; font-size: 14px;">
+                {{ item.props.title }}
+              </div>
+              <audio controls style="width: 100%; height: 40px;" :src="item.props.src">
+                您的浏览器不支持音频元素。
+              </audio>
+              <div v-if="item.props.description" style="font-size: 12px; color: #909399; margin-top: 4px;">
+                {{ item.props.description }}
+              </div>
+            </div>
+
           </template>
         </div>
       </el-form>
@@ -405,6 +464,60 @@ const A2UIRendererComponent = {
     });
   },
   methods: {
+    resetForm() {
+      // 定义递归函数：遍历所有层级寻找表单项
+      const traverseAndReset = (items) => {
+        if (!Array.isArray(items)) return;
+
+        items.forEach(item => {
+          // 递归：如果是容器组件 (Group, Card 等)，继续深入查找
+          if (item.children && Array.isArray(item.children)) {
+            traverseAndReset(item.children);
+          }
+
+          // 处理：如果是表单组件，执行重置
+          const formComponents = ['Input', 'Select', 'Slider', 'Switch', 'Radio', 'Checkbox', 'DatePicker', 'Rate'];
+          
+          if (formComponents.includes(item.type)) {
+             // 获取绑定的 key
+             const key = (item.props && item.props.key);
+             if (!key) return; // 忽略无 key 的组件
+             
+             // 根据组件类型恢复默认值
+             if (item.type === 'Checkbox') {
+                 this.formData[key] = []; // 多选 -> 空数组
+             } else if (item.type === 'Slider' || item.type === 'Rate') {
+                 this.formData[key] = item.props.min || 0; // 数字 -> 0
+             } else if (item.type === 'Switch') {
+                 this.formData[key] = item.props.defaultValue || false; // 开关 -> false
+             } else {
+                 this.formData[key] = ''; // 其他文本类 -> 空字符串
+             }
+          }
+        });
+      };
+
+      // 从当前组件的根子节点开始递归
+      traverseAndReset(this.normalizedChildren);
+
+      // 重置提交状态
+      this.isSubmitted = false;
+      
+      // 界面反馈
+      if (typeof showNotification === 'function') {
+          showNotification('已重置所有选项', 'success');
+      }
+    },
+    handleTTS(text, voice) {
+      // 尝试调用根组件的 ClickToListen 方法
+      if (this.$root && typeof this.$root.ClickToListen === 'function') {
+        this.$root.ClickToListen(text, voice);
+      } else {
+        console.warn('A2UI: 根实例上未找到 ClickToListen 方法。');
+        this.$emit('action', `TTS播放请求: ${text}`); // 降级处理
+      }
+    },
+
     async copyToClipboard(text, event) {
       if (!text) return;
       try {
@@ -432,12 +545,7 @@ const A2UIRendererComponent = {
         if (!text) return '';
         // 尝试使用全局定义的 md 对象
         if (typeof md !== 'undefined' && md.render) {
-            // 使用 renderInline 可以避免最外层包裹 <p> 标签，如果是短文本更合适
-            // 但对于包含列表的内容，必须用 render
-            if (text.includes('\n') || text.includes('- ')) {
-                return md.render(text);
-            }
-            return md.renderInline(text);
+            return md.render(text);
         }
         // 兜底：如果没有 md，简单的换行处理
         return text.replace(/\n/g, '<br>');
@@ -450,44 +558,66 @@ const A2UIRendererComponent = {
         if (props.variant === 'danger') return 'danger';
         return props.type || 'default';
     },
-    handleAction(item, extraValue) {
+handleAction(item, extraValue) {
+      // ... (保留之前的 Clear/Reset 拦截逻辑) ...
+      if (item.props.action === 'clear' || item.props.action === 'reset') {
+          if (this.sharedFormData) {
+              this.$emit('action', '_A2UI_RESET_ALL_'); 
+          } else {
+              this.resetForm();
+          }
+          return; 
+      }
+
+      // ---------------------------------------------------------
+      // ★ 常规业务逻辑 (Submit / Search)
+      // ---------------------------------------------------------
       this.isSubmitted = true;
       let payload = item.props.label;
       
       if (item.props.action === 'search' && extraValue) {
           payload = `搜索：${extraValue}`;
       }
-      // ★ 修复点：优化 submit 动作
       else if (item.props.action === 'submit') {
         const formDataKeys = Object.keys(this.formData);
         
-        // 如果只有一个表单项，并且有值，则使用简洁格式
+        // 场景A: 单字段表单，直接发送 "标签：值"
         if (formDataKeys.length === 1 && this.formData[formDataKeys[0]]) {
             const singleValue = this.formData[formDataKeys[0]];
-            // 最终 payload 变成 "执行：date"
             payload = `${item.props.label}：${singleValue}`;
         } 
-        // 否则，使用原来的多字段表单格式
+        // 场景B: 多字段表单，发送汇总详情
         else {
             let details = [];
+            const findFieldLabel = (nodes, targetKey) => {
+                for (const node of nodes) {
+                    if (node.props && node.props.key === targetKey) return node.props.label;
+                    if (node.children) {
+                        const found = findFieldLabel(node.children, targetKey);
+                        if (found) return found;
+                    }
+                }
+                return targetKey; 
+            };
+
             for (const [key, val] of Object.entries(this.formData)) {
-                 if (!val) continue; // 忽略空值
-                 const field = this.normalizedChildren.find(c => c.props && c.props.key === key);
-                 const label = field ? field.props.label : key;
+                 if (val === undefined || val === '' || val === null || (Array.isArray(val) && val.length === 0)) continue;
                  
+                 const label = findFieldLabel(this.normalizedChildren, key);
                  let displayVal = val;
-                 if (field && field.type === 'Select' && Array.isArray(field.props.options)) {
-                     const selectedOpt = field.props.options.find(o => 
-                        (this.isObj(o) ? o.value : o) === val
-                     );
-                     if (selectedOpt && this.isObj(selectedOpt)) {
-                         displayVal = `${selectedOpt.label} (${val})`; 
-                     }
-                 }
                  details.push(`${label}：${displayVal}`);
             }
+            
             if (details.length > 0) {
-                payload = `表单提交：\n${details.join('\n')}`;
+                // ============================================================
+                // ★ 修复重点在此处 ★
+                // 原代码：payload = `表单提交：\n${details.join('\n')}`;
+                // 修改为：将按钮名称 (item.props.label) 明确拼接到消息头部
+                // ============================================================
+                payload = `提交操作：${item.props.label}\n表单数据：\n${details.join('\n')}`;
+            } else {
+                // 如果表单全是空的，保留按钮名称
+                payload = `${item.props.label} (空表单提交)`;
             }
         }
       } 
@@ -495,12 +625,27 @@ const A2UIRendererComponent = {
           payload = `选择操作：${item.props.label} (ID:${item.props.data})`;
       }
       
+      // 发送最终 payload 给父级
       this.$emit('action', payload);
     },
+
     handleManualAction(actionName, title) {
         this.$emit('action', `选择了：${title} - ${actionName}`);
     },
     relayAction(payload) {
+        // ★ 拦截特殊信号：_A2UI_RESET_ALL_
+        if (payload === '_A2UI_RESET_ALL_') {
+            if (this.sharedFormData) {
+                // 我还是子组件，继续像接力棒一样往上传
+                this.$emit('action', '_A2UI_RESET_ALL_');
+            } else {
+                // 我是根组件！终于传到我这了，执行清空
+                this.resetForm();
+            }
+            return; // ★ 拦截结束，不触发 sendMessage
+        }
+
+        // 普通消息：直接透传给上一层，最终触发 handleA2UIAction
         this.$emit('action', payload);
     }
   }

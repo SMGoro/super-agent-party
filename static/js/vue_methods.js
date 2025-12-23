@@ -3,7 +3,7 @@ const md = window.markdownit({
     linkify: true,
     typographer: true,
     highlight: function (str, lang) {
-    let language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+    let language = lang === 'a2ui' || (lang && hljs.getLanguage(lang)) ? lang : 'plaintext';
     const isPotentialMermaid = (code) => {
     // 检测标准语法特征
     const mermaidPatterns = [

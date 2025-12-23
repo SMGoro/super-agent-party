@@ -47,7 +47,7 @@ import aiofiles
 import argparse
 from py.dify_openai_async import DifyOpenAIAsync
 
-from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
+from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
@@ -177,7 +177,7 @@ async def lifespan(app: FastAPI):
     # 1. 准备所有独立的初始化任务
     from py.get_setting import init_db, init_covs_db
     from tzlocal import get_localzone
-    
+    asyncio.create_task(clean_temp_files_task())
     # 将所有不依赖 Settings 的任务并行化
     # 比如：数据库初始化、加载本地化文件、获取时区
     init_db_task = init_db()
@@ -852,8 +852,9 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 请严格遵守 props 结构。
 
 ## 1. 基础展示
-- **Text**: `{ "type": "Text", "props": { "content": "Markdown文本(也就是普通文本，支持加粗等，但不支持代码块)" } }`
+- **Text**: `{ "type": "Text", "props": { "content": "Markdown文本(也就是普通文本，支持加粗等，但不支持代码块)" } }` (★ 请勿滥用，如无必要，请直接使用markdown文字即可，而不是放到A2UI JSON中)
 - **Code**: `{ "type": "Code", "props": { "content": "print('hello')", "language": "python" } }` (★ 展示代码专用，替代MD代码块)
+- **Table**: `{ "type": "Table", "props": { "headers": ["列1", "列2"], "rows": [ ["a1", "b1"], ["a2", "b2"] ] } }` (★ 请勿滥用，如果你想要画一个表格，请直接使用markdown表格语法即可，而不是放到A2UI JSON中)
 - **Alert**: `{ "type": "Alert", "props": { "title": "标题", "content": "内容", "variant": "success/warning/info/error" } }`
 - **Divider**: `{ "type": "Divider" }`
 
@@ -874,7 +875,14 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 - **Checkbox**: `{ "type": "Checkbox", "props": { "label": "标签", "key": "field_name", "options": ["篮球", "足球"] } }`
 
 ## 5. 交互动作
-- **Button**: `{ "type": "Button", "props": { "label": "提交", "action": "submit/search", "variant": "primary/danger" } }`
+- **Button**: `{ "type": "Button", "props": { "label": "按钮文字", "action": "submit/search/clear", "variant": "primary/danger/default" } }`
+  - `action="submit"`: 提交表单数据给助手。
+  - `action="search"`: 搜索（配合 Input 使用）。
+  - `action="clear"`: **清空/重置当前表单**（不会发送消息，仅在本地清除内容）。
+
+## 6. 多媒体
+- **TTSBlock**: `{ "type": "TTSBlock", "props": { "content": "要朗读的文本", "label": "可选标签", "voice": "可选声音ID" } }` (点击即可播放语音，适合展示示范发音、语音消息)
+- **Audio**: `{ "type": "Audio", "props": { "src": "https://example.com/sound.mp3", "title": "音频标题" } }` (原生音频播放器)
 
 # Examples
 
@@ -910,18 +918,127 @@ Assistant: 没问题，这是一个调查问卷模板：
 }
 ```
 
-## Ex 3: 代码展示 (正确示范)
-User: 用 Python 写一个 Hello World，用交互式UI展示，而不是markdown。
+## Ex 3: 需要在交互式界面中显示代码（不在A2UI内部显示代码，直接使用markdown代码块即可！）
+User: 模拟一个linux终端。
 Assistant: 代码如下：
 ```a2ui
-{ 
-    "type": "Code", 
-    "props": { 
-    "content": "print('Hello World')\n# 这是一个注释", 
-    "language": "python" 
-    } 
+{
+  "type": "Card",
+  "props": {
+    "title": "Linux 终端模拟器"
+  },
+  "children": [
+    {
+      "type": "Input",
+      "props": {
+        "label": "输入命令",
+        "key": "command",
+        "placeholder": "例如：ls, pwd, whoami, date, echo 'Hello' 等"
+      }
+    },
+    {
+      "type": "Group",
+      "children": [
+        {
+          "type": "Button",
+          "props": {
+            "label": "执行命令",
+            "action": "submit",
+            "variant": "primary"
+          }
+        },
+        {
+          "type": "Button",
+          "props": {
+            "label": "清空输出",
+            "action": "search"
+          }
+        }
+      ]
+    },
+    {
+      "type": "Divider"
+    },
+    {
+      "type": "Text",
+      "props": {
+        "content": "**终端输出区域：**"
+      }
+    },
+    {
+      "type": "Code",
+      "props": {
+        "content": "user@linux-terminal:~$ 等待输入命令...",
+        "language": "bash"
+      }
+    }
+  ]
 }
 ```
+
+## Ex 4: 语言学习场景 (TTSBlock 使用)
+User: 教我用日语说“你好”。
+Assistant: 好的，请听标准发音：
+```a2ui
+{
+  "type": "Card",
+  "props": { "title": "日语教学" },
+  "children": [
+    { "type": "Text", "props": { "content": "“你好”在日语中是：**こんにちは** (Konnichiwa)" } },
+    { 
+      "type": "TTSBlock", 
+      "props": { 
+        "label": "点击试听",
+        "content": "こんにちは",
+        "voice": "ja-JP-NanamiNeural" 
+      } 
+    },
+    { "type": "Alert", "props": { "title": "提示", "content": "通常用于白天见面时。", "variant": "info" } }
+  ]
+}
+```
+
+## Ex 5: 带重置功能的表单
+User: 我想写一篇博客，需要填标题和内容，但我可能想重写。
+Assistant: 
+```a2ui
+{
+  "type": "Card",
+  "props": { "title": "撰写新文章" },
+  "children": [
+    { "type": "Input", "props": { "label": "文章标题", "key": "title" } },
+    { "type": "Input", "props": { "label": "正文内容", "key": "content" } },
+    { 
+      "type": "Group", 
+      "children": [
+        { "type": "Button", "props": { "label": "清空重写", "action": "clear", "variant": "danger" } },
+        { "type": "Button", "props": { "label": "立即发布", "action": "submit", "variant": "primary" } }
+      ]
+    }
+  ]
+}
+```
+
+## 滥用行为1（请不要以这样的方式回复）：
+User: 画一个人工智能相关的表格。
+Assistant: 表格如下：
+```a2ui
+    {
+      "type": "Table",
+      "props": {
+        "headers": ["领域", "应用示例"],
+        "rows": [
+          ["医疗健康", "疾病诊断、药物研发、医学影像分析"],
+          ["金融服务", "风险评估、欺诈检测、智能投顾"],
+          ["自动驾驶", "环境感知、路径规划、决策控制"],
+          ["教育科技", "个性化学习、智能辅导、自动评分"],
+          ["智能制造", "质量控制、预测维护、生产优化"],
+          ["娱乐媒体", "内容推荐、游戏AI、特效生成"]
+        ]
+      }
+    }
+```
+显然，这个需求下，直接使用markdown语法发送表格更加适合，而不是使用A2UI！
 """
         content_append(request.messages, 'system', A2UI_messages)
     print(f"系统提示：{request.messages[0]['content']}")
@@ -5302,15 +5419,17 @@ async def get_system_voices():
             content={"error": f"无法获取音色列表: {str(e)}"}
         )
 
-from pydub import AudioSegment
-from imageio_ffmpeg import get_ffmpeg_exe   # ① 关键：拿到捆绑的 ffmpeg
 
-# 让 pydub 使用我们自带的 ffmpeg，而不是去系统 PATH 里找
-AudioSegment.converter = get_ffmpeg_exe()
 async def convert_to_opus_simple(audio_data):
     """使用pydub将音频转换为opus格式（适合飞书）"""
+    from pydub import AudioSegment
+    from imageio_ffmpeg import get_ffmpeg_exe   # ① 关键：拿到捆绑的 ffmpeg
+    # 设置 converter (利用 getattr 避免重复设置)
+    if not getattr(AudioSegment, 'converter_configured', False):
+        AudioSegment.converter = get_ffmpeg_exe()
+        AudioSegment.converter_configured = True
     try:
-        
+
         try:
             # ② 先尝试用 pydub 自动探测格式
             audio_io = io.BytesIO(audio_data)

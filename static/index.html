@@ -857,6 +857,17 @@ if ('serviceWorker' in navigator) {
                   </el-button>
                 </el-tooltip>
 
+                <el-tooltip :content="t('a2ui')" placement="top">
+                  <el-button
+                    @click="toolsSettings.a2ui.enabled = !toolsSettings.a2ui.enabled; autoSaveSettings()"
+                    class="icon-btn ui-btn"
+                    :type="toolsSettings.a2ui.enabled ? 'primary' : 'default'"
+                    v-if="MoreButtonDict.find(b => b.name === 'uiButton')?.enabled&&!isCapsuleMode"
+                    circle>
+                    <i class="fa-solid fa-icons"></i>
+                  </el-button>
+                </el-tooltip>
+
                 <el-tooltip :content="t('interpreter')" placement="top">
                   <el-button
                     @click="codeSettings.enabled = !codeSettings.enabled; autoSaveSettings()"
