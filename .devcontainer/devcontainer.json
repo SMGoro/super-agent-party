@@ -1,0 +1,16 @@
+{
+  "name": "Super-Agent-Party",
+  "image": "ailm32442/super-agent-party:latest",
+  "forwardPorts": [3456],
+  "portsAttributes": {
+    "3456": {
+      "label": "Super-Agent",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "mounts": [
+    "source=codespaces-linux,target=/app/data,type=volume"
+  ],
+  "remoteUser": "root",
+  "postCreateCommand": "echo 'Super-Agent-Party ready → http://localhost:3456'"
+}

@@ -1,19 +1,24 @@
 ![image](static/source/cover.png)
 
 <div align="center">
-  <a href="./README_ZH.md">👉 简体中文</a> |
-  <a href="./README.md">👉 English</a>
+  <a href="./README_ZH.md">
+    <img src="https://img.shields.io/badge/简体中文-自述文档-00B4AB?style=for-the-badge&logo=markdown"/>
+  </a>
+  <a href="./README.md">
+    <img src="https://img.shields.io/badge/English-Readme-0057D2?style=for-the-badge&logo=markdown"/>
+  </a>
 </div>
 
 ####
 
 <div align="center">
-  <a href="https://space.bilibili.com/26978344">B站</a> ·
-  <a href="https://www.youtube.com/@LLM-party">youtube</a> ·
-  <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc">中文使用指南</a> ·
-  <a href="https://temporal-lantern-7e8.notion.site/super-agent-party-211b2b2cb6f180c899d1c27a98c4965d">English Usage Guide</a> ·
-  <a href="https://pan.baidu.com/share/init?surl=VBSnq4Ga3fRX_NcyPwsV7Q&pwd=2333">网盘下载</a> · 
-  <a href="#quick-start">Quick Start</a>
+  <a href="https://space.bilibili.com/26978344"><img src="https://img.shields.io/badge/B站-观看教程-red?style=for-the-badge&logo=bilibili"/></a>
+  <a href="https://www.youtube.com/@LLM-party"><img src="https://img.shields.io/badge/YouTube-Subscribe-FF0000?style=for-the-badge&logo=youtube"/></a>
+  <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc"><img src="https://img.shields.io/badge/中文使用指南-飞书文档-00CDCD?style=for-the-badge&logo=docsdotrs"/></a>
+  <a href="https://temporal-lantern-7e8.notion.site/super-agent-party-211b2b2cb6f180c899d1c27a98c4965d"><img src="https://img.shields.io/badge/English%20Guide-Notion-000000?style=for-the-badge&logo=notion"/></a>
+  <a href="https://pan.baidu.com/share/init?surl=VBSnq4Ga3fRX_NcyPwsV7Q&pwd=2333"><img src="https://img.shields.io/badge/网盘下载-百度网盘-2E58D4?style=for-the-badge&logo=baidu"/></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Quick%20Start-Local-0052CC?style=for-the-badge&logo=github"/></a>
+  <a href="https://codespaces.new/heshengtao/super-agent-party"><img src="https://github.com/codespaces/badge.svg"/></a>
 </div>
 
 ## Introduction
