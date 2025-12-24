@@ -1,16 +1,14 @@
 {
-  "name": "Super-Agent-Party",
-  "image": "ailm32442/super-agent-party:latest",
-  "postStartCommand": ".venv/bin/python server.py --host 0.0.0.0 --port 3456",
-  "forwardPorts": [3456],
-  "portsAttributes": {
-    "3456": {
-      "label": "Super-Agent",
-      "onAutoForward": "openBrowser"
+  "name": "Super Agent Party Dev",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {},
+      "extensions": ["ms-python.python"]
     }
   },
-  "mounts": [
-    "source=codespaces-linux,target=/app/data,type=volume"
-  ],
-  "remoteUser": "root"
+  "forwardPorts": [3456]
 }
