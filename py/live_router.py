@@ -244,6 +244,21 @@ async def reload_live(request: LiveConfigRequest):
     except Exception as e:
         return ApiResponse(success=False, message=f"重载失败: {str(e)}")
 
+@router.get("/status")
+async def get_live_status():
+    """获取当前直播监听服务的运行状态"""
+    # 只要有任意一个平台的客户端在运行，就认为是在运行中
+    is_running = (live_client is not None) or (yt_client is not None) or (twitch_task is not None)
+    
+    return {
+        "is_running": is_running,
+        "details": {
+            "bilibili": live_client is not None,
+            "youtube": yt_client is not None,
+            "twitch": twitch_task is not None
+        }
+    }
+
 # —————— WebSocket 路由 ——————
 # 注意：WebSocket 想挂在 /ws/live/danmu，再新建一个 router 即可
 ws_router = APIRouter(prefix="/ws/live", tags=["live"])

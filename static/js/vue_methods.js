@@ -1173,6 +1173,11 @@ let vue_methods = {
           this.loadDefaultMotions();
           this.loadGaussScenes();
           this.checkMobile();
+          this.checkQQBotStatus(); 
+          this.checkFeishuBotStatus();
+          this.checkTelegramBotStatus();
+          this.checkDiscordBotStatus();
+          this.checkLiveStatus();
           this.fetchRemotePlugins();
           if (this.asrSettings.enabled) {
             this.startASR();
@@ -7124,6 +7129,30 @@ handleCreateDiscordSeparator(val) {
       
       // 然后关闭连接
       ws.close();
+    }
+  },
+
+  async checkLiveStatus() {
+    try {
+      const response = await fetch('/api/live/status');
+      const result = await response.json();
+      
+      // 更新状态
+      this.isLiveRunning = result.is_running;
+
+      // 关键点：如果后台正在运行，前端刷新后需要重新挂载 WebSocket 和处理器
+      if (this.isLiveRunning) {
+        console.log('检测到后台直播监听正在运行，正在恢复连接...');
+        this.shouldReconnectWs = true;
+        
+        // 重新连接 WebSocket 接收弹幕
+        this.connectLiveWebSocket();
+        
+        // 重新启动弹幕队列处理定时器
+        this.startDanmuProcessor();
+      }
+    } catch (error) {
+      console.error('检查直播状态失败:', error);
     }
   },
 
