@@ -10,17 +10,17 @@
   <link rel="stylesheet" href="css/github-markdown.min.css">
   <!-- Highlight.js CSS for code highlighting -->
   <link rel="stylesheet" href="css/github.min.css">
-  <script src="js/clipboard.min.js"></script>
+  <script src="libs/clipboard.min.js"></script>
   <!--引入html2canvas-->
-  <script src="js/html2canvas.min.js"></script>
+  <script src="libs/html2canvas.min.js"></script>
   <!-- 引入Element Plus样式 -->
   <link rel="stylesheet" href="libs/element-plus.css">
   <link rel="stylesheet" href="fontawesome/css/all.min.css">
   <link rel="icon" href="source/icon.png" type="image/png">
   <!-- Voice Activation Detection -->
-  <script src="js/ort.js"></script>
-  <script src="js/bundle.min.js"></script>
-  <script src="js/qrcode.min.js"></script>
+  <script src="libs/ort.js"></script>
+  <script src="libs/bundle.min.js"></script>
+  <script src="libs/qrcode.min.js"></script>
   <script src="libs/driver.js"></script>
   <link rel="stylesheet" href="libs/driver.css">
   <script src="libs/exceljs.min.js"></script>
@@ -53,11 +53,12 @@ if ('serviceWorker' in navigator) {
 }
   </script>
   <!-- Include markdown-it and highlight.js scripts -->
-  <script src="js/markdown-it.min.js"></script>
-  <script src="js/highlight.min.js"></script>
+  <script src="libs/markdown-it.min.js"></script>
+  <script src="libs/markdown-it-task-lists.min.js"></script>
+  <script src="libs/highlight.min.js"></script>
   <script src="js/locales.js"></script>
-  <script src="js/mermaid.min.js"></script>
-  <script src="js/uuid.min.js"></script>
+  <script src="libs/mermaid.min.js"></script>
+  <script src="libs/uuid.min.js"></script>
   <script>
     mermaid.initialize({ 
       startOnLoad: false,
@@ -90,7 +91,7 @@ if ('serviceWorker' in navigator) {
       }
     };
   </script>
-  <script id="MathJax-script" async src="js/tex-svg.js"></script>
+  <script id="MathJax-script" async src="libs/tex-svg.js"></script>
 </head>
 <body>
   <div id="app">

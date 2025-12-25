@@ -37,6 +37,17 @@ const md = window.markdownit({
 }
 });
 
+if (window.markdownitTaskLists) {
+    md.use(window.markdownitTaskLists, {
+        enabled: true,   // 渲染为 <input type="checkbox">
+        label: true,     // 将文字包裹在 <label> 中
+        labelAfter: true // label 放在 checkbox 之后
+    });
+} else {
+    console.warn('markdown-it-task-lists 插件未加载，任务列表将不会渲染。');
+}
+
+
 // 添加更复杂的临时占位符
 const LATEX_PLACEHOLDER_PREFIX = 'LATEX_PLACEHOLDER_';
 let latexPlaceholderCounter = 0;
