@@ -418,6 +418,18 @@ class MyClient(botpy.Client):
             
         print(f"User content: {user_content}")
         
+        # 初始化状态管理
+        if not hasattr(self, 'msg_seq_counters'):
+            self.msg_seq_counters = {}
+        self.msg_seq_counters.setdefault(c_id, 1)
+        if not hasattr(self, 'processing_states'):
+            self.processing_states = {}
+        self.processing_states[c_id] = {
+            "text_buffer": "",
+            "image_buffer": "",
+            "image_cache": []
+        }
+
         c_id = message.author.user_openid
         if c_id not in self.memoryList:
             self.memoryList[c_id] = []
@@ -433,19 +445,6 @@ class MyClient(botpy.Client):
                 return
 
         self.memoryList[c_id].append({"role": "user", "content": user_content})
-
-        # 初始化状态管理
-        if not hasattr(self, 'msg_seq_counters'):
-            self.msg_seq_counters = {}
-        self.msg_seq_counters.setdefault(c_id, 1)
-        
-        if not hasattr(self, 'processing_states'):
-            self.processing_states = {}
-        self.processing_states[c_id] = {
-            "text_buffer": "",
-            "image_buffer": "",
-            "image_cache": []
-        }
 
         try:
             asyncToolsID = []
