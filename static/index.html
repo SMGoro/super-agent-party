@@ -775,6 +775,7 @@ if ('serviceWorker' in navigator) {
                     @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
                     class="icon-btn vision-btn"
                     :type="visionSettings.desktopVision ? 'primary' : 'default'"
+                    :disabled="!isElectron"
                     v-if="MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode"
                     circle>
                     <i class="fa-solid fa-eye"></i>
@@ -3948,19 +3949,19 @@ if ('serviceWorker' in navigator) {
                           ></el-option>
                         </el-select>
                       </el-form-item>
-                      <el-form-item :label="t('desktopVision')" class="form-item-align" label-position="left">
+                      <el-form-item v-if="isElectron" :label="t('desktopVision')" class="form-item-align" label-position="left">
                         <el-switch 
                           v-model="visionSettings.desktopVision" 
                           @change="autoSaveSettings"
                         ></el-switch>
                       </el-form-item>
-                      <el-form-item :label="t('enableDesktopVisionWakeWord')" class="form-item-align" label-position="left">
+                      <el-form-item v-if="isElectron" :label="t('enableDesktopVisionWakeWord')" class="form-item-align" label-position="left">
                         <el-switch 
                           v-model="visionSettings.enableWakeWord" 
                           @change="autoSaveSettings"
                         ></el-switch>
                       </el-form-item>
-                      <el-form-item :label="t('desktopVisionWakeWord')" class="form-item-align">
+                      <el-form-item v-if="isElectron" :label="t('desktopVisionWakeWord')" class="form-item-align">
                         <el-input
                           v-model="visionSettings.wakeWord"
                           :placeholder="t('desktopVisionWakeWordPlaceholder')"
@@ -4280,19 +4281,19 @@ if ('serviceWorker' in navigator) {
                           @input="autoSaveSettings"
                         />
                       </el-form-item>
-                      <el-form-item :label="t('desktopVision')" class="form-item-align" label-position="left">
+                      <el-form-item v-if="isElectron" :label="t('desktopVision')" class="form-item-align" label-position="left">
                         <el-switch 
                           v-model="visionSettings.desktopVision" 
                           @change="autoSaveSettings"
                         ></el-switch>
                       </el-form-item>
-                      <el-form-item :label="t('enableDesktopVisionWakeWord')" class="form-item-align" label-position="left">
+                      <el-form-item v-if="isElectron" :label="t('enableDesktopVisionWakeWord')" class="form-item-align" label-position="left">
                         <el-switch 
                           v-model="visionSettings.enableWakeWord" 
                           @change="autoSaveSettings"
                         ></el-switch>
                       </el-form-item>
-                      <el-form-item :label="t('desktopVisionWakeWord')" class="form-item-align">
+                      <el-form-item v-if="isElectron" :label="t('desktopVisionWakeWord')" class="form-item-align">
                         <el-input
                           v-model="visionSettings.wakeWord"
                           :placeholder="t('desktopVisionWakeWordPlaceholder')"
