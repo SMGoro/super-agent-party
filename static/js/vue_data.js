@@ -1624,6 +1624,10 @@ docker run -d \\
   -v ./super-agent-data:/app/data \\
   ailm32442/super-agent-party:latest
 `,
+    dockerExamples2: `git clone https://github.com/heshengtao/super-agent-party.git
+cd super-agent-party
+docker-compose up -d
+`,
     browserEmbedCodeExamples: `<div id="super-agent-party">
   <iframe 
     src="${backendURL}/chat.html" 

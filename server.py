@@ -769,7 +769,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         HA_message = f"\n\n以下是home assistant连接的设备信息：{HA_devices}\n\n"
         content_append(request.messages, 'system', HA_message)
     if settings['chromeMCPSettings']['enabled']:
-        chrome_status = await ChromeMCP_client.call_tool("get_windows_and_tabs", {})
+        chrome_status = await ChromeMCP_client.call_tool("browser_snapshot", {})
         chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
         content_append(request.messages, 'system', chromeMCP_message)
     if settings['sqlSettings']['enabled']:
