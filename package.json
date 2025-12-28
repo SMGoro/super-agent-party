@@ -37,7 +37,7 @@
       "repo": "super-agent-party",
       "releaseType": "draft"
     },
-    "compression": "store",
+    "compression": "maximum",
     "directories": {
       "output": "release"
     },
