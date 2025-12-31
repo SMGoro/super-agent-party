@@ -1991,6 +1991,25 @@ let vue_methods = {
     },
     async autoSaveSettings() {
       return new Promise((resolve, reject) => {
+        // 同步 MoreButtonDict 的修改到对应的字典中
+        if (this.isMobile) {
+          this.smallMoreButtonDict = this.smallMoreButtonDict.map(existingButton => {
+            const currentButton = this.MoreButtonDict.find(button => button.name === existingButton.name);
+            if (currentButton) {
+              return { ...existingButton, enabled: currentButton.enabled };
+            }
+            return existingButton;
+          });
+        } else {
+          this.largeMoreButtonDict = this.largeMoreButtonDict.map(existingButton => {
+            const currentButton = this.MoreButtonDict.find(button => button.name === existingButton.name);
+            if (currentButton) {
+              return { ...existingButton, enabled: currentButton.enabled };
+            }
+            return existingButton;
+          });
+        }
+
         // 构造 payload（保持原有逻辑）
         const payload = {
           ...this.settings,
@@ -9042,13 +9061,22 @@ stopTTSActivities() {
   },
   toggleAssistantMode() {
     this.activeMenu = 'home';
+    console.log('切换助手模式，当前状态:', this.isAssistantMode);
+
     if (this.isAssistantMode && !this.isMac) {
-      window.electronAPI.windowAction('maximize') // 恢复默认大小
-    } else{
-      window.electronAPI.toggleWindowSize(300, 630);
+      // 退出助手模式，最大化窗口
+      console.log('退出助手模式，最大化窗口');
+      window.electronAPI.windowAction('maximize'); // 恢复默认大小
+    } else {
+      // 进入助手模式，设置为300x屏幕高度
+      const screenHeight = window.screen.availHeight || window.innerHeight || 800;
+      console.log('进入助手模式，设置大小为:', 340, screenHeight);
+      window.electronAPI.toggleWindowSize(340, screenHeight);
     }
+
     this.sidePanelOpen = false;
     this.isAssistantMode = !this.isAssistantMode;
+    console.log('切换完成，新状态:', this.isAssistantMode);
   },
     fixedWindow() {
     // 把新状态取反

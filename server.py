@@ -5012,7 +5012,32 @@ async def text_to_speech(request: Request):
         new_voice = data.get('voice','default')
         tts_settings = data['ttsSettings']
         if new_voice in tts_settings['newtts'] and new_voice!='default':
-            tts_settings = tts_settings['newtts'][new_voice]
+            # 获取新声音的配置
+            voice_settings = tts_settings['newtts'][new_voice]
+            parent_settings = tts_settings
+            
+            # 从父配置继承关键字段（只继承非空值）
+            inherited_fields = ['api_key', 'base_url', 'model', 'selectedProvider', 'vendor']
+            for field in inherited_fields:
+                # 只在子配置中不存在或为空，且父配置中有非空值时继承
+                child_value = voice_settings.get(field, '')
+                parent_value = parent_settings.get(field, '')
+                if not child_value and parent_value:
+                    voice_settings[field] = parent_value
+            
+            # 如果有selectedProvider但仍缺少api_key，从modelProviders中查找
+            selected_provider_id = voice_settings.get('selectedProvider')
+            if selected_provider_id and not voice_settings.get('api_key'):
+                model_providers = parent_settings.get('modelProviders', [])
+                for provider in model_providers:
+                    if provider.get('id') == selected_provider_id:
+                        voice_settings['api_key'] = provider.get('apiKey', '')
+                        voice_settings['base_url'] = provider.get('url', '')
+                        voice_settings['model'] = provider.get('modelId', '')
+                        voice_settings['vendor'] = provider.get('vendor', '')
+                        break
+            
+            tts_settings = voice_settings
         index = data['index']
         tts_engine = tts_settings.get('engine', 'edgetts')
                 
