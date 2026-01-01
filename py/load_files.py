@@ -50,39 +50,117 @@ FILE_FILTERS = [
 
 office_extensions = {ext for group in FILE_FILTERS if group['name'] == '办公文档' for ext in group['extensions']}
 
-async def handle_url(url):
-    """异步处理URL输入，优先尝试替换 host:port 的内部URL，失败后回退到原始URL"""
-    parsed_url = urlparse(url)
-    original_url = url  # 保存原始URL用于回退
-    modified_url = url  # 默认使用原URL
+import socket
+import ipaddress
+from urllib.robotparser import RobotFileParser
+from urllib.parse import urljoin
 
-    # 如果路径包含 'uploaded_files'，则替换 host:port
+USER_AGENT = "Mozilla/5.0 (compatible; MyOpenSourceBot/1.0)"
+ROBOTS_CACHE = {} # 缓存 robots.txt 避免重复请求
+
+def is_private_ip(hostname):
+    """检测是否为私有/内网IP，放行代理软件的 Fake-IP"""
+    if not hostname:
+        return False
+    
+    try:
+        # 解析域名获取 IP
+        addr_info = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        
+        # 代理软件 Fake-IP 的标准网段 (198.18.0.0/15)
+        fake_ip_net = ipaddress.ip_network('198.18.0.0/15')
+
+        for item in addr_info:
+            ip_str = item[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            
+            # 1. 核心逻辑：如果 IP 在代理软件的 Fake-IP 段内，直接判定为【安全】并放行
+            if ip_obj in fake_ip_net:
+                return False 
+            
+            # 2. 正常的内网/本地回环地址检查 (10.x, 172.16.x, 192.168.x, 127.x)
+            if ip_obj.is_private or ip_obj.is_loopback:
+                print(f"[安全拦截] 域名 {hostname} 解析到了真实的内网IP: {ip_str}")
+                return True
+                
+    except Exception as e:
+        # 解析失败（如 DNS 不通）不判定为内网，让后续 aiohttp 请求自然失败
+        return False
+        
+    return False
+
+async def check_robots_txt(url):
+    """异步检查 robots.txt 合规性"""
+    parsed = urlparse(url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    
+    if base_url in ROBOTS_CACHE:
+        return ROBOTS_CACHE[base_url].can_fetch(USER_AGENT, url)
+    
+    robots_url = urljoin(base_url, "/robots.txt")
+    rp = RobotFileParser()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(robots_url, timeout=5) as resp:
+                if resp.status == 200:
+                    text_data = await resp.text()
+                    rp.parse(text_data.splitlines())
+                else:
+                    rp.allow_all = True
+    except:
+        rp.allow_all = True # 无法获取robots.txt时，默认允许
+        
+    ROBOTS_CACHE[base_url] = rp
+    return rp.can_fetch(USER_AGENT, url)
+
+async def handle_url(url):
+    """重构后的 URL 处理：严格区分内网上传与外网爬取"""
+    parsed_url = urlparse(url)
+    original_url = url
+    ext = os.path.splitext(parsed_url.path)[1].lstrip('.').lower()
+
+    # --- 1. 内部上传文件处理逻辑 ---
     if 'uploaded_files' in parsed_url.path:
         HOST = get_host()
         PORT = get_port()
         if HOST == '0.0.0.0':
             HOST = '127.0.0.1'
+        
+        # 强制重写 URL，不再信任外部传入的 host:port
         modified_parsed_url = parsed_url._replace(netloc=f'{HOST}:{PORT}')
-        modified_url = urlunparse(modified_parsed_url)
-
-    # 尝试使用修改后的URL请求
-    async with aiohttp.ClientSession() as session:
-        for try_url in [modified_url, original_url]:  # 最多两次尝试：先改写URL，再原始URL
+        target_url = urlunparse(modified_parsed_url)
+        
+        async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(try_url, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-                }) as response:
+                async with session.get(target_url, timeout=10) as response:
                     response.raise_for_status()
                     content = await response.read()
-                    ext = os.path.splitext(parsed_url.path)[1].lstrip('.').lower()
                     return content, ext
-            except (aiohttp.ClientError, OSError) as e:
-                print(f"请求失败（{try_url}）: {e}")
-                if try_url == original_url:
-                    raise  # 如果是最后一次尝试失败，抛出异常
-                else:
-                    continue  # 否则继续尝试原始URL
+            except Exception as e:
+                raise RuntimeError(f"内部文件读取失败: {e}")
 
+    # --- 2. 外部公网 URL 爬取逻辑 ---
+    else:
+        # A. SSRF 安全检查：禁止访问非上传路径的内网 IP
+        if is_private_ip(parsed_url.hostname):
+            raise PermissionError(f"安全拒绝: 不允许访问内部网络地址 ({parsed_url.hostname})")
+
+        # B. Robots.txt 协议合规检查
+        if not await check_robots_txt(url):
+            raise PermissionError(f"合规拒绝: 该网站的 robots.txt 禁止我们的 UA 访问此路径")
+
+        # C. 执行外部请求
+        async with aiohttp.ClientSession() as session:
+            # 必须带上 UA，这是爬虫礼仪，也是很多网站防爬的第一道门槛
+            headers = {'User-Agent': USER_AGENT}
+            try:
+                async with session.get(url, headers=headers, timeout=30) as response:
+                    response.raise_for_status()
+                    content = await response.read()
+                    return content, ext
+            except Exception as e:
+                raise RuntimeError(f"外部 URL 下载失败: {e}")
+            
 async def handle_local_file(file_path):
     """异步处理本地文件"""
     if not os.path.exists(file_path):
@@ -589,7 +667,7 @@ file_tool = {
     "type": "function",
     "function": {
         "name": "get_file_content",
-        "description": f"获取给定的文件URL中的内容，无论是公网URL还是服务器内部URL，由于工具调用结果会被缓存在服务器中，本工具也可以通过工具调用结果的URL用来查看工具调用结果，支持格式：{', '.join(ALLOWED_EXTENSIONS)}",
+        "description": f"获取给定的文件URL中的内容，无论是公网URL还是服务器内部URL（内部URL只支持查看/uploaded_files路由下的文件），由于工具调用结果会被缓存在服务器中，本工具也可以通过工具调用结果的URL用来查看工具调用结果，支持格式：{', '.join(ALLOWED_EXTENSIONS)}",
         "parameters": {
             "type": "object",
             "properties": {
@@ -607,7 +685,7 @@ image_tool = {
     "type": "function",
     "function": {
         "name": "get_image_content",
-        "description": f"获取给定的图片URL中的内容，无论是公网URL还是服务器内部URL，支持格式：{', '.join(ALLOWED_IMAGE_EXTENSIONS)}",
+        "description": f"获取给定的图片URL中的内容，无论是公网URL还是服务器内部URL（内部URL只支持查看/uploaded_files路由下的图片），支持格式：{', '.join(ALLOWED_IMAGE_EXTENSIONS)}",
         "parameters": {
             "type": "object",
             "properties": {
