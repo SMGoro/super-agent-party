@@ -57,6 +57,56 @@ if (window.markdownitTaskLists) {
     console.warn('markdown-it-task-lists 插件未加载，任务列表将不会渲染。');
 }
 
+// 检查插件是否已加载
+if (window.markdownitContainer) {
+    
+    // 1. 定义 "warning" 容器 (对应 CSS 中的 .highlight-block-reasoning)
+    // 使用方法: 
+    // ::: warning 标题
+    // 内容...
+    // :::
+    md.use(window.markdownitContainer, 'warning', {
+        validate: function(params) {
+            return params.trim().match(/^warning\s*(.*)$/);
+        },
+        render: function (tokens, idx) {
+            var m = tokens[idx].info.trim().match(/^warning\s*(.*)$/);
+            if (tokens[idx].nesting === 1) {
+                // 开头标签: <div class="highlight-block-reasoning"> ...
+                var title = m[1] ? md.utils.escapeHtml(m[1]) : '';
+                var titleHtml = title ? '<strong>' + title + '</strong><br>' : '';
+                return '<div class="highlight-block-reasoning">' + titleHtml;
+            } else {
+                // 结束标签: </div>
+                return '</div>\n';
+            }
+        }
+    });
+
+    // 2. 定义 "info" 容器 (对应 CSS 中的 .highlight-block)
+    // 使用方法: 
+    // ::: info 提示
+    // 内容...
+    // :::
+    md.use(window.markdownitContainer, 'info', {
+        validate: function(params) {
+            return params.trim().match(/^info\s*(.*)$/);
+        },
+        render: function (tokens, idx) {
+            var m = tokens[idx].info.trim().match(/^info\s*(.*)$/);
+            if (tokens[idx].nesting === 1) {
+                var title = m[1] ? md.utils.escapeHtml(m[1]) : '';
+                var titleHtml = title ? '<strong>' + title + '</strong><br>' : '';
+                return '<div class="highlight-block">' + titleHtml;
+            } else {
+                return '</div>\n';
+            }
+        }
+    });
+} else {
+    console.warn('markdown-it-container 插件未加载，自定义容器将不会渲染。');
+}
+
 
 // 添加更复杂的临时占位符
 const LATEX_PLACEHOLDER_PREFIX = 'LATEX_PLACEHOLDER_';
