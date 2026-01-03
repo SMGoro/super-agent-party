@@ -1253,6 +1253,7 @@ let vue_methods = {
           this.checkDiscordBotStatus();
           this.checkLiveStatus();
           this.fetchRemotePlugins();
+          this.fetchTetosVoices(this.ttsSettings.engine);
           if (this.asrSettings.enabled) {
             this.startASR();
           }
@@ -11388,6 +11389,164 @@ async togglePlugin(plugin) {
       }
 
       return segments;
+    },
+
+    async fetchTetosNewVoices(provider) {
+        this.newTTSConfig.isFetchingVoices = true;
+        this.newTTSConfig.tetosVoices = []; // 清空现有列表
+        
+        let config = {};
+        const s = this.newTTSConfig;
+
+        // 根据 provider 构建 config
+        switch(provider) {
+            case 'azure':
+                config = { speech_key: s.azureSpeechKey, speech_region: s.azureRegion };
+                break;
+            case 'volcengine':
+                config = { access_key: s.volcAccessKey, secret_key: s.volcSecretKey, app_key: s.volcAppKey };
+                break;
+            case 'baidu':
+                config = { api_key: s.baiduApiKey, secret_key: s.baiduSecretKey };
+                break;
+            case 'minimax':
+                config = { api_key: s.minimaxApiKey, group_id: s.minimaxGroupId };
+                break;
+            case 'xunfei':
+                config = { app_id: s.xunfeiAppId, api_key: s.xunfeiApiKey, api_secret: s.xunfeiApiSecret };
+                break;
+            case 'fish':
+                config = { api_key: s.fishApiKey };
+                break;
+            case 'google':
+                // 尝试解析 JSON 字符串
+                try {
+                    if (s.googleServiceAccount) {
+                         config = { service_account: JSON.parse(s.googleServiceAccount) };
+                    }
+                } catch (e) {
+                    this.newTTSConfig.isFetchingVoices = false;
+                    return;
+                }
+                break;
+        }
+
+        try {
+            const response = await fetch('/tts/tetos/list_voices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: provider, config: config })
+            });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                this.newTTSConfig.tetosVoices = result.data;
+            } else {
+                console.error(result);
+            }
+        } catch (error) {
+            console.error('Error fetching voices:', error);
+        } finally {
+            this.newTTSConfig.isFetchingVoices = false;
+        }
+    },
+
+    async fetchTetosVoices(provider) {
+        this.ttsSettings.isFetchingVoices = true;
+        this.ttsSettings.tetosVoices = []; // 清空现有列表
+        
+        let config = {};
+        const s = this.ttsSettings;
+
+        // 根据 provider 构建 config
+        switch(provider) {
+            case 'azure':
+                config = { speech_key: s.azureSpeechKey, speech_region: s.azureRegion };
+                break;
+            case 'volcengine':
+                config = { access_key: s.volcAccessKey, secret_key: s.volcSecretKey, app_key: s.volcAppKey };
+                break;
+            case 'baidu':
+                config = { api_key: s.baiduApiKey, secret_key: s.baiduSecretKey };
+                break;
+            case 'minimax':
+                config = { api_key: s.minimaxApiKey, group_id: s.minimaxGroupId };
+                break;
+            case 'xunfei':
+                config = { app_id: s.xunfeiAppId, api_key: s.xunfeiApiKey, api_secret: s.xunfeiApiSecret };
+                break;
+            case 'fish':
+                config = { api_key: s.fishApiKey };
+                break;
+            case 'google':
+                // 尝试解析 JSON 字符串
+                try {
+                    if (s.googleServiceAccount) {
+                         config = { service_account: JSON.parse(s.googleServiceAccount) };
+                    }
+                } catch (e) {
+                    this.ttsSettings.isFetchingVoices = false;
+                    return;
+                }
+                break;
+        }
+
+        try {
+            const response = await fetch('/tts/tetos/list_voices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: provider, config: config })
+            });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                this.ttsSettings.tetosVoices = result.data;
+            } else {
+                console.error(result);
+            }
+        } catch (error) {
+            console.error('Error fetching voices:', error);
+        } finally {
+            this.ttsSettings.isFetchingVoices = false;
+        }
+    },
+
+    // 1. 获取音色显示名称 (Label)
+    getVoiceLabel(v) {
+        // 情况 A: 数据是纯字符串 (你刚才展示的情况)
+        if (typeof v === 'string') return v;
+        
+        // 情况 B: 数据是对象 (Azure等)
+        if (v && typeof v === 'object') {
+            // 优先查找显示名称，如果没有则找 id 或 name
+            return v.DisplayName || v.local_name || v.name || v.Name || v.id || v.Id || v.ShortName || 'Unknown Voice';
+        }
+        return 'Unknown';
+    },
+
+    // 2. 获取音色实际值 (Value - 传给后端的)
+    getVoiceValue(v) {
+        // 情况 A: 纯字符串
+        if (typeof v === 'string') return v;
+        
+        // 情况 B: 对象
+        if (v && typeof v === 'object') {
+            return v.ShortName || v.id || v.Id || v.name || '';
+        }
+        return '';
+    },
+
+    // 3. 获取辅助信息 (显示在右侧的灰色小字，如语言)
+    getVoiceDesc(v) {
+        // 纯字符串没有额外信息，返回空
+        if (typeof v === 'string') return '';
+        
+        // 对象可能包含语言信息
+        if (v && typeof v === 'object') {
+            const lang = v.Locale || v.locale || v.Language || v.language || (v.language_codes ? v.language_codes[0] : '');
+            return lang ? `[${lang}]` : '';
+        }
+        return '';
     },
 
 }

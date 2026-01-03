@@ -550,6 +550,44 @@ let vue_data = {
       customTTSKeySpeed: 'speed',
       systemVoiceName: null,
       systemRate: 200,
+      // Tetos 通用音色列表缓存 (当切换引擎时刷新)
+      tetosVoices: [],
+      isFetchingVoices: false,
+
+      // Azure
+      azureSpeechKey: '',
+      azureRegion: '',
+      azureVoice: '',
+
+      // Volcengine
+      volcAccessKey: '',
+      volcSecretKey: '',
+      volcAppKey: '',
+      volcVoice: '',
+
+      // Baidu
+      baiduApiKey: '',
+      baiduSecretKey: '',
+      baiduVoice: '',
+
+      // Minimax
+      minimaxApiKey: '',
+      minimaxGroupId: '',
+      minimaxVoice: '',
+
+      // Xunfei
+      xunfeiAppId: '',
+      xunfeiApiKey: '',
+      xunfeiApiSecret: '',
+      xunfeiVoice: '',
+
+      // Fish Audio
+      fishApiKey: '',
+      fishVoice: '',
+
+      // Google
+      googleServiceAccount: '', // JSON 字符串
+      googleVoice: '',
       newtts:{}
     },
     activeTTSTab: 'default', // 控制 TTS 标签页切换
@@ -583,6 +621,45 @@ let vue_data = {
       customTTSspeed: 1.0,
       systemVoiceName: null,
       systemRate: 200,
+      // Tetos 通用音色列表缓存 (当切换引擎时刷新)
+      tetosVoices: [],
+      isFetchingVoices: false,
+
+      // Azure
+      azureSpeechKey: '',
+      azureRegion: '',
+      azureVoice: '',
+
+      // Volcengine
+      volcAccessKey: '',
+      volcSecretKey: '',
+      volcAppKey: '',
+      volcVoice: '',
+
+      // Baidu
+      baiduApiKey: '',
+      baiduSecretKey: '',
+      baiduVoice: '',
+
+      // Minimax
+      minimaxApiKey: '',
+      minimaxGroupId: '',
+      minimaxVoice: '',
+
+      // Xunfei
+      xunfeiAppId: '',
+      xunfeiApiKey: '',
+      xunfeiApiSecret: '',
+      xunfeiVoice: '',
+
+      // Fish Audio
+      fishApiKey: '',
+      fishVoice: '',
+
+      // Google
+      googleServiceAccount: '', // JSON 字符串
+      googleVoice: '',
+      newtts:{}
     },
     cur_voice :'default',
     openaiVoices:['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'],

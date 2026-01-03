@@ -5571,10 +5571,322 @@ async def text_to_speech(request: Request):
                 }
             )
         
+        # ==========================================
+        # Tetos 统一处理逻辑 (Azure, Volc, Baidu, etc.)
+        # ==========================================
+        elif tts_engine in ['azure', 'volcengine', 'baidu', 'minimax', 'xunfei', 'fish', 'google']:
+            import traceback # 用于打印报错堆栈
+            import uuid
+            # 1. 准备临时文件路径
+            unique_suffix = uuid.uuid4().hex[:8]
+            os.makedirs(TOOL_TEMP_DIR, exist_ok=True)
+            temp_filename = os.path.join(TOOL_TEMP_DIR, f"temp_tetos_{index}_{unique_suffix}.mp3")
+
+            print(f"[DEBUG] 准备调用 Tetos: 引擎={tts_engine}, 临时文件={temp_filename}")
+
+            # 2. 定义同步生成函数 (将在线程池运行)
+            def run_tetos_sync():
+                try:
+                    speaker = None
+                    
+                    # === 统一获取音色 ===
+                    # 如果前端传来的 voice 是空字符串，设为 None，否则 SDK 可能报错
+                    selected_voice = tts_settings.get(f'{tts_engine}Voice', '')
+                    if not selected_voice:
+                        selected_voice = None
+                        
+                    print(f"[DEBUG] 初始化 Speaker: {tts_engine}, 音色: {selected_voice}")
+
+                    # === 1. Azure ===
+                    if tts_engine == 'azure':
+                        from tetos.azure import AzureSpeaker
+                        speaker = AzureSpeaker(
+                            speech_key=tts_settings.get('azureSpeechKey', ''),
+                            speech_region=tts_settings.get('azureRegion', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+                    
+                    # === 2. Volcengine (火山) ===
+                    elif tts_engine == 'volcengine':
+                        from tetos.volc import VolcSpeaker
+                        speaker = VolcSpeaker(
+                            access_key=tts_settings.get('volcAccessKey', ''),
+                            secret_key=tts_settings.get('volcSecretKey', ''),
+                            app_key=tts_settings.get('volcAppKey', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+
+                    # === 3. Baidu ===
+                    elif tts_engine == 'baidu':
+                        from tetos.baidu import BaiduSpeaker
+                        speaker = BaiduSpeaker(
+                            api_key=tts_settings.get('baiduApiKey', ''),
+                            secret_key=tts_settings.get('baiduSecretKey', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+
+                    # === 4. Minimax ===
+                    elif tts_engine == 'minimax':
+                        from tetos.minimax import MinimaxSpeaker
+                        speaker = MinimaxSpeaker(
+                            api_key=tts_settings.get('minimaxApiKey', ''),
+                            group_id=tts_settings.get('minimaxGroupId', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+
+                    # === 5. Xunfei (讯飞) ===
+                    elif tts_engine == 'xunfei':
+                        from tetos.xunfei import XunfeiSpeaker
+                        speaker = XunfeiSpeaker(
+                            app_id=tts_settings.get('xunfeiAppId', ''),
+                            api_key=tts_settings.get('xunfeiApiKey', ''),
+                            api_secret=tts_settings.get('xunfeiApiSecret', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+                    
+                    # === 6. Fish Audio ===
+                    elif tts_engine == 'fish':
+                        from tetos.fish import FishSpeaker
+                        speaker = FishSpeaker(
+                            api_key=tts_settings.get('fishApiKey', ''),
+                            voice=selected_voice  # 在初始化时传入
+                        )
+
+                    # === 7. Google ===
+                    elif tts_engine == 'google':
+                        from tetos.google import GoogleSpeaker
+                        # Google 需要先处理鉴权文件
+                        sa_json = tts_settings.get('googleServiceAccount', '')
+                        if sa_json:
+                            import json
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tmp:
+                                tmp.write(sa_json)
+                                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+                        
+                        speaker = GoogleSpeaker(
+                            voice=selected_voice # 在初始化时传入
+                        )
+
+                    if not speaker:
+                        raise Exception(f"无法初始化 {tts_engine} Speaker (对象为空)")
+
+                    # === 执行合成 ===
+                    # 因为 voice 已经在初始化时传入了，这里不再传 voice 参数
+                    print(f"[DEBUG] 开始合成文本 (长度: {len(text)})...")
+                    speaker.say(text, temp_filename)
+                    print(f"[DEBUG] 合成完成，文件已生成: {temp_filename}")
+
+                except Exception as e:
+                    print(f"[ERROR] Tetos 合成线程内部报错: {str(e)}")
+                    traceback.print_exc()
+                    raise e
+
+            # 3. 异步执行合成
+            try:
+                await asyncio.to_thread(run_tetos_sync)
+            except Exception as e:
+                print(f"[ERROR] Tetos 异步调用失败: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"TTS合成失败: {str(e)}")
+
+            # 4. 读取文件并返回流
+            if not os.path.exists(temp_filename):
+                raise HTTPException(status_code=500, detail="合成文件未生成")
+
+            async def generate_audio_from_file():
+                try:
+                    with open(temp_filename, "rb") as f:
+                        file_data = f.read()
+                    
+                    if target_format == "opus":
+                        # 假设 convert_to_opus_simple 是可用的
+                        opus_data = await convert_to_opus_simple(file_data)
+                        chunk_size = 4096
+                        for i in range(0, len(opus_data), chunk_size):
+                            yield opus_data[i:i + chunk_size]
+                    else:
+                        chunk_size = 4096
+                        for i in range(0, len(file_data), chunk_size):
+                            yield file_data[i:i + chunk_size]
+                except Exception as stream_e:
+                     print(f"[ERROR] 流式读取/转换失败: {str(stream_e)}")
+                finally:
+                    if os.path.exists(temp_filename):
+                        try:
+                            os.remove(temp_filename)
+                        except:
+                            pass
+
+            # 设置响应头
+            if target_format == "opus":
+                media_type = "audio/ogg"
+                filename = f"tts_{index}.opus"
+            else:
+                media_type = "audio/mpeg"
+                filename = f"tts_{index}.mp3"
+
+            return StreamingResponse(
+                generate_audio_from_file(),
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f"inline; filename={filename}",
+                    "X-Audio-Index": str(index),
+                    "X-Audio-Format": target_format
+                }
+            )
+
         raise HTTPException(status_code=400, detail="不支持的TTS引擎")
     
     except Exception as e:
+        print(f"[ERROR] TTS 合成失败: {str(e)}")
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(e)}"})
+
+@app.post("/tts/tetos/list_voices")
+async def list_tetos_voices(request: Request):
+    """
+    通过 tetos 获取音色列表
+    流程: 接收配置 -> 实例化 Speaker -> 调用 .list_voices()
+    """
+    try:
+        data = await request.json()
+        provider = data.get('provider', '').lower()
+        config = data.get('config', {})  # 用户填写的鉴权信息
+
+        if not provider:
+            return JSONResponse(status_code=400, content={"error": "缺少 'provider' 参数"})
+
+        # 定义同步执行函数（在线程池运行，避免阻塞）
+        def _sync_fetch_voices():
+            voices = []
+
+            # ---------------------------
+            # Azure TTS
+            # ---------------------------
+            if provider == 'azure':
+                from tetos.azure import AzureSpeaker
+                # 实例化
+                speaker = AzureSpeaker(
+                    speech_key=config.get('speech_key') or config.get('api_key'),
+                    speech_region=config.get('speech_region') or config.get('region')
+                )
+                # 获取列表
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # Volcengine (火山引擎)
+            # ---------------------------
+            elif provider == 'volcengine':
+                from tetos.volc import VolcSpeaker
+                speaker = VolcSpeaker(
+                    access_key=config.get('access_key'),
+                    secret_key=config.get('secret_key'),
+                    app_key=config.get('app_key')
+                )
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # Baidu TTS
+            # ---------------------------
+            elif provider == 'baidu':
+                from tetos.baidu import BaiduSpeaker
+                speaker = BaiduSpeaker(
+                    api_key=config.get('api_key'),
+                    secret_key=config.get('secret_key')
+                )
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # Minimax TTS
+            # ---------------------------
+            elif provider == 'minimax':
+                from tetos.minimax import MinimaxSpeaker
+                speaker = MinimaxSpeaker(
+                    api_key=config.get('api_key'),
+                    group_id=config.get('group_id')
+                )
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # 讯飞 (Xunfei)
+            # ---------------------------
+            elif provider == 'xunfei':
+                from tetos.xunfei import XunfeiSpeaker
+                speaker = XunfeiSpeaker(
+                    app_id=config.get('app_id'),
+                    api_key=config.get('api_key'),
+                    api_secret=config.get('api_secret')
+                )
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # Fish Audio
+            # ---------------------------
+            elif provider == 'fish':
+                from tetos.fish import FishSpeaker
+                speaker = FishSpeaker(
+                    api_key=config.get('api_key')
+                )
+                voices = speaker.list_voices()
+
+            # ---------------------------
+            # Google TTS
+            # ---------------------------
+            elif provider == 'google':
+                from tetos.google import GoogleSpeaker
+                # Google 特殊处理：tetos 依赖 GOOGLE_APPLICATION_CREDENTIALS 环境变量
+                # 如果 config 传了 service_account 的 json 对象，我们需要临时写入文件
+                
+                service_account_data = config.get('service_account')
+                temp_path = None
+                
+                try:
+                    if service_account_data:
+                        # 创建临时文件
+                        with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tmp:
+                            if isinstance(service_account_data, dict):
+                                json.dump(service_account_data, tmp)
+                            else:
+                                tmp.write(str(service_account_data))
+                            temp_path = tmp.name
+                        
+                        # 设置环境变量
+                        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
+                    
+                    # GoogleSpeaker 初始化通常不需要参数，它自己去读环境变量
+                    speaker = GoogleSpeaker()
+                    voices = speaker.list_voices()
+                    
+                finally:
+                    # 清理工作
+                    if temp_path:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                        # 如果是我们设置的环境变量，用完删除，以免影响其他请求
+                        if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") == temp_path:
+                            del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+
+            else:
+                raise ValueError(f"不支持的 tetos 提供商: {provider}")
+
+            return voices
+
+        # 使用 asyncio.to_thread 放入线程池执行，防止阻塞 FastAPI 主循环
+        voice_list = await asyncio.to_thread(_sync_fetch_voices)
+
+        return JSONResponse(content={
+            "status": "success",
+            "provider": provider,
+            "data": voice_list
+        })
+
+    except Exception as e:
+        # 捕获鉴权失败、网络错误等
+        return JSONResponse(status_code=500, content={
+            "status": "error", 
+            "message": str(e),
+            "detail": f"获取 {provider} 音色列表失败，请检查密钥配置是否正确。"
+        })
 
 @app.get("/system/voices")
 async def get_system_voices():
@@ -5687,6 +5999,7 @@ async def get_system_voices():
     except Exception as e:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 async def convert_to_opus_simple(audio_data):
     """使用pydub将音频转换为opus格式（适合飞书）"""
     from pydub import AudioSegment

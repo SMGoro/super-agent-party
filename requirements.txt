@@ -51,3 +51,4 @@ pydub
 imageio_ffmpeg
 discord.py
 xlrd
+tetos

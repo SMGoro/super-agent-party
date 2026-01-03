@@ -67,4 +67,5 @@ dependencies = [
     "transformers>=4.57.3",
     "pyttsx3>=2.99",
     "xlrd>=2.0.2",
+    "tetos>=0.4.2",
 ]
