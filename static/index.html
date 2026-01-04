@@ -4901,7 +4901,7 @@ if ('serviceWorker' in navigator) {
                           <el-option :label="t('keyTriggered')" value="keyTriggered" ></el-option>
                         </el-select>
                       </el-form-item>
-                      <el-form-item :label="t('hotkey')" class="form-item-align">
+                      <el-form-item v-if="asrSettings.interactionMethod === 'keyTriggered'" :label="t('hotkey')" class="form-item-align">
                         <el-select
                           v-model="asrSettings.hotkey"
                           @change="autoSaveSettings"
@@ -4915,7 +4915,7 @@ if ('serviceWorker' in navigator) {
                           <el-option label="Tab" value="Tab" ></el-option>
                         </el-select>
                       </el-form-item>
-                      <el-form-item :label="t('wakeWordMode')" class="form-item-align">
+                      <el-form-item v-if="asrSettings.interactionMethod === 'wakeWord'||asrSettings.interactionMethod === 'wakeWordAndEndWord'"  :label="t('wakeWordMode')" class="form-item-align">
                         <el-input
                           v-model="asrSettings.wakeWord"
                           :placeholder="t('wakeWordPlaceholder')"
@@ -4923,7 +4923,7 @@ if ('serviceWorker' in navigator) {
                           class="full-width-input"
                         />
                       </el-form-item>
-                      <el-form-item :label="t('endWordMode')" class="form-item-align">
+                      <el-form-item v-if="asrSettings.interactionMethod === 'wakeWordAndEndWord'" :label="t('endWordMode')" class="form-item-align">
                         <el-input
                           v-model="asrSettings.endWord"
                           :placeholder="t('endWordPlaceholder')"
