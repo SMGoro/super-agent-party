@@ -177,6 +177,87 @@ function updateElement(el, rawMarkdown, formatFn) {
   <div id="app">
     <!-- 顶部栏 -->
     <el-header v-if="isElectron || isMobile" class="top-bar" height="30px">
+
+      <!-- ★ 新增：集成式浏览器顶栏 -->
+      <!-- style="margin-left: 78px" 实现了左侧留白，且该区域可拖拽 -->
+      <div 
+        v-if="activeMenu === 'ai-browser' && !isMobile" 
+        class="integrated-browser-bar"
+        :style="{ 'margin-left': isCollapse ? '50px':'186px'}" 
+      >
+        
+        <!-- 2. 标签栏 (边缘滚动容器) -->
+        <!-- 占据中间剩余空间 -->
+        <div 
+            class="integrated-tabs-container" 
+            ref="tabsContainerRef"
+            @mousemove="handleTabsMouseMove"
+            @mouseleave="stopEdgeScroll"
+        >
+            <div class="tabs-scroll-wrapper" ref="tabsWrapperRef">
+                <div 
+                    v-for="tab in browserTabs" 
+                    :key="tab.id"
+                    class="ib-tab"
+                    :class="{ 'active': currentTabId === tab.id }"
+                    @click="switchTab(tab.id)"
+                    @mousedown.middle="closeTab(tab.id, $event)"
+                >
+                    <div class="ib-tab-content">
+                        <span class="ib-icon" v-if="tab.isLoading"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                        <span class="ib-icon" v-else-if="tab.favicon"><img :src="tab.favicon" /></span>
+                        <span class="ib-icon" v-else><i class="fa-regular fa-compass"></i></span>
+                        <span class="ib-title">{{ tab.title || t('newTab') }}</span>
+                    </div>
+                    <span class="ib-close" @click.stop="closeTab(tab.id, $event)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </span>
+                </div>
+            </div>
+        </div>
+        <!-- 1. 地址栏 (现在排在最左边) -->
+        <div class="integrated-address-bar">
+             <el-input 
+                v-model="urlInput" 
+                class="ib-input" 
+                :placeholder="t('searchOrUrl')"
+                @keyup.enter="handleUrlEnter"
+                @focus="$event.target.select()"
+            >
+                <template #prefix>
+                    <i class="fa-solid fa-lock" v-if="currentTab?.url.startsWith('https')" style="font-size: 10px;"></i>
+                    <i class="fa-solid fa-globe" v-else style="font-size: 10px;"></i>
+                </template>
+            </el-input>
+        </div>
+        <!-- 3. 右侧控制组：新建标签 + 导航按钮 -->
+        <!-- 放在一起 -->
+        <div class="browser-controls-group">
+            <!-- 新建标签 -->
+            <button class="ib-btn new-tab-plus" @click="addNewTab" :title="t('newTab')">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+            
+            <!-- 分割线 (可选) -->
+            <div class="ib-divider"></div>
+
+            <!-- 导航按钮 -->
+            <button class="ib-btn" @click="browserGoBack" :disabled="!currentTab?.canGoBack" :title="t('back')">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <button class="ib-btn" @click="browserGoForward" :disabled="!currentTab?.canGoForward" :title="t('forward')">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+            <button class="ib-btn" @click="browserReload" :title="t('reload')">
+                <i :class="currentTab?.isLoading ? 'fa-solid fa-xmark' : 'fa-solid fa-rotate-right'"></i>
+            </button>
+            <button class="ib-btn" @click="goHome" :title="t('home')">
+                <i class="fa-solid fa-house"></i>
+            </button>
+        </div>
+
+      </div>
+
       <div class="window-controls">
         <div v-show="!isAssistantMode&&!isMobile&&settings?.model!==''" class="model-info" @click="showModelDialog = true" >
           <el-tooltip :content="t('clickToSwitchModel')">
@@ -12580,72 +12661,6 @@ function updateElement(el, rawMarkdown, formatFn) {
         <!-- AI Browser Container -->
         <div v-show="activeMenu === 'ai-browser'" class="page ai-browser-container" v-if="isElectron">
             
-          <!-- 1. 浏览器顶部区域：标签栏 + 地址栏-->
-          <div class="browser-header">
-              <!-- 标签栏 -->
-              <div class="browser-tabs">
-                  <div 
-                      v-for="tab in browserTabs" 
-                      :key="tab.id"
-                      class="browser-tab"
-                      :class="{ 'active': currentTabId === tab.id }"
-                      @click="switchTab(tab.id)"
-                      @mousedown.middle="closeTab(tab.id, $event)"
-                  >
-                      <div class="tab-content">
-                          <span class="tab-icon" v-if="tab.isLoading"><i class="fa-solid fa-spinner fa-spin"></i></span>
-                          <span class="tab-icon" v-else-if="tab.favicon"><img :src="tab.favicon" /></span>
-                          <span class="tab-icon" v-else><i class="fa-regular fa-compass"></i></span> <!-- 换成了更像Safari的指南针图标 -->
-                          <span class="tab-title">{{ tab.title || t('newTab') }}</span>
-                      </div>
-                      <span class="tab-close" @click.stop="closeTab(tab.id, $event)">
-                          <i class="fa-solid fa-xmark"></i>
-                      </span>
-                  </div>
-                  <button class="new-tab-btn" @click="addNewTab">
-                      <i class="fa-solid fa-plus"></i>
-                  </button>
-              </div>
-
-              <!-- 地址栏/工具栏 (仅在 Tab 有 URL 时显示，或者你想一直显示也可以，这里做成了融合样式) -->
-              <div class="browser-toolbar">
-                  <div class="nav-buttons">
-                      <button class="nav-btn" @click="browserGoBack" :disabled="!currentTab?.canGoBack" title="Back">
-                          <i class="fa-solid fa-chevron-left"></i>
-                      </button>
-                      <button class="nav-btn" @click="browserGoForward" :disabled="!currentTab?.canGoForward" title="Forward">
-                          <i class="fa-solid fa-chevron-right"></i>
-                      </button>
-                      <button class="nav-btn" @click="browserReload" title="Reload">
-                          <i :class="currentTab?.isLoading ? 'fa-solid fa-xmark' : 'fa-solid fa-rotate-right'"></i>
-                      </button>
-                      <button class="nav-btn" @click="goHome" title="Home">
-                          <i class="fa-solid fa-house"></i>
-                      </button>
-                  </div>
-                  
-                  <div class="address-bar-wrapper">
-                    <!-- 这里的输入框也做了极简处理 -->
-                      <el-input 
-                          v-model="urlInput" 
-                          class="ios-address-input" 
-                          placeholder="Search or enter website name"
-                          @keyup.enter="handleUrlEnter"
-                          @focus="$event.target.select()"
-                      >
-                          <template #prefix>
-                              <div class="address-lock-icon">
-                                <i class="fa-solid fa-lock" v-if="currentTab?.url.startsWith('https')"></i>
-                                <i class="fa-solid fa-globe" v-else></i>
-                              </div>
-                          </template>
-                      </el-input>
-                  </div>
-                  
-                  <!-- 右侧菜单按钮占位，保持平衡 -->
-                  <div class="toolbar-placeholder" style="width: 100px;"></div>
-              </div>
-          </div>
 
           <!-- 2. 浏览器主体 -->
           <div class="browser-body">

@@ -660,6 +660,7 @@ const app = Vue.createApp({
   },
   // 在组件销毁时清除定时器
   beforeDestroy() {
+    this.stopEdgeScroll();
     if (this.behaviorTimeTimer)   clearInterval(this.behaviorTimeTimer)
     if (this.behaviorNoInputTimer) clearInterval(this.behaviorNoInputTimer)
     if (this.vrmPollTimer) clearInterval(this.vrmPollTimer)
@@ -818,6 +819,7 @@ const app = Vue.createApp({
     });
   },
   beforeUnmount() {
+    this.stopEdgeScroll();
     clearInterval(this.nodeTimer);
     clearInterval(this.uvTimer); 
     clearInterval(this.gitTimer);
@@ -1341,6 +1343,7 @@ const app = Vue.createApp({
       if (this.browserTabs.length > 0) {
           this.currentTabId = this.browserTabs[0].id;
       }
+      this.scrollInterval = null;
   },
 });
 

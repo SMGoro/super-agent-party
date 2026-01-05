@@ -6010,3 +6010,201 @@ hr.footnotes-sep {
     background: color-mix(in srgb, var(--el-color-primary) 90%, black);
     transform: scale(1.1);
 }
+
+
+/* ================= 集成浏览器条样式 ================= */
+
+.integrated-browser-bar {
+  display: flex;
+  align-items: center;
+  flex: 1; 
+  min-width: 0;
+  margin-top: 2px;
+  height: 100%;
+  gap: 8px;
+  -webkit-app-region: no-drag; /* 只有这部分不可拖拽 */
+  /* margin-left 已在 HTML 中内联设置，利用父级 top-bar 的 drag 属性实现左侧拖拽区域 */
+}
+
+/* 1. 地址栏 */
+.integrated-address-bar {
+  height: 26px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  width: 160px; /* 稍微调窄一点，给右边留空间 */
+  flex-shrink: 0;
+  transition: width 0.3s;
+}
+.integrated-address-bar:focus-within {
+  width: 220px; 
+}
+/* 输入框样式 */
+.ib-input .el-input__wrapper {
+  background-color: var(--el-fill-color-light);
+  border-radius: 15px;
+  padding: 0 10px;
+  height: 24px;
+  line-height: 24px;
+  box-shadow: none; 
+}
+.ib-input .el-input__inner {
+  font-size: 12px;
+  height: 24px;
+}
+
+/* 2. 标签栏容器 (位于中间) */
+.integrated-tabs-container {
+  flex: 1;
+  min-width: 0; /* 允许容器被压缩 */
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow-x: auto; /* 关键：开启横向滚动 */
+  overflow-y: hidden;
+  /* 隐藏滚动条 (Chrome/Electron) */
+  scrollbar-width: none; 
+  /* 两侧渐变遮罩 */
+  mask-image: linear-gradient(to right, transparent, black 20px, black 90%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 20px, black calc(100% - 20px), transparent 100%);
+}
+.integrated-tabs-container::-webkit-scrollbar {
+  display: none;
+}
+.tabs-scroll-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  /* 关键：宽度根据内容自适应，但至少要填满容器 */
+  width: max-content; 
+  min-width: 100%; 
+}
+
+/* 单个标签 */
+.ib-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  
+  /* 1. 宽度策略：实现自动伸缩 */
+  width: 150px;       /* 默认理想宽度 */
+  min-width: 80px;    /* 关键：压到 80px 就不再压了，开始触发父容器滚动 */
+  max-width: 180px;
+  
+  /* 2. 弹性策略 */
+  flex-shrink: 0;     /* 这里有个权衡：*/
+  /* 如果设为 1：标签会一直挤压直到 min-width，然后才滚动（符合你的要求）*/
+  /* 如果设为 0：标签完全不挤压，直接滚动 */
+  /* 建议设为 0，因为配合边缘滚动，固定宽度的标签更容易点击 */
+  /* 但如果你一定要“先挤压后滚动”，请改为 flex-shrink: 1; */
+  
+  height: 26px;
+  margin-top: 4px;
+  /* 其他样式不变... */
+  background-color: transparent;
+  border-radius: 6px;
+  padding: 0 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  transition: background-color 0.2s, width 0.2s; /* 加个过渡动画更顺滑 */
+}
+.ib-tab:hover {
+  background-color: var(--el-fill-color-light);
+}
+.ib-tab.active {
+  background-color: var(--el-bg-color);
+  color: var(--el-color-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.ib-tab-content {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  flex: 1;
+}
+.ib-icon {
+  display: flex;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+}
+.ib-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+.ib-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ib-close {
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+}
+.ib-tab:hover .ib-close {
+  opacity: 1;
+}
+.ib-close:hover {
+  background-color: var(--el-fill-color-dark);
+  color: var(--el-color-danger);
+}
+
+/* 3. 右侧控制组 (新建标签 + 导航) */
+.browser-controls-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0; /* 防止被挤压 */
+    background-color: var(--el-fill-color-extra-light); /* 可选：给个淡淡的背景让它们看起来像一组 */
+    border-radius: 12px;
+    padding: 0 4px;
+    height: 26px;
+}
+
+/* 垂直分割线 */
+.ib-divider {
+    width: 1px;
+    height: 14px;
+    background-color: var(--el-border-color);
+    margin: 0 4px;
+}
+
+.ib-btn {
+  background: transparent;
+  border: none;
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 13px; /* 稍微大一点点 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  transition: background 0.2s;
+}
+.ib-btn:hover:not(:disabled) {
+  background-color: var(--el-fill-color-dark);
+}
+.ib-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 新建标签按钮特殊样式 (可选) */
+.new-tab-plus {
+    /* 如果想让它突出一点，可以加这个 */
+    color: var(--el-color-primary); 
+}

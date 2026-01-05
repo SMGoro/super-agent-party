@@ -11961,4 +11961,52 @@ async togglePlugin(plugin) {
         }, 200); // 200ms 延迟
     },
 
+    // ★★★ 核心：处理边缘滚动 ★★★
+    handleTabsMouseMove(e) {
+      // 在 Options API 中，通过 this.$refs 访问 DOM
+      const container = this.$refs.tabsContainerRef;
+      
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left; // 鼠标相对于容器左侧的距离
+      const width = rect.width;
+      const threshold = 60; // 边缘触发滚动的范围 (px)
+      const speed = 8;      // 滚动速度
+
+      // 先清除可能存在的旧定时器
+      this.stopEdgeScroll();
+
+      // 定义滚动函数
+      const scroll = (direction) => {
+        if (direction === 'left') {
+          container.scrollLeft -= speed;
+        } else {
+          container.scrollLeft += speed;
+        }
+        // 持续循环
+        this.scrollInterval = requestAnimationFrame(() => scroll(direction));
+      };
+
+      // 判断鼠标位置
+      if (x < threshold) {
+        // 鼠标在左边缘 -> 向左滑
+        scroll('left');
+      } else if (x > width - threshold) {
+        // 鼠标在右边缘 -> 向右滑
+        scroll('right');
+      } else {
+        // 在中间 -> 停止滚动
+        this.stopEdgeScroll();
+      }
+    },
+
+    // 停止滚动
+    stopEdgeScroll() {
+      if (this.scrollInterval) {
+        cancelAnimationFrame(this.scrollInterval);
+        this.scrollInterval = null;
+      }
+    },
+
 }
