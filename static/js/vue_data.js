@@ -1839,4 +1839,7 @@ main();`,
     isSearchFocused: false,    // 控制搜索框聚焦样式
     searchEngine: 'bing', // 'bing' or 'google'
     welcomeSearchQuery: '',
+    showDownloadDropdown: false,
+    downloads: [], // 存储所有下载记录 { id, filename, totalBytes, receivedBytes, state, path, progress }
+    dropdownTimer: null, 
 };

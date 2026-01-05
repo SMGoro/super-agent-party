@@ -6111,9 +6111,7 @@ hr.footnotes-sep {
   color: var(--el-text-color-regular);
   transition: background-color 0.2s, width 0.2s; /* 加个过渡动画更顺滑 */
 }
-.ib-tab:hover {
-  background-color: var(--el-fill-color-light);
-}
+
 .ib-tab.active {
   background-color: var(--el-bg-color);
   color: var(--el-color-primary);
@@ -6166,7 +6164,7 @@ hr.footnotes-sep {
     align-items: center;
     gap: 2px;
     flex-shrink: 0; /* 防止被挤压 */
-    background-color: var(--el-fill-color-extra-light); /* 可选：给个淡淡的背景让它们看起来像一组 */
+    background: var(--bg-color);
     border-radius: 12px;
     padding: 0 4px;
     height: 26px;
@@ -6207,4 +6205,229 @@ hr.footnotes-sep {
 .new-tab-plus {
     /* 如果想让它突出一点，可以加这个 */
     color: var(--el-color-primary); 
+}
+
+/* 包装器，用于相对定位 */
+.download-manager-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
+/* 按钮上的小红点 */
+.download-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    background-color: var(--el-color-danger);
+    border-radius: 50%;
+    box-shadow: 0 0 2px rgba(0,0,0,0.3);
+}
+
+/* --- iOS 风格下拉面板 --- */
+.ios-dropdown-panel {
+    position: absolute;
+    top: 34px; /* 按钮高度下方 */
+    right: -10px; /* 稍微靠右对齐 */
+    width: 320px;
+    max-height: 400px;
+    background: var(--bg-color);
+    backdrop-filter: blur(20px); /* 核心：毛玻璃效果 */
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0,0,0,0.05);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    flex-direction: column;
+    z-index: 9999;
+    overflow: hidden;
+    animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ios-dropdown-panel::before {
+    content: '';
+    position: absolute;
+    /* 向上延伸，填补按钮和面板之间的空隙 */
+    top: -20px; 
+    /* 占满整个宽度 */
+    left: 0;
+    width: 100%;
+    /* 高度要足够覆盖空隙，比如 gap 是 10px，这里设 20px 确保重叠 */
+    height: 20px; 
+    /* 透明背景 */
+    background: transparent; 
+    
+    /* 调试时可以把下面这行解开，看看桥在哪 */
+    /* background: rgba(255, 0, 0, 0.3); */
+}
+
+@keyframes dropdownSlideIn {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 头部 */
+.dropdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+}
+.clear-btn {
+    font-weight: normal;
+    color: var(--el-color-primary);
+    cursor: pointer;
+}
+.clear-btn:hover {
+    opacity: 0.8;
+}
+
+/* 列表区 */
+.download-list {
+    overflow-y: auto;
+    max-height: 350px;
+    padding: 8px;
+}
+.download-list::-webkit-scrollbar {
+    width: 4px;
+}
+.download-list::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 2px;
+}
+
+/* 空状态 */
+.empty-state {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--el-text-color-placeholder);
+    background: var(--bg-color);
+}
+.empty-state i {
+    font-size: 24px;
+    margin-bottom: 8px;
+    opacity: 0.5;
+}
+
+/* 单个下载项 */
+.download-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-radius: 8px;
+    background: transparent;
+    transition: background 0.2s;
+    gap: 10px;
+    margin-bottom: 4px;
+    background: var(--bg-color);
+}
+.download-item:hover {
+    background: rgba(0,0,0,0.05);
+}
+.dark .download-item:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+/* 文件图标 */
+.file-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--el-fill-color);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--el-text-color-secondary);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+/* 信息区 */
+.file-info {
+    flex: 1;
+    min-width: 0; /* 允许文本截断 */
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.file-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-meta {
+    font-size: 10px;
+    color: var(--el-text-color-secondary);
+}
+
+/* 进度条 */
+.progress-bar-bg {
+    height: 3px;
+    width: 100%;
+    background: rgba(0,0,0,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.dark .progress-bar-bg { background: rgba(255,255,255,0.1); }
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--el-color-primary);
+    border-radius: 2px;
+    transition: width 0.2s;
+}
+
+/* 操作按钮 */
+.item-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.action-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--el-text-color);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+.action-btn:hover {
+    background: rgba(0,0,0,0.1);
+    color: var(--el-color-primary);
+}
+.action-btn.delete:hover {
+    background: rgba(245, 108, 108, 0.1); /* 浅红色 */
+    color: var(--el-color-danger);
+}
+.success-text { color: var(--el-color-success); }
+.error-text { color: var(--el-color-danger); }
+
+/* Vue 动画 transition */
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
 }

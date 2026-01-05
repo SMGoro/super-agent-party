@@ -238,8 +238,88 @@ function updateElement(el, rawMarkdown, formatFn) {
                 <i class="fa-solid fa-plus"></i>
             </button>
             
-            <!-- 分割线 (可选) -->
-            <div class="ib-divider"></div>
+            <!-- 下载管理按钮 & 下拉框 -->
+            <div 
+                class="download-manager-wrapper"
+                @mouseenter="handleDropdownEnter" 
+                @mouseleave="handleDropdownLeave"
+            >
+                <!-- 触发按钮 -->
+                <button class="ib-btn" :class="{ 'active': showDownloadDropdown }" :title="t('downloads')">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <!-- 进度小红点/进度条 (可选) -->
+                    <span v-if="activeDownloadCount > 0" class="download-badge"></span>
+                </button>
+
+                <!-- iOS 风格下拉框 -->
+                <transition name="dropdown-fade">
+                    <div class="ios-dropdown-panel" v-show="showDownloadDropdown">
+                        <div class="dropdown-header">
+                            <span>{{ t('downloads') || 'Downloads' }}</span>
+                            <span class="clear-btn" @click="clearFinishedDownloads" v-if="downloads.length > 0">{{ t('clear') || 'Clear' }}</span>
+                        </div>
+
+                        <!-- 空状态 -->
+                        <div v-if="downloads.length === 0" class="empty-state">
+                            <i class="fa-solid fa-box-open"></i>
+                            <p>{{ t('noDownloads') || 'No recent downloads' }}</p>
+                        </div>
+
+                        <!-- 下载列表 -->
+                        <div v-else class="download-list">
+                            <div v-for="item in downloads" :key="item.id" class="download-item">
+                                
+                                <!-- 图标 -->
+                                <div class="file-icon">
+                                    <i class="fa-solid fa-file"></i>
+                                </div>
+
+                                <!-- 信息区 -->
+                                <div class="file-info">
+                                    <div class="file-name" :title="item.filename">{{ item.filename }}</div>
+                                    
+                                    <!-- 进度条 (仅在下载中显示) -->
+                                    <div class="progress-bar-bg" v-if="item.state === 'progressing' || item.state === 'paused'">
+                                        <div class="progress-bar-fill" :style="{ width: (item.progress * 100) + '%' }"></div>
+                                    </div>
+
+                                    <!-- 状态文本 -->
+                                    <div class="file-meta">
+                                        <span v-if="item.state === 'completed'" class="success-text">{{ t('completed') || 'Done' }}</span>
+                                        <span v-else-if="item.state === 'cancelled'" class="error-text">{{ t('cancelled') || 'Cancelled' }}</span>
+                                        <span v-else-if="item.state === 'interrupted'" class="error-text">{{ t('failed') || 'Failed' }}</span>
+                                        <span v-else>
+                                            {{ formatBytes(item.receivedBytes) }} / {{ formatBytes(item.totalBytes) }}
+                                            <span v-if="item.state === 'paused'">({{ t('paused') || 'Paused' }})</span>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <!-- 操作按钮区 -->
+                                <div class="item-actions">
+                                    <!-- 完成后：打开文件夹 -->
+                                    <button v-if="item.state === 'completed'" class="action-btn folder" @click="openFileFolder(item.path)" :title="t('openFolder')">
+                                        <i class="fa-regular fa-folder-open"></i>
+                                    </button>
+                                    
+                                    <!-- 下载中：暂停/开始 -->
+                                    <button v-if="item.state === 'progressing'" class="action-btn" @click="controlDownload(item.id, 'pause')" :title="t('pause')">
+                                        <i class="fa-solid fa-pause"></i>
+                                    </button>
+                                    <button v-if="item.state === 'paused'" class="action-btn" @click="controlDownload(item.id, 'resume')" :title="t('resume')">
+                                        <i class="fa-solid fa-play"></i>
+                                    </button>
+
+                                    <!-- 下载中：取消 / 完成后：移除记录 -->
+                                    <button class="action-btn delete" @click="handleStopOrRemove(item)" :title="t('cancel')">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            </div>
 
             <!-- 导航按钮 -->
             <button class="ib-btn" @click="browserGoBack" :disabled="!currentTab?.canGoBack" :title="t('back')">

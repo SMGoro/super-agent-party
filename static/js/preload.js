@@ -134,6 +134,17 @@ contextBridge.exposeInMainWorld('vmcAPI', {
   }
 });
 
+contextBridge.exposeInMainWorld('downloadAPI', {
+    // 监听下载事件
+    onDownloadStarted: (cb) => ipcRenderer.on('download-started', (_, data) => cb(data)),
+    onDownloadUpdated: (cb) => ipcRenderer.on('download-updated', (_, data) => cb(data)),
+    onDownloadDone: (cb) => ipcRenderer.on('download-done', (_, data) => cb(data)),
+    
+    // 发送控制指令
+    controlDownload: (id, action) => ipcRenderer.invoke('download-control', { id, action }),
+    showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path)
+});
+
 // 在文件末尾添加以下代码来接收主进程传递的配置
 ipcRenderer.on('set-window-config', (event, config) => {
     Object.assign(windowConfig, config);

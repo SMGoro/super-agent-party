@@ -407,6 +407,9 @@ const A2UIRendererComponent = {
     return { internalFormData: {}, isSubmitted: false };
   },
   computed: {
+    activeDownloadCount() {
+        return this.downloads.filter(d => d.state === 'progressing').length;
+    },
     formData() {
       return this.sharedFormData || this.internalFormData;
     },
@@ -684,6 +687,42 @@ const app = Vue.createApp({
         window.electronAPI.onNewTab((url) => {
             console.log('收到新标签页请求:', url);
             this.openUrlInNewTab(url);
+        });
+    }
+    // 监听下载事件
+    if (window.downloadAPI) {
+        window.downloadAPI.onDownloadStarted((data) => {
+            // 新增下载项放到最前面
+            this.downloads.unshift({
+                ...data,
+                state: 'progressing',
+                receivedBytes: 0,
+                progress: 0
+            });
+            // 自动打开下拉框提示用户 (可选)
+            // this.showDownloadDropdown = true; 
+        });
+
+        window.downloadAPI.onDownloadUpdated((data) => {
+            const item = this.downloads.find(d => d.id === data.id);
+            if (item) {
+                Object.assign(item, data); // 更新状态和进度
+            }
+        });
+
+        window.downloadAPI.onDownloadDone((data) => {
+            const item = this.downloads.find(d => d.id === data.id);
+            if (item) {
+                item.state = data.state;
+
+                if (data.path) {
+                    item.path = data.path; 
+                }
+                if (data.state === 'completed') {
+                    item.progress = 1;
+                    item.receivedBytes = item.totalBytes;
+                }
+            }
         });
     }
     await this.probeNode();

@@ -12009,4 +12009,55 @@ async togglePlugin(plugin) {
       }
     },
 
+
+    controlDownload(id, action) {
+        window.downloadAPI.controlDownload(id, action);
+    },
+
+    handleStopOrRemove(item) {
+        if (item.state === 'progressing' || item.state === 'paused') {
+            // 如果还在下载，就是取消
+            this.controlDownload(item.id, 'cancel');
+        } else {
+            // 如果已完成或已取消，就是从列表中删除记录
+            this.downloads = this.downloads.filter(d => d.id !== item.id);
+        }
+    },
+
+    openFileFolder(path) {
+        if(path) window.downloadAPI.showItemInFolder(path);
+    },
+
+    clearFinishedDownloads() {
+        // 只保留正在下载的项目
+        this.downloads = this.downloads.filter(d => d.state === 'progressing' || d.state === 'paused');
+    },
+
+    // 字节格式化工具
+    formatBytes(bytes, decimals = 1) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    },
+    handleDropdownEnter() {
+        // 1. 如果有关闭的定时器正在倒计时，立刻取消它！
+        if (this.dropdownTimer) {
+            clearTimeout(this.dropdownTimer);
+            this.dropdownTimer = null;
+        }
+        // 2. 显示面板
+        this.showDownloadDropdown = true;
+    },
+
+    // ★ 鼠标离开
+    handleDropdownLeave() {
+        // 给用户 300ms 的反应时间
+        this.dropdownTimer = setTimeout(() => {
+            this.showDownloadDropdown = false;
+            this.dropdownTimer = null;
+        }, 300); 
+    },
 }
