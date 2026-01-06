@@ -11704,8 +11704,10 @@ async togglePlugin(plugin) {
         this.currentTabId = id;
         const tab = this.browserTabs.find(t => t.id === id);
         if (tab) {
-            // 更新地址栏
-            this.urlInput = tab.url; 
+            // --- ✅ 修改此处 ---
+            // 优先显示页面实际所在的 currentUrl，否则显示 tab.url
+            this.urlInput = tab.currentUrl || tab.url;
+            
             // 如果是欢迎页，清空地址栏显示
             if (!tab.url) this.urlInput = '';
         }
@@ -11793,24 +11795,20 @@ async togglePlugin(plugin) {
     navigateTo(url) {
         if (!this.currentTab) return;
         
-        // 1. 如果是刷新当前页面（URL 没变）
-        if (this.currentTab.url === url) {
-            const webview = document.getElementById('webview-' + this.currentTabId);
-            // 只有当 webview 确实存在且方法可用时才重载
-            if (webview && typeof webview.reload === 'function') {
-                try {
-                    webview.reload();
-                } catch (e) {
-                    // 忽略未准备好的错误
-                    console.warn('Webview not ready for reload');
-                }
-            }
+        // 如果是刷新当前页面（URL 没变）
+        // 注意：这里比较时最好也比较 currentUrl
+        const activeUrl = this.currentTab.currentUrl || this.currentTab.url;
+        
+        if (activeUrl === url) {
+            // ... (保持原有的 reload 逻辑)
+            const wv = document.getElementById('webview-' + this.currentTabId);
+            if (wv) wv.reload();
             return;
         }
 
-        // 2. 如果是新 URL，直接赋值即可
-        // Vue 会更新 :src 属性，Electron 会自动识别并加载，不需要手动调 loadURL
-        this.currentTab.url = url;
+        // 2. 如果是新 URL
+        this.currentTab.url = url;      // 这会触发 :src 更新，开始加载
+        this.currentTab.currentUrl = url; // 同步更新实际地址状态
         this.urlInput = url;
     },
     
@@ -11857,19 +11855,25 @@ async togglePlugin(plugin) {
         if (tab) tab.isLoading = true;
     },
 
+    // 修改前
     onDidStopLoading(id) {
         const tab = this.browserTabs.find(t => t.id === id);
         if (tab) {
             tab.isLoading = false;
-            // 更新导航状态
             const wv = document.getElementById('webview-' + id);
             if (wv) {
                 tab.canGoBack = wv.canGoBack();
                 tab.canGoForward = wv.canGoForward();
-                // 尝试获取 URL (为了防止重定向后 URL 没变)
+                
+                // --- ✅ 修正后的代码 ---
                 if (wv.getURL()) {
-                     tab.url = wv.getURL();
-                     if (this.currentTabId === id) this.urlInput = tab.url;
+                    // 1. 将实际 URL 存入一个新字段，不触碰 tab.url (src)
+                    tab.currentUrl = wv.getURL(); 
+                    
+                    // 2. 只更新顶部的地址栏 UI
+                    if (this.currentTabId === id) {
+                        this.urlInput = tab.currentUrl;
+                    }
                 }
             }
         }
