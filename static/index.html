@@ -12803,7 +12803,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                               type="text" 
                               v-model="welcomeSearchQuery" 
                               class="ios-search-input"
-                              :placeholder="searchEngine === 'bing' ? 'Search with Bing' : 'Search with Google'"
+                              :placeholder="searchEngine === 'bing' ? t('searchWithBing') : t('searchWithGoogle')"
                               @focus="isSearchFocused = true"
                               @blur="isSearchFocused = false"
                               @keyup.enter="handleWelcomeSearch"

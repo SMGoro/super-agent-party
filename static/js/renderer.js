@@ -875,7 +875,18 @@ const app = Vue.createApp({
     window.removeEventListener('resize', this.handleResize);
   },
   watch: {
-
+    currentTheme: {
+      handler(newVal) {
+        // 等待 DOM 更新，确保 CSS 变量已变更
+        this.$nextTick(() => {
+          // 遍历所有标签页，更新样式
+          this.browserTabs.forEach(tab => {
+            this.updateWebviewTheme(tab.id);
+          });
+        });
+      },
+      immediate: false // 初始化时不需要立即执行，因为 dom-ready 会处理
+    },
     'ttsSettings.engine': function(newVal) {
       if (newVal === 'systemtts') {
         // 如果列表为空，则去获取
