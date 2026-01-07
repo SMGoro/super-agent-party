@@ -174,7 +174,8 @@
     },
     "chromeMCPSettings": {
       "enabled": false,
-      "type":"external"
+      "type":"external",
+      "CDPport":9222
     },
     "sqlSettings":{
       "enabled": false,

@@ -1301,6 +1301,12 @@ let vue_methods = {
           if (this.sqlSettings.enabled){
             this.changeSqlEnabled();
           }
+          // 循环查找mcpServers中是否有enabled为true的项，对于每一项都执行restartMCPServer(name)方法
+          this.mcpServers.forEach(server => {
+            if (server.enabled) {
+              this.restartMCPServer(server.name);
+            }
+          });
           this.changeMemory();
           // this.target_lang改成navigator.language || navigator.userLanguage;
           this.target_lang = this.targetLangSelected!="system"? this.targetLangSelected: navigator.language || navigator.userLanguage || 'zh-CN';

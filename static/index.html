@@ -6737,9 +6737,20 @@ function updateElement(el, rawMarkdown, formatFn) {
                           {{ t('browserNotice3') }}
                         </div>
                       </el-alert>
+                      <el-form-item :label="t('CDPport')" v-if="chromeMCPSettings.type=='internal'">
+                          <el-slider
+                            v-model="chromeMCPSettings.CDPport"
+                            :step="1"
+                            :min="0"
+                            :max="65535"
+                            @input="autoSaveSettings"
+                            show-input
+                          ></el-slider>
+                      </el-form-item>
                       <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='internal'">
                         <div class="alert-content">
-                          {{ t('browserNotice4') }}
+                          {{ t('browserNotice4') }}<br>
+                          {{ t('browserNotice5') }}
                         </div>
                       </el-alert>
                     </div>

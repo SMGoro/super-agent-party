@@ -340,124 +340,6 @@ async def lifespan(app: FastAPI):
     else:
         client = client_class()
         reasoner_client = reasoner_client_class()
-    mcp_init_tasks = []
-
-    async def init_mcp_with_timeout(
-        server_name: str,
-        server_config: dict,
-        *,
-        timeout: float = 6.0,
-        max_wait_failure: float = 5.0
-    ) -> Tuple[str, Optional["McpClient"], Optional[str]]:
-        """
-        初始化单个 MCP 服务器，带超时与失败回调同步。
-        返回 (server_name, mcp_client or None, error or None)
-        """
-        # 1. 如果配置里直接禁用，直接返回
-        if server_config.get("disabled"):
-            return server_name, None, "disabled"
-
-        # 2. 预创建客户端实例
-        mcp_client = mcp_client_list.get(server_name) or McpClient()
-        mcp_client_list[server_name] = mcp_client
-
-        # 3. 用于同步回调的事件
-        failure_event = asyncio.Event()
-        first_error: Optional[str] = None
-
-        async def on_failure(msg: str) -> None:
-            nonlocal first_error
-            # 仅第一次生效
-            if first_error is not None:
-                return
-            first_error = msg
-            logger.error("on_failure: %s -> %s", server_name, msg)
-
-            # 记录到 settings
-            settings.setdefault("mcpServers", {}).setdefault(server_name, {})
-            settings["mcpServers"][server_name]["disabled"] = True
-            settings["mcpServers"][server_name]["processingStatus"] = "server_error"
-
-            # 把当前客户端标为禁用并关闭
-            mcp_client.disabled = True
-            await mcp_client.close()
-            failure_event.set()          # 唤醒主协程
-
-        # 4. 真正初始化
-        init_task = asyncio.create_task(
-            mcp_client.initialize(
-                server_name,
-                server_config,
-                on_failure_callback=on_failure
-            )
-        )
-
-        try:
-            # 4.1 先等初始化本身（最多 timeout 秒）
-            await asyncio.wait_for(init_task, timeout=timeout)
-
-            # 4.2 初始化没抛异常，再等待看会不会触发 on_failure
-            #     如果 on_failure 已经执行过，event 会被立即 set
-            try:
-                await asyncio.wait_for(failure_event.wait(), timeout=max_wait_failure)
-            except asyncio.TimeoutError:
-                # 5 秒内没收到失败回调，认为成功
-                pass
-
-            # 5. 最终判定
-            if first_error:
-                return server_name, None, first_error
-            return server_name, mcp_client, None
-
-        except asyncio.TimeoutError:
-            # 初始化阶段就超时
-            logger.error("%s initialize timed out", server_name)
-            return server_name, None, "timeout"
-
-        except Exception as exc:
-            # 任何其他异常
-            logger.exception("%s initialize crashed", server_name)
-            return server_name, None, str(exc)
-
-        finally:
-            # 如果任务还活着，保险起见取消掉
-            if not init_task.done():
-                init_task.cancel()
-                try:
-                    await init_task
-                except asyncio.CancelledError:
-                    pass
-
-    async def check_results():
-        """后台收集任务结果"""
-        logger.info("check_results started with %d tasks", len(mcp_init_tasks))
-        for task in asyncio.as_completed(mcp_init_tasks):
-            server_name, mcp_client, error = await task
-            if error:
-                logger.error(f"MCP client {server_name} initialization failed: {error}")
-                settings['mcpServers'][server_name]['disabled'] = True
-                settings['mcpServers'][server_name]['processingStatus'] = 'server_error'
-                mcp_client_list[server_name] = McpClient()
-                mcp_client_list[server_name].disabled = True
-            else:
-                logger.info(f"MCP client {server_name} initialized successfully")
-                mcp_client_list[server_name] = mcp_client
-        await save_settings(settings)  # 所有任务完成后统一保存
-        await broadcast_settings_update(settings)  # 所有任务完成后统一广播
-
-    if settings and settings.get('mcpServers'):
-        # 只有当有配置时才创建任务
-        mcp_init_tasks = [
-            asyncio.create_task(init_mcp_with_timeout(server_name, server_config))
-            for server_name, server_config in settings['mcpServers'].items()
-        ]
-        
-        if mcp_init_tasks:  # 只在有任务时启动后台收集
-            asyncio.create_task(check_results())
-    else:
-        mcp_init_tasks = []
-        # 直接广播空配置
-        asyncio.create_task(broadcast_settings_update(settings or {}))
     yield
 
 # WebSocket端点增加连接管理
@@ -851,8 +733,12 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         HA_message = f"\n\n以下是home assistant连接的设备信息：{HA_devices}\n\n"
         content_append(request.messages, 'system', HA_message)
     if settings['chromeMCPSettings']['enabled']:
-        chrome_status = await ChromeMCP_client.call_tool("browser_snapshot", {})
-        chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
+        if settings['chromeMCPSettings']['type']=='external':
+            chrome_status = await ChromeMCP_client.call_tool("browser_snapshot", {})
+            chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
+        else:
+            chrome_status = await ChromeMCP_client.call_tool("take_snapshot", {})
+            chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
         content_append(request.messages, 'system', chromeMCP_message)
     if settings['sqlSettings']['enabled']:
         sql_status = await sql_client.call_tool("all_table_names", {})
@@ -6329,11 +6215,19 @@ async def stop_HA():
 @app.post("/start_ChromeMCP")
 async def start_ChromeMCP(request: Request):
     data = await request.json()
-    Chrome_config = {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["@browsermcp/mcp@latest"]
-    }
+    if data.get("type",'') == 'external':
+        Chrome_config = {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["@browsermcp/mcp@latest"]
+        }
+    else:
+        CDPport = data.get("CDPport",9222)
+        Chrome_config = {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["-y", "chrome-devtools-mcp@latest", "--browserUrl", f"http://localhost:{CDPport}"]
+        }
 
     global ChromeMCP_client
     if ChromeMCP_client is not None:
