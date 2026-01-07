@@ -1324,7 +1324,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
                     :placeholder="t('inputMessage')"
                     resize="none"
-                    @keydown="isInputting=true;handleKeyDown()"
+                    @keydown="isInputting=true;handleKeyDown($event)" 
                     @keyup="isInputting=false"
                     class="input-box">
                 </el-input>
@@ -1343,18 +1343,28 @@ function updateElement(el, rawMarkdown, formatFn) {
               @click="handleResizerClick"
             >
               <div class="resizer-handle">
-                <div class="resizer-dots">
+                <div class="resizer-dots" v-if="chatAreaOpen && sidePanelOpen">
                   <div class="dot"></div>
                   <div class="dot"></div>
                   <div class="dot"></div>
                 </div>
-                <!-- 展开按钮（当对话区收起时显示） -->
-                <div v-if="!chatAreaOpen" class="expand-chat-btn" @click.stop="expandChatArea">
-                  <i class="fa-solid fa-chevron-right"></i>
+
+                <div 
+                    v-if="!chatAreaOpen"
+                    class="browser-toggle-handle--left"
+                    @click.stop="expandChatArea"
+                >
+                    <!-- 图标逻辑：面板打开时显示向右箭头(收起)，关闭时显示向左箭头(展开) -->
+                    <i class='fa-solid fa-chevron-right'></i>
                 </div>
-                <!-- 展开按钮（当侧边栏收起时显示） -->
-                <div v-if="!sidePanelOpen" class="expand-side-btn" @click.stop="expandSidePanel">
-                  <i class="fa-solid fa-chevron-left"></i>
+
+                <div 
+                    v-if="!sidePanelOpen"
+                    class="browser-toggle-handle"
+                    @click.stop="expandSidePanel"
+                >
+                    <!-- 图标逻辑：面板打开时显示向右箭头(收起)，关闭时显示向左箭头(展开) -->
+                    <i class='fa-solid fa-chevron-left'></i>
                 </div>
               </div>
             </div>
@@ -12768,18 +12778,26 @@ function updateElement(el, rawMarkdown, formatFn) {
         </div>
 
         <!-- AI Browser Container -->
-        <div v-show="activeMenu === 'ai-browser'" class="page ai-browser-container" v-if="isElectron">
+        <div v-show="activeMenu === 'ai-browser'" class="page ai-browser-container" v-if="isElectron" style="display: flex; flex-direction: row; height: 100%; overflow: hidden; position: relative;">
             
-
-          <!-- 2. 浏览器主体 -->
-          <div class="browser-body">
+          <!-- 2. 左侧：浏览器主体 (flex: 1 自动占满剩余空间) -->
+          <div class="browser-body" style="flex: 1; display: flex; flex-direction: column; position: relative; min-width: 0; height: 100%;">
               
+              <div 
+                  class="browser-toggle-handle"
+                  @click="showBrowserChat = !showBrowserChat"
+              >
+                  <!-- 图标逻辑：面板打开时显示向右箭头(收起)，关闭时显示向左箭头(展开) -->
+                  <i :class="showBrowserChat ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left'"></i>
+              </div>
+
               <!-- Webview 容器 -->
               <div 
                   v-for="tab in browserTabs" 
                   :key="tab.id" 
                   class="webview-wrapper"
                   v-show="currentTabId === tab.id && tab.url"
+                  style="flex: 1; display: flex; flex-direction: column; height: 100%;"
               >
                   <webview 
                       :src="tab.url" 
@@ -12794,6 +12812,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       @page-favicon-updated="onPageFaviconUpdated(tab.id, $event)"
                       @new-window="onNewWindow(tab.id, $event)"
                       @dom-ready="onDomReady(tab.id)"
+                      style="flex: 1; width: 100%; height: 100%;"
                   ></webview>
               </div>
 
@@ -12805,7 +12824,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       
                       <!-- 居中大搜索框 -->
                       <div class="ios-search-wrapper" :class="{ 'focused': isSearchFocused }">
-                          <!-- 引擎切换器 (左侧) - 修改为悬浮触发 -->
+                          <!-- 引擎切换器 -->
                           <div class="engine-selector" 
                             @mouseenter="handleSelectorEnter" 
                             @mouseleave="handleSelectorLeave">
@@ -12838,7 +12857,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                               @keyup.enter="handleWelcomeSearch"
                           >
                           
-                          <!-- 搜索按钮 (右侧) -->
+                          <!-- 搜索按钮 -->
                           <button class="ios-search-btn" @click="handleWelcomeSearch">
                               <i class="fa-solid fa-arrow-right"></i>
                           </button>
@@ -12847,6 +12866,184 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </div>
               </div>
 
+          </div>
+
+          <!-- 3. 右侧：Copilot 侧边栏 (复用 Chat 逻辑) -->
+          <div 
+            class="browser-copilot-sidebar" 
+            v-show="showBrowserChat"
+            style="width: 450px; border-left: 1px solid var(--el-border-color); background: var(--el-bg-color); display: flex; flex-direction: column; height: 100%; transition: width 0.3s;"
+          >
+            <!-- 聊天区域复用 -->
+            <div class="chat-area" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; width: 100%;">
+                
+                <!-- 消息列表 (flex: 1) -->
+                <div class="messages-container" ref="messagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick" style="flex: 1; overflow-y: auto; padding-bottom: 10px;">
+                    <div v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
+                    <!-- TTS 控件 -->
+                    <div v-if="ttsSettings.enabled && message.role === 'assistant'" class="tts-controls">
+                        <el-tooltip :content="message.isPlaying || false ? t('pause') : t('play')">
+                        <el-button @click="toggleTTS(message)" circle size="small">
+                            <i v-if="!message.isPlaying" class="fa-solid fa-play"></i>
+                            <i v-else class="fa-solid fa-pause"></i>
+                        </el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('backward')">
+                        <el-button @click="backwardTTS(message)" circle size="small">
+                            <i class="fa-solid fa-backward"></i>
+                        </el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('forward')">
+                        <el-button @click="forwardTTS(message)" circle size="small">
+                            <i class="fa-solid fa-forward"></i>
+                        </el-button>
+                        </el-tooltip>
+                        <span class="tts-status" v-if="message.ttsChunks">{{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}</span>
+                        <span class="tts-status" v-else>{{ t('initializing') }}</span>
+                    </div>
+
+                    <div class="message-content" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
+                        <!-- User Content -->
+                        <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
+                            <div v-html="message.content" class="user-msg"></div>
+                            <div v-if="message.fileLinks?.length" class="file-links">
+                                <a v-for="(link, linkIndex) in message.fileLinks" :key="linkIndex" :href="formatFileUrl(link.path)" target="_blank" class="file-link">@{{ link.name }}</a>
+                            </div>
+                            <div v-if="message.imageLinks?.length" class="image-links">
+                                <img v-for="(link, linkIndex) in message.imageLinks" :key="linkIndex" :src="formatFileUrl(link.path)" class="image-link"/>
+                            </div>
+                        </div>
+                        
+                        <!-- Assistant Content -->
+                        <div v-else-if="message.role === 'assistant'" class="markdown-body">
+                            <div v-if="message.briefly" v-html="formatMessage(message.pure_content??message.content, index)"></div>
+                            <div v-else>
+                                <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
+                                    <div 
+                                        v-if="segment.type === 'text'" 
+                                        class="stream-content"
+                                        :class="{ 'streaming': isTyping && index === messages.length - 1 && segIndex === splitMessageContent(message.content).length - 1 }"
+                                        v-morph:format="segment.content" 
+                                        style="display: inline-block; width: 100%;"
+                                    ></div>
+                                    <a2-u-i-renderer v-else-if="segment.type === 'ui'" :config="segment.content" @action="handleA2UIAction"></a2-u-i-renderer>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- System Content -->
+                        <div v-else class="system-content" data-mjx-disabled="true">
+                            <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" class="scroll-on-hover" @click="openEditDialog(message.role, message.content,index)"></div>
+                        </div>
+                    </div>
+
+                    <!-- 操作栏 -->
+                    <div class="message-actions">
+                        <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
+                            <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
+                        </el-tooltip>
+                        <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
+                            <el-button class="briefly-btn" @click="toggleBriefly(index)" circle size="small"><i class="fa-solid fa-asterisk"></i></el-button>
+                        </el-tooltip>
+                        <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
+                            <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                        </el-tooltip>
+                        <el-tooltip :content="t('copy')" placement="bottom">
+                            <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
+                        </el-tooltip>
+                        <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
+                            <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
+                        </el-tooltip>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- 底部工具栏与输入框 -->
+                <div style="border-top: 1px solid var(--el-border-color); padding: 10px; background: var(--el-bg-color);">
+                    <!-- 按钮组 -->
+                    <div class="button-group" style="margin-bottom: 5px; display: flex; flex-wrap: wrap; gap: 4px;">
+                        
+                        <!-- 常用功能按钮复用 -->
+                        <el-tooltip :content="t('clearChat')" placement="top">
+                          <el-button
+                            v-if="!isCapsuleMode"
+                            @click="clearMessages"
+                            class="icon-btn clear-btn"
+                            type="danger"
+                            circle>
+                            <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="t('desktopVisionButton')" placement="top">
+                          <el-button
+                            @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
+                            class="icon-btn vision-btn"
+                            :type="visionSettings.desktopVision ? 'primary' : 'default'"
+                            :disabled="!isElectron"
+                            circle>
+                            <i class="fa-solid fa-eye"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="t('asr')" placement="top">
+                          <el-button
+                            @click="toggleASR"
+                            class="icon-btn asr-btn"
+                            :type="asrSettings.enabled ? 'primary' : 'default'"
+                            circle>
+                            <i class="fa-solid fa-microphone"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="t('tts')" placement="top">
+                          <el-button
+                            @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
+                            class="icon-btn asr-btn"
+                            :type="ttsSettings.enabled ? 'primary' : 'default'"
+                            circle>
+                            <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
+                            <i v-else class="fa-solid fa-volume-xmark"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="t('browserControl')" placement="top">
+                          <el-button
+                            @click="chromeMCPSettings.enabled = !chromeMCPSettings.enabled; changeChromeMCPEnabled();"
+                            class="icon-btn browserControl-btn"
+                            :type="chromeMCPSettings.enabled ? 'primary' : 'default'"
+                            circle>
+                            <i class="fa-brands fa-chrome"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
+                          <el-button
+                            v-if="!isCapsuleMode"
+                            @click="isSending ? stopGenerate() : sendMessage()"
+                            :type="isSending ? 'danger' : 'primary'"
+                            class="icon-btn send-btn"
+                            circle>
+                            <i :class="isSending ? 'fa-solid fa-stop' : 'fa-solid fa-paper-plane'" aria-hidden="true"></i>
+                          </el-button>
+                        </el-tooltip>
+                    </div>
+
+                    <!-- 输入框区域 -->
+                    <div class="input-container" v-if="!isCapsuleMode">
+                      <el-input
+                          v-model="userInput"
+                          type="textarea"
+                          :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
+                          :placeholder="t('inputMessage')"
+                          resize="none"
+                          @keydown="isInputting=true;handleKeyDown()" 
+                          @keyup="isInputting=false"
+                          class="input-box">
+                      </el-input>
+                    </div>
+                </div>
+            </div>
           </div>
         </div>
       </el-main>

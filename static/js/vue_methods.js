@@ -1399,7 +1399,7 @@ let vue_methods = {
 
     async handleKeyDown(event) {
       if (event?.repeat) return;
-
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.code === 'Space' && event.shiftKey) {
         event.preventDefault();   // 防止页面滚动
         if (
@@ -1410,14 +1410,19 @@ let vue_methods = {
         }
         return;
       }
-      if (event?.key === 'Enter' && this.activeMenu === 'home') {
-        if (event?.shiftKey) {
-          // 如果同时按下了Shift键，则不阻止默认行为，允许换行
-          return;
-        } else {
-          // 阻止默认行为，防止表单提交或新行插入
-          event.preventDefault();
-          await this.sendMessage();
+     const isTextArea = event.target.tagName === 'TEXTAREA';
+
+      if (event.key === 'Enter' && (this.activeMenu === 'home' || this.activeMenu ==='ai-browser')) {
+        // 只有当焦点确实在 textarea 内部时才处理
+        if (isTextArea) {
+            if (event.shiftKey) {
+              // Shift + Enter: 允许换行，不阻止默认行为
+              return;
+            } else {
+              // 单独 Enter: 发送消息
+              event.preventDefault(); // 阻止默认换行行为
+              await this.sendMessage();
+            }
         }
       }
       if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod == "keyTriggered") {

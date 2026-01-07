@@ -231,7 +231,7 @@ async def navigate_page(type="url", url=None, ignoreCache=False, timeout=0):
     """页面导航"""
     return await call_vue_method('browserNavigate', [type, url, ignoreCache])
 
-async def wait_for(text, timeout=5000):
+async def wait_for(text, timeout=1000):
     """等待文本出现"""
     return await call_vue_method('webviewWaitFor', [text, timeout])
 

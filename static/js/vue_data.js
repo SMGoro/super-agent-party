@@ -1844,4 +1844,5 @@ main();`,
     showDownloadDropdown: false,
     downloads: [], // 存储所有下载记录 { id, filename, totalBytes, receivedBytes, state, path, progress }
     dropdownTimer: null, 
+    showBrowserChat: true,
 };

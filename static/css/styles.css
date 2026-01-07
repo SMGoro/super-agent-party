@@ -6431,3 +6431,75 @@ hr.footnotes-sep {
   opacity: 0;
   transform: translateY(-5px);
 }
+
+/* --- AI Browser 侧边栏切换手柄 --- */
+.browser-toggle-handle {
+    position: absolute;
+    top: 50%;
+    right: 0; /* 紧贴右侧边缘 */
+    transform: translateY(-50%);
+    width: 24px;
+    height: 60px;
+    background: var(--el-color-primary); /* 使用主题色 */
+    color: #ffffff; /* 确保图标是白色 */
+    border-radius: 12px 0 0 12px; /* 左侧圆角，右侧直角贴合边缘 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 9999; /* 确保层级高于 WebView */
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0.6; /* 默认半透明，减少对浏览内容的干扰 */
+    font-size: 12px;
+}
+
+/* 鼠标悬停效果 */
+.browser-toggle-handle:hover {
+    opacity: 1;
+    width: 32px; /* 变宽 */
+    padding-right: 4px;
+    background: var(--el-color-primary-light-3);
+}
+
+/* 适配不同主题的图标颜色 */
+[data-theme="dark"] .browser-toggle-handle,
+[data-theme="midnight"] .browser-toggle-handle {
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5);
+}
+
+/* --- AI Browser 侧边栏切换手柄（反向，紧贴左侧）--- */
+.browser-toggle-handle--left {
+    position: absolute;
+    top: 50%;
+    left: 0;               /* 紧贴左侧边缘 */
+    transform: translateY(-50%);
+    width: 24px;
+    height: 60px;
+    background: var(--el-color-primary);
+    color: #ffffff;
+    border-radius: 0 12px 12px 0; /* 右侧圆角，左侧直角贴合边缘 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 9999;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15); /* 阴影方向相反 */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0.6;
+    font-size: 12px;
+}
+
+/* 鼠标悬停效果 */
+.browser-toggle-handle--left:hover {
+    opacity: 1;
+    width: 32px;
+    padding-left: 4px;     /* 左侧内边距，保持图标居中 */
+    background: var(--el-color-primary-light-3);
+}
+
+/* 适配不同主题的图标颜色 */
+[data-theme="dark"] .browser-toggle-handle--left,
+[data-theme="midnight"] .browser-toggle-handle--left {
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+}
