@@ -7629,7 +7629,7 @@ handleCreateDiscordSeparator(val) {
         // 保存最新的端口到配置文件 (可选，为了稳妥)
         await this.autoSaveSettings();
     }
-    if (this.chromeMCPSettings.enabled){
+    if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'external'){
       const response = await fetch('/start_ChromeMCP',{
         method: 'POST',
         headers: {

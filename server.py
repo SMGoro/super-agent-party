@@ -854,10 +854,9 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         if settings['chromeMCPSettings']['type']=='external':
             chrome_status = await ChromeMCP_client.call_tool("browser_snapshot", {})
             chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
+            content_append(request.messages, 'system', chromeMCP_message)
         else:
-            chrome_status = await ChromeMCP_client.call_tool("take_snapshot", {})
-            chromeMCP_message = f"\n\n以下是浏览器的当前信息：{chrome_status}\n\n"
-        content_append(request.messages, 'system', chromeMCP_message)
+            pass
     if settings['sqlSettings']['enabled']:
         sql_status = await sql_client.call_tool("all_table_names", {})
         sql_message = f"\n\n以下是当前数据库all_table_names工具的返回结果：{sql_status}\n\n"
@@ -6332,22 +6331,12 @@ async def stop_HA():
 
 @app.post("/start_ChromeMCP")
 async def start_ChromeMCP(request: Request):
-    request_body = await request.json()
-    settings = request_body.get('data', request_body)
-    if settings.get("type",'') == 'external':
-        Chrome_config = {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["@browsermcp/mcp@latest"]
-        }
-    else:
-        CDPport = settings.get("CDPport",9222)
-        logger.info(f"CDPport: {CDPport}")
-        Chrome_config = {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["-y", "chrome-devtools-mcp@latest", "--browserUrl", f"http://localhost:{CDPport}"]
-        }
+
+    Chrome_config = {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["@browsermcp/mcp@latest"]
+    }
 
     global ChromeMCP_client
     if ChromeMCP_client is not None:
