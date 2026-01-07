@@ -122,7 +122,7 @@ async def check_robots_txt(url):
     ROBOTS_CACHE[base_url] = rp
     return rp.can_fetch(USER_AGENT, url)
 
-def sanitize_url(input_url: str, default_base: str = "", endpoint: str = "") -> str:
+def sanitize_url(input_url: str, default_base: str = "", endpoint: str = "",force_netloc: str = "") -> str:
     """
     通用 URL 安全过滤与重构函数
     1. 显式解析并验证协议
@@ -141,6 +141,8 @@ def sanitize_url(input_url: str, default_base: str = "", endpoint: str = "") -> 
     
     if not parsed.netloc:
         raise HTTPException(status_code=400, detail="无效的 URL 域名或 IP")
+    if force_netloc:
+        parsed = parsed._replace(netloc=force_netloc)
 
     # 3. 重新构造 URL (这是消除安全报错的关键动作)
     # 我们只拿解析出来的部分进行手动拼接，不直接使用用户传入的原始长字符串
@@ -163,13 +165,13 @@ async def handle_url(url):
     ext = os.path.splitext(parsed_url.path)[1].lstrip('.').lower()
 
     # --- 1. 内部上传文件处理逻辑 ---
-    if 'uploaded_files' in parsed_url.path:
+    if 'uploaded_files' in parsed_url.path or 'tool_temp' in parsed_url.path:
         HOST = get_host()
         PORT = get_port()
         if HOST == '0.0.0.0': HOST = '127.0.0.1'
         
         # 使用 sanitize_url 强行重写域名部分
-        target_url = sanitize_url(url, f"http://{HOST}:{PORT}", '')
+        target_url = sanitize_url(url,force_netloc=f"{HOST}:{PORT}")
         
         async with aiohttp.ClientSession() as session:
             try:

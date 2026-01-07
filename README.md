@@ -235,11 +235,17 @@ Please refer to the following document for the main functions:
 This open-source project and its content (hereinafter referred to as the "project") are for reference only and do not imply any explicit or implicit warranties. The project contributors do not assume any responsibility for the completeness, accuracy, reliability, or applicability of the project. Any behavior that relies on the project content shall be at the user's own risk. In any case, the project contributors shall not be liable for any indirect, special, or incidental losses or damages arising from the use of the project content.
 
 ## Special Note  
-Some features of this open-source project (such as Edge TTS voice synthesis, Bilibili WebSocket danmaku monitoring, etc.) rely on public interfaces or experimental functionalities provided by third-party services. These features may become unavailable at any time due to policy changes by the third parties. The developers are not responsible for their stability, legality, or continuity.  
+1. Certain features of this open-source project (such as Edge TTS voice synthesis, Bilibili WebSocket danmaku monitoring, etc.) rely on public interfaces or experimental functionalities provided by third-party services. These features may become unavailable at any time due to changes in third-party policies. The developer assumes no responsibility for their stability, legality, or continuity.
 
-The QQ bot utilizes the official QQ bot interface. Please comply with the [AIGC Access to QQ Bot Guidelines](https://q.qq.com/#/news/detail?id=1376238e8e2fbbc036676bb09d2f37da).  
+2. The QQ bot utilizes the official QQ bot interface. Please comply with the [AIGC QQ Bot Usage Guidelines](https://q.qq.com/#/news/detail?id=1376238e8e2fbbc036676bb09d2f37da).
 
-By using these features, users acknowledge and agree to assume the associated risks. The developers do not recommend or encourage the use of these features for commercial or large-scale deployment scenarios.
+3. The browser control functionality provided in this project is an accessibility-assisted browsing interface based on large language models (LLMs). It is designed to help visually impaired individuals, the elderly, or those with mobility challenges operate browsers more conveniently through natural language commands, using AI visual recognition technology. It is not intended for automated crawling or hacking purposes. The project adopts a technical architecture of "LLM visual reasoning → single-step operation." The accessibility-assisted browsing interface has the following characteristics:  
+   a. Non-high-frequency concurrency: Due to reliance on LLM reasoning speed (3–5 seconds per step) and built-in randomized human-like delay algorithms, the tool's operation frequency is strictly lower than the maximum manual speed of a typical human user.  
+   b. No server pressure: This tool does not support multi-threaded concurrency, batch data scraping, or DDoS attacks. From the server's perspective, its behavior is indistinguishable from that of a regular human user and will not impose additional load on the target website's server.
+
+4. Do not use this tool on banking sites, payment gateways, or pages containing highly confidential information. The developer is not responsible for privacy breaches resulting from improper user operations. Prohibited activities include large-scale data scraping, bypassing security mechanisms, network interference, and any actions that violate laws and regulations.
+
+By using these features, users are deemed to have acknowledged and agreed to assume the associated risks. The developer does not recommend or encourage the use of these features in commercial or large-scale deployment scenarios.
 
 ## License Agreement
 

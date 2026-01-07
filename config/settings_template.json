@@ -173,7 +173,9 @@
       "url": "http://127.0.0.1:8123"
     },
     "chromeMCPSettings": {
-      "enabled": false
+      "enabled": false,
+      "type":"external",
+      "CDPport":9222
     },
     "sqlSettings":{
       "enabled": false,

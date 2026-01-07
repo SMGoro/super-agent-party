@@ -788,6 +788,7 @@ const app = Vue.createApp({
       });
     }
     this.initTTSWebSocket();
+    window.aiBrowser = this;
     this.$nextTick(() => {
       this.generateQRCode(); // 生成二维码
     });

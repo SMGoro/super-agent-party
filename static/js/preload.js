@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electron', {
 // 暴露安全接口
 contextBridge.exposeInMainWorld('electronAPI', {
   onNewTab: (callback) => ipcRenderer.on('create-tab', (_, url) => callback(url)),
+  saveScreenshotDirect: (buffer) => ipcRenderer.invoke('save-screenshot-direct', { buffer }),
   // 系统功能
   openExternal: (url) => shell.openExternal(url),
   openPath: (filePath) => shell.openPath(filePath),
@@ -74,6 +75,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showContextMenu: (menuType, data) => ipcRenderer.invoke('show-context-menu', { menuType, data }),
   //保存环境变量
   setNetworkVisibility: (visible) => ipcRenderer.invoke('set-env', { key: 'networkVisible', value: visible }), 
+  
+  saveChromeSettings: (settings) => ipcRenderer.invoke('save-chrome-config', settings),
+  getInternalCDPInfo: () => ipcRenderer.invoke('get-internal-cdp-info'),
   //重启app
   restartApp: () => ipcRenderer.invoke('restart-app'),
   startVRMWindow: (windowConfig) => ipcRenderer.invoke('start-vrm-window', windowConfig),

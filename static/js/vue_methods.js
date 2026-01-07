@@ -1295,6 +1295,7 @@ let vue_methods = {
           if (this.HASettings.enabled) {
             this.changeHAEnabled();
           };
+          await this.initChromeMCPSettings();
           if (this.chromeMCPSettings.enabled){
             this.changeChromeMCPEnabled();
           }
@@ -1398,7 +1399,7 @@ let vue_methods = {
 
     async handleKeyDown(event) {
       if (event?.repeat) return;
-
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.code === 'Space' && event.shiftKey) {
         event.preventDefault();   // 防止页面滚动
         if (
@@ -1409,14 +1410,19 @@ let vue_methods = {
         }
         return;
       }
-      if (event?.key === 'Enter' && this.activeMenu === 'home') {
-        if (event?.shiftKey) {
-          // 如果同时按下了Shift键，则不阻止默认行为，允许换行
-          return;
-        } else {
-          // 阻止默认行为，防止表单提交或新行插入
-          event.preventDefault();
-          await this.sendMessage();
+     const isTextArea = event.target.tagName === 'TEXTAREA';
+
+      if (event.key === 'Enter' && (this.activeMenu === 'home' || this.activeMenu ==='ai-browser')) {
+        // 只有当焦点确实在 textarea 内部时才处理
+        if (isTextArea) {
+            if (event.shiftKey) {
+              // Shift + Enter: 允许换行，不阻止默认行为
+              return;
+            } else {
+              // 单独 Enter: 发送消息
+              event.preventDefault(); // 阻止默认换行行为
+              await this.sendMessage();
+            }
         }
       }
       if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod == "keyTriggered") {
@@ -4755,7 +4761,7 @@ handleCreateDiscordSeparator(val) {
     },
     checkMobile() {
       this.isMobile = window.innerWidth <= 768;
-      this.isAssistantMode = window.innerWidth <= 350 && window.innerHeight <= 680;
+      this.isAssistantMode = window.innerWidth <= 350 && window.innerHeight <= 820;
       this.isCapsuleMode = window.innerWidth <= 230 && window.innerHeight <= 100;
       if (this.isMobile) {
         this.MoreButtonDict = this.smallMoreButtonDict;
@@ -7604,7 +7610,32 @@ handleCreateDiscordSeparator(val) {
     this.autoSaveSettings();
   },
   async changeChromeMCPEnabled(){
-    if (this.chromeMCPSettings.enabled){
+
+    if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'internal') {
+        if (!window.electronAPI) return;
+
+        // 获取主进程实际状态
+        const cdpInfo = await window.electronAPI.getInternalCDPInfo();
+
+        if (!cdpInfo.active) {
+            // 严重情况：前端想开，但主进程没开端口（说明没重启）
+            this.chromeMCPSettings.enabled = false; // 回滚开关
+            
+            this.showRestartDialog = true;
+            
+            return; // 终止后续流程
+        }
+
+        // 主进程已开启端口 -> 关键步骤：同步随机端口！
+        // 这样发给后端的 JSON 里 CDPport 才是主进程真正监听的端口 (例如 9527)
+        this.chromeMCPSettings.CDPport = cdpInfo.port;
+        console.log(`[CDP] 准备启动 MCP，使用实际端口: ${cdpInfo.port}`);
+        
+        // 保存最新的端口到配置文件 (可选，为了稳妥)
+        await this.autoSaveSettings();
+        showNotification(this.t('success_start_browserControl'));
+    }
+    if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'external'){
       const response = await fetch('/start_ChromeMCP',{
         method: 'POST',
         headers: {
@@ -7633,11 +7664,15 @@ handleCreateDiscordSeparator(val) {
       if (response.ok){
         const data = await response.json();
         console.log(data);
-        showNotification(this.t('success_stop_browserControl'));
+        if (this.chromeMCPSettings.type === 'external'||!this.chromeMCPSettings.enabled){
+          showNotification(this.t('success_stop_browserControl'));
+        }
       }else {
         this.chromeMCPSettings.enabled = true;
         console.error('停止ChromeMCP失败');
-        showNotification(this.t('error_stop_browserControl'), 'error');
+        if (this.chromeMCPSettings.type === 'external'||!this.chromeMCPSettings.enabled){
+          showNotification(this.t('error_stop_browserControl'), 'error');
+        }
       }
     }
     this.autoSaveSettings();
@@ -9299,9 +9334,8 @@ stopTTSActivities() {
       window.electronAPI.windowAction('maximize'); // 恢复默认大小
     } else {
       // 进入助手模式，设置为300x屏幕高度
-      const screenHeight = window.screen.availHeight || window.innerHeight || 800;
-      console.log('进入助手模式，设置大小为:', 340, screenHeight);
-      window.electronAPI.toggleWindowSize(340, screenHeight);
+      console.log('进入助手模式，设置大小为:', 340, 800);
+      window.electronAPI.toggleWindowSize(340, 800);
     }
 
     this.sidePanelOpen = false;
@@ -11776,6 +11810,13 @@ async togglePlugin(plugin) {
         this.navigateTo(val);
     },
 
+    getTabIdByIndex(index) {
+        if (index >= 0 && index < this.browserTabs.length) {
+            return this.browserTabs[index].id;
+        }
+        return null;
+    },
+
     // 欢迎页搜索回车
     handleWelcomeSearch() {
         const query = this.welcomeSearchQuery.trim();
@@ -12149,5 +12190,567 @@ async togglePlugin(plugin) {
             this.showDownloadDropdown = false;
             this.dropdownTimer = null;
         }, 300); 
+    },
+    async handlechromeMCPTypeChange() {
+        // 1. 先保存用户的选择
+        await window.electronAPI.saveChromeSettings(JSON.parse(JSON.stringify(this.chromeMCPSettings)));
+        await this.autoSaveSettings();
+        // 2. 如果切换到了“内置浏览器” (Internal)
+        if (this.chromeMCPSettings.type === 'internal') {
+          this.showRestartDialog = true;
+        } else {
+            // 如果切回 External，不需要重启，直接保存即可
+            // 此时如果端口还开着也没关系，Python 不连它就行
+        }
+    },
+
+    async initChromeMCPSettings() {
+        if (!window.electronAPI) return;
+
+        // 1. 询问主进程：你现在开 CDP 了吗？端口是多少？
+        const cdpInfo = await window.electronAPI.getInternalCDPInfo();
+        
+        // 2. 如果主进程确实开启了内部模式
+        if (cdpInfo.active) {
+            console.log(`[Frontend] 检测到内部 CDP 已激活，端口: ${cdpInfo.port}`);
+            
+            // 强制同步前端数据
+            this.chromeMCPSettings.type = 'internal'; 
+            this.chromeMCPSettings.CDPport = cdpInfo.port;
+            
+            // 这里不一定强制 enabled = true，因为 enabled 代表“Python服务是否在运行”
+            // 但如果 Electron 开了端口，通常意味着配置里 enabled 是 true
+            // 我们更新配置文件，确保端口是最新的
+            await this.autoSaveSettings();
+        }
+    },
+    // ===============================================
+    // Python Agent 专用接口 (Electron API 桥接)
+    // ===============================================
+
+    // --- 基础信息与导航 ---
+
+    getPagesInfo() {
+        const info = this.browserTabs.map((tab, index) => ({
+            index: index,
+            id: tab.id,
+            title: tab.title || 'Loading...',
+            url: tab.url || '',
+            active: tab.id === this.currentTabId
+        }));
+        return JSON.stringify(info);
+    },
+
+    closeTabByIndex(index) {
+        const tabId = this.getTabIdByIndex(index);
+        if (tabId) {
+            this.closeTab(tabId);
+            return "Closed tab index " + index;
+        }
+        return "Error: Tab index " + index + " not found";
+    },
+
+    switchTabByIndex(index) {
+        const tabId = this.getTabIdByIndex(index);
+        if (tabId) {
+            this.switchTab(tabId);
+            this.activeMenu = 'ai-browser';
+            return "Selected tab index " + index;
+        }
+        return "Error: Tab index " + index + " not found";
+    },
+
+    browserNavigate(type, url, ignoreCache) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        try {
+            this.activeMenu = 'ai-browser'; // 切换到 AI Browser 菜单
+            switch (type) {
+                case 'url':
+                    if (!url) return "Error: URL is required";
+                    this.navigateTo(url);
+                    return "Navigating to " + url;
+                case 'back':
+                    if (wv.canGoBack()) {
+                        wv.goBack();
+                        return "Navigated Back";
+                    }
+                    return "Error: Cannot go back";
+                case 'forward':
+                    if (wv.canGoForward()) {
+                        wv.goForward();
+                        return "Navigated Forward";
+                    }
+                    return "Error: Cannot go forward";
+                case 'reload':
+                    if (ignoreCache) wv.reloadIgnoringCache();
+                    else wv.reload();
+                    return "Reloaded";
+                default:
+                    // 默认为 URL 导航
+                    if (url) {
+                        this.navigateTo(url);
+                        return "Navigated to " + url;
+                    }
+                    return "Error: Unknown navigation type";
+            }
+        } catch (e) {
+            return "Navigation Exception: " + e.message;
+        }
+    },
+
+    // ===============================================
+    // Python Agent 专用接口 (稳定 JS 注入版)
+    // ===============================================
+
+    // --- 0. 拟人化延迟辅助函数 ---
+    async _humanDelay() {
+        // 随机延迟 100ms 到 1000ms (0.1s - 1s)
+        const delay = Math.floor(Math.random() * 900) + 100;
+        await new Promise(resolve => setTimeout(resolve, delay));
+    },
+
+    // --- 1. 伪装成 A11y 树的快照 (无延迟，读取操作越快越好) ---
+    async getWebviewSnapshot(verbose = false) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        if (wv.isLoading()) return "Error: Page is loading...";
+
+        const script = `
+        (function() {
+            try {
+                if (!window._ai_uid_counter) window._ai_uid_counter = 1;
+                const interactiveSelector = 'a, button, input, textarea, select, details, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [onclick]';
+                
+                function isVisible(el) {
+                    const style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetWidth > 0;
+                }
+
+                function getSafeText(el) {
+                    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value || el.getAttribute('placeholder') || '';
+                    if (el.tagName === 'SELECT') return el.options[el.selectedIndex]?.text || '';
+                    return el.innerText ? el.innerText.slice(0, 50).replace(/[\\r\\n]+/g, ' ').trim() : '';
+                }
+
+                function getRole(el) {
+                    if (el.getAttribute('role')) return el.getAttribute('role');
+                    return el.tagName.toLowerCase();
+                }
+
+                const elements = document.querySelectorAll(interactiveSelector);
+                const lines = [];
+
+                elements.forEach(el => {
+                    if (!isVisible(el)) return;
+                    let uid = el.getAttribute('data-ai-id');
+                    if (!uid) {
+                        uid = 'ai-' + window._ai_uid_counter++;
+                        el.setAttribute('data-ai-id', uid);
+                    }
+                    const role = getRole(el);
+                    const name = getSafeText(el);
+                    const value = (el.value && el.value !== name) ? el.value : '';
+                    
+                    let line = \`[\${uid}] \${role}\`;
+                    if (name) line += \` "\${name}"\`;
+                    if (value) line += \` Value: "\${value}"\`;
+
+                    lines.push(line);
+                });
+
+                if (lines.length === 0) return "Page empty or no interactive elements found.";
+                return lines.join('\\n');
+            } catch (e) {
+                return "Snapshot Script Error: " + e.message;
+            }
+        })()
+        `;
+        
+        try {
+            return await wv.executeJavaScript(script);
+        } catch (e) {
+            return "Vue Snapshot Error: " + e.message;
+        }
+    },
+
+    // --- 2. 点击 (增加延迟) ---
+    async webviewClick(uid, dblClick = false) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (async function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found: ${uid}";
+            
+            // 1. 滚动到可见 (平滑滚动更像人)
+            el.scrollIntoView({behavior: "smooth", block: "center", inline: "center"});
+            
+            // 等待一小会儿让滚动完成
+            await new Promise(r => setTimeout(r, 200));
+
+            // 2. 计算随机坐标 (核心改进)
+            const rect = el.getBoundingClientRect();
+            // 不点边缘，只在中心 80% 区域内随机
+            // Math.random() - 0.5 生成 -0.5 到 0.5 的数
+            const randomX = (Math.random() - 0.5) * (rect.width * 0.8); 
+            const randomY = (Math.random() - 0.5) * (rect.height * 0.8);
+            
+            // 加上 rect.left 等于视口绝对坐标，加上 rect.width/2 等于中心点
+            // clientX/Y 是相对于视口的
+            const clientX = rect.left + (rect.width / 2) + randomX;
+            const clientY = rect.top + (rect.height / 2) + randomY;
+
+            // 3. 构造事件对象 (带真实坐标)
+            const opts = { 
+                bubbles: true, 
+                cancelable: true, 
+                view: window, 
+                buttons: 1,
+                clientX: clientX,
+                clientY: clientY,
+                screenX: clientX + window.screenX, // 模拟屏幕坐标
+                screenY: clientY + window.screenY
+            };
+
+            // 4. 触发完整的事件链
+            el.dispatchEvent(new MouseEvent('mouseover', opts));
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            // 鼠标按下和抬起之间极短的停顿
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 50) + 10)); 
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            el.dispatchEvent(new MouseEvent('click', opts));
+            
+            if (${dblClick}) {
+                el.dispatchEvent(new MouseEvent('dblclick', opts));
+            }
+            return "Clicked " + "${uid}";
+        })()
+        `;
+        
+        try {
+            const result = await wv.executeJavaScript(script);
+            // 操作后的大延迟（模拟思考下一步）
+            await this._humanDelay();
+            return result;
+        } catch (e) {
+            return "Click Error: " + e.message;
+        }
+    },
+
+    // --- 3. 输入 (增加延迟) ---
+    async webviewFill(uid, value) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        // 注意：这里需要把 value 传给 JS，使用 JSON.stringify 确保安全
+        const script = `
+        (async function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found: ${uid}";
+            
+            el.focus();
+            
+            const text = ${JSON.stringify(value)};
+            
+            // 获取原生 Setter (解决 React/Vue 无法监听 js 赋值的问题)
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+            
+            // 清空现有内容 (如果需要追加模式，可以去掉这行)
+            if (nativeInputValueSetter) {
+                nativeInputValueSetter.call(el, '');
+            } else {
+                el.value = '';
+            }
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // ★ 核心：逐字输入循环
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                
+                // 1. 模拟按键按下 (keydown)
+                el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+                el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
+
+                // 2. 更新值 (模拟输入进去的效果)
+                const currentVal = el.value + char;
+                if (nativeInputValueSetter && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                    nativeInputValueSetter.call(el, currentVal);
+                } else {
+                    el.value = currentVal;
+                }
+
+                // 3. 触发 input 事件 (让框架知道值变了)
+                el.dispatchEvent(new InputEvent('input', { data: char, inputType: 'insertText', bubbles: true }));
+                
+                // 4. 模拟按键抬起 (keyup)
+                el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+
+                // ★ 5. 随机打字延迟 (30ms - 150ms)
+                // 模拟人打字忽快忽慢
+                const delay = Math.floor(Math.random() * 120) + 30;
+                await new Promise(r => setTimeout(r, delay));
+            }
+
+            // 完成后的 change 事件
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // 稍微停顿后失焦
+            await new Promise(r => setTimeout(r, 200));
+            el.blur();
+
+            return "Filled " + "${uid}";
+        })()
+        `;
+        
+        try {
+            const result = await wv.executeJavaScript(script);
+            // 操作后的大延迟
+            await this._humanDelay();
+            return result;
+        } catch (e) {
+            return "Fill Error: " + e.message;
+        }
+    },
+
+    // --- 4. 批量填表 (增加延迟) ---
+    async webviewFillForm(elements) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const dataStr = JSON.stringify(elements); 
+
+        const script = `
+        (function() {
+            const items = ${dataStr};
+            const log = [];
+            items.forEach(item => {
+                const el = document.querySelector('[data-ai-id="' + item.uid + '"]');
+                if (el) {
+                    el.focus();
+                    el.value = item.value;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    log.push(item.uid);
+                }
+            });
+            return "Filled elements: " + log.join(', ');
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 批量操作后等待
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 5. 拖拽 (增加延迟) ---
+    async webviewDrag(fromUid, toUid) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const src = document.querySelector('[data-ai-id="${fromUid}"]');
+            const tgt = document.querySelector('[data-ai-id="${toUid}"]');
+            if (!src || !tgt) return "Elements not found";
+
+            const srcRect = src.getBoundingClientRect();
+            const tgtRect = tgt.getBoundingClientRect();
+            const clientX = srcRect.left + srcRect.width / 2;
+            const clientY = srcRect.top + srcRect.height / 2;
+            const targetX = tgtRect.left + tgtRect.width / 2;
+            const targetY = tgtRect.top + tgtRect.height / 2;
+
+            const emit = (type, x, y) => {
+                const ev = new MouseEvent(type, { 
+                    bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 
+                });
+                (type === 'mouseup' ? tgt : src).dispatchEvent(ev);
+            };
+
+            emit('mousedown', clientX, clientY);
+            emit('mousemove', clientX + 5, clientY + 5); 
+            emit('mousemove', targetX, targetY);         
+            emit('mouseup', targetX, targetY);           
+
+            return "Dragged " + "${fromUid}" + " to " + "${toUid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 拖拽动作幅度大，等待时间可以稍微长一点（这里复用随机等待）
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 6. 悬停 (增加延迟) ---
+    async webviewHover(uid) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found";
+            el.scrollIntoView({block: "center"});
+            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            return "Hovered " + "${uid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 悬停通常是为了看东西，稍微等一下合理
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 7. 文件上传 (上传本身耗时，不再额外增加人为延迟，或者加一点也行) ---
+    async webviewUploadFile(uid, filePath) {
+        // ... (保持之前的错误提示或 IPC 逻辑) ...
+        // 如果这里能成功上传，建议也加一个 await this._humanDelay();
+        return "Error: File upload requires IPC/CDP setup.";
+    },
+
+    // --- 8. 处理弹窗 (无延迟) ---
+    async webviewHandleDialog(action, promptText) {
+        // ... (代码保持不变，弹窗处理通常是瞬时的) ...
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            window.__ai_dialog_action = "${action}"; 
+            window.__ai_dialog_text = ${JSON.stringify(promptText || "")};
+            window.alert = function() { return true; };
+            window.confirm = function() { return window.__ai_dialog_action === 'accept'; };
+            window.prompt = function() { return window.__ai_dialog_action === 'accept' ? window.__ai_dialog_text : null; };
+            return "Dialog handlers patched";
+        })()
+        `;
+        return await wv.executeJavaScript(script);
+    },
+
+    // --- 9. 按键 (增加延迟) ---
+    async webviewPressKey(keyCombo) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        
+        try {
+            const parts = keyCombo.split('+').map(k => k.trim());
+            const key = parts.pop();
+            const modifiers = parts.map(m => m.toLowerCase());
+            
+            wv.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+            if (key.length === 1) wv.sendInputEvent({ type: 'char', keyCode: key, modifiers });
+            wv.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+            
+            // ★ 按键后等待
+            await this._humanDelay();
+            
+            return "Pressed " + keyCombo;
+        } catch (e) {
+            return "PressKey Error: " + e.message;
+        }
+    },
+
+    // --- 10. 等待文本 (无延迟，这是轮询操作) ---
+    async webviewWaitFor(text, timeout) {
+        // ... (代码保持不变) ...
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            return new Promise((resolve) => {
+                const start = Date.now();
+                const check = () => {
+                    if (document.body.innerText.includes(${JSON.stringify(text)})) {
+                        resolve("Found: " + ${JSON.stringify(text)});
+                    } else if (Date.now() - start > ${timeout}) {
+                        resolve("Timeout waiting for text");
+                    } else {
+                        setTimeout(check, 500);
+                    }
+                };
+                check();
+            });
+        })()
+        `;
+        return await wv.executeJavaScript(script);
+    },
+
+    // --- 11. 截图 (无延迟) ---
+    async captureWebviewScreenshot(fullPage = false, uid = null) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        try {
+            // 1. 滚动 (如果指定元素)
+            if (uid) {
+                await this.webviewClick(uid);
+                await this._humanDelay();
+            }
+
+            // 2. 捕获页面
+            const image = await wv.capturePage();
+
+            // 3. 缩放 (AI 不需要 4K，1280 宽足够，节省 Token)
+            const size = image.getSize();
+            let resized = image;
+            if (size.width > 1280) {
+                resized = image.resize({ width: 1280 });
+            }
+
+            // 4. 转为 JPEG Buffer (质量 70)
+            const buffer = resized.toJPEG(70);
+
+            // 5. 调用主进程保存文件
+            // 注意：Buffer 通过 IPC 传输非常快，比 Base64 字符串快得多
+            const filename = await window.electronAPI.saveScreenshotDirect(buffer);
+            
+            // 6. 拼接 URL
+            // window.electron.server.port 是在 preload 里暴露的后端端口
+            const host = window.electron.server.host || '127.0.0.1';
+            const port = window.electron.server.port || 3456;
+            
+            const fileUrl = `http://${host}:${port}/uploaded_files/${filename}`;
+            
+            return fileUrl;
+
+        } catch (e) {
+            return "Screenshot Error: " + e.message;
+        }
+    },
+    
+    // --- 12. 通用 JS 执行 (增加延迟) ---
+    async executeInActiveWebview(codeStr, args = []) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        try {
+            const script = `(${codeStr})(...${JSON.stringify(args || [])})`;
+            const result = await wv.executeJavaScript(script);
+            
+            // ★ 自定义脚本执行后也等待，防止 Agent 连续高频调用
+            await this._humanDelay();
+
+            if (result === undefined) return "undefined";
+            if (result === null) return "null";
+            if (typeof result === 'object') return JSON.stringify(result);
+            return String(result);
+
+        } catch (e) {
+            return "JS Execution Error: " + e.message;
+        }
     },
 }
