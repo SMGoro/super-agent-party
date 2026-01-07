@@ -6725,6 +6725,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-model="chromeMCPSettings.type"
                           @change="handlechromeMCPTypeChange"
                           class="full-width-input"
+                          :disabled="chromeMCPSettings.enabled"
                         >
                           <el-option :label="t('internalBrowser')" value="internal" ></el-option>
                           <el-option :label="t('externalBrowser')" value="external" ></el-option>

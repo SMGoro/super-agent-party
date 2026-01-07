@@ -631,6 +631,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
     )
     from py.autoBehavior import auto_behavior
     from py.cli_tool import claude_code_async,qwen_code_async
+    from py.cdp_tool import (
+        list_page
+    )
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
         "searxng_async": searxng_async,
@@ -664,7 +667,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "search_arxiv_papers": search_arxiv_papers,
         "auto_behavior": auto_behavior,
         "claude_code_async": claude_code_async,
-        "qwen_code_async": qwen_code_async
+        "qwen_code_async": qwen_code_async,
+        "list_page": list_page
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
@@ -700,7 +704,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
                 return str(result.model_dump())
             else:
                 return str(result)
-    if settings["chromeMCPSettings"]["enabled"]:
+    if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='external':
         Chrome_tool_list = ChromeMCP_client._tools
         if tool_name in Chrome_tool_list:
             result = await ChromeMCP_client.call_tool(tool_name, tool_params)
@@ -1292,6 +1296,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
     ) 
     from py.autoBehavior import auto_behavior_tool
     from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cdp_tool import all_cdp_tools
     m0 = None
     memoryId = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -1362,10 +1367,12 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
             ha_tool = await HA_client.get_openai_functions(disable_tools=[])
             if ha_tool:
                 tools.extend(ha_tool)
-        if settings['chromeMCPSettings']['enabled']:
+        if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='external':
             chromeMCP_tool = await ChromeMCP_client.get_openai_functions(disable_tools=[])
             if chromeMCP_tool:
                 tools.extend(chromeMCP_tool)
+        if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='internal':
+            tools.extend(all_cdp_tools)
         if settings['sqlSettings']['enabled']:
             sql_tool = await sql_client.get_openai_functions(disable_tools=[])
             if sql_tool:
@@ -3002,6 +3009,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
     ) 
     from py.autoBehavior import auto_behavior_tool
     from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
         memoryId = settings["memorySettings"]["selectedMemory"]
@@ -3075,10 +3083,12 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         ha_tool = await HA_client.get_openai_functions(disable_tools=[])
         if ha_tool:
             tools.extend(ha_tool)
-    if settings['chromeMCPSettings']['enabled']:
+    if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='external':
         chromeMCP_tool = await ChromeMCP_client.get_openai_functions(disable_tools=[])
         if chromeMCP_tool:
             tools.extend(chromeMCP_tool)
+    if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='internal':
+        tools.extend(all_cdp_tools)
     if settings['sqlSettings']['enabled']:
         sql_tool = await sql_client.get_openai_functions(disable_tools=[])
         if sql_tool:
