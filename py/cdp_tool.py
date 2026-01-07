@@ -429,7 +429,7 @@ all_cdp_tools = [
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "The text to wait for."},
-                    "timeout": {"type": "integer", "description": "Timeout in milliseconds (default 1000).","minimum": 0,"default": 1000,"maximum": 5000}
+                    "timeout": {"type": "integer", "description": "Timeout in milliseconds (default 1000).","minimum": 100,"default": 1000,"maximum": 10000}
                 },
                 "required": ["text"]
             }
