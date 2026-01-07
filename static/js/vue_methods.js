@@ -11801,6 +11801,13 @@ async togglePlugin(plugin) {
         this.navigateTo(val);
     },
 
+    getTabIdByIndex(index) {
+        if (index >= 0 && index < this.browserTabs.length) {
+            return this.browserTabs[index].id;
+        }
+        return null;
+    },
+
     // 欢迎页搜索回车
     handleWelcomeSearch() {
         const query = this.welcomeSearchQuery.trim();
@@ -12206,6 +12213,436 @@ async togglePlugin(plugin) {
             // 但如果 Electron 开了端口，通常意味着配置里 enabled 是 true
             // 我们更新配置文件，确保端口是最新的
             await this.autoSaveSettings();
+        }
+    },
+    // ===============================================
+    // Python Agent 专用接口 (Electron API 桥接)
+    // ===============================================
+
+    // --- 基础信息与导航 ---
+
+    getPagesInfo() {
+        const info = this.browserTabs.map((tab, index) => ({
+            index: index,
+            id: tab.id,
+            title: tab.title || 'Loading...',
+            url: tab.url || '',
+            active: tab.id === this.currentTabId
+        }));
+        return JSON.stringify(info);
+    },
+
+    closeTabByIndex(index) {
+        const tabId = this.getTabIdByIndex(index);
+        if (tabId) {
+            this.closeTab(tabId);
+            return "Closed tab index " + index;
+        }
+        return "Error: Tab index " + index + " not found";
+    },
+
+    switchTabByIndex(index) {
+        const tabId = this.getTabIdByIndex(index);
+        if (tabId) {
+            this.switchTab(tabId);
+            return "Selected tab index " + index;
+        }
+        return "Error: Tab index " + index + " not found";
+    },
+
+    browserNavigate(type, url, ignoreCache) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        try {
+            switch (type) {
+                case 'url':
+                    if (!url) return "Error: URL is required";
+                    this.navigateTo(url);
+                    return "Navigating to " + url;
+                case 'back':
+                    if (wv.canGoBack()) {
+                        wv.goBack();
+                        return "Navigated Back";
+                    }
+                    return "Error: Cannot go back";
+                case 'forward':
+                    if (wv.canGoForward()) {
+                        wv.goForward();
+                        return "Navigated Forward";
+                    }
+                    return "Error: Cannot go forward";
+                case 'reload':
+                    if (ignoreCache) wv.reloadIgnoringCache();
+                    else wv.reload();
+                    return "Reloaded";
+                default:
+                    // 默认为 URL 导航
+                    if (url) {
+                        this.navigateTo(url);
+                        return "Navigated to " + url;
+                    }
+                    return "Error: Unknown navigation type";
+            }
+        } catch (e) {
+            return "Navigation Exception: " + e.message;
+        }
+    },
+
+    // ===============================================
+    // Python Agent 专用接口 (稳定 JS 注入版)
+    // ===============================================
+
+    // --- 0. 拟人化延迟辅助函数 ---
+    async _humanDelay() {
+        // 随机延迟 100ms 到 1000ms (0.1s - 1s)
+        const delay = Math.floor(Math.random() * 900) + 100;
+        await new Promise(resolve => setTimeout(resolve, delay));
+    },
+
+    // --- 1. 伪装成 A11y 树的快照 (无延迟，读取操作越快越好) ---
+    async getWebviewSnapshot(verbose = false) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        if (wv.isLoading()) return "Error: Page is loading...";
+
+        const script = `
+        (function() {
+            try {
+                if (!window._ai_uid_counter) window._ai_uid_counter = 1;
+                const interactiveSelector = 'a, button, input, textarea, select, details, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [onclick]';
+                
+                function isVisible(el) {
+                    const style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetWidth > 0;
+                }
+
+                function getSafeText(el) {
+                    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value || el.getAttribute('placeholder') || '';
+                    if (el.tagName === 'SELECT') return el.options[el.selectedIndex]?.text || '';
+                    return el.innerText ? el.innerText.slice(0, 50).replace(/[\\r\\n]+/g, ' ').trim() : '';
+                }
+
+                function getRole(el) {
+                    if (el.getAttribute('role')) return el.getAttribute('role');
+                    return el.tagName.toLowerCase();
+                }
+
+                const elements = document.querySelectorAll(interactiveSelector);
+                const lines = [];
+
+                elements.forEach(el => {
+                    if (!isVisible(el)) return;
+                    let uid = el.getAttribute('data-ai-id');
+                    if (!uid) {
+                        uid = 'ai-' + window._ai_uid_counter++;
+                        el.setAttribute('data-ai-id', uid);
+                    }
+                    const role = getRole(el);
+                    const name = getSafeText(el);
+                    const value = (el.value && el.value !== name) ? el.value : '';
+                    
+                    let line = \`[\${uid}] \${role}\`;
+                    if (name) line += \` "\${name}"\`;
+                    if (value) line += \` Value: "\${value}"\`;
+
+                    lines.push(line);
+                });
+
+                if (lines.length === 0) return "Page empty or no interactive elements found.";
+                return lines.join('\\n');
+            } catch (e) {
+                return "Snapshot Script Error: " + e.message;
+            }
+        })()
+        `;
+        
+        try {
+            return await wv.executeJavaScript(script);
+        } catch (e) {
+            return "Vue Snapshot Error: " + e.message;
+        }
+    },
+
+    // --- 2. 点击 (增加延迟) ---
+    async webviewClick(uid, dblClick = false) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found: ${uid}";
+            
+            el.scrollIntoView({behavior: "smooth", block: "center", inline: "center"}); // 改为 smooth 更像人
+            
+            const opts = { bubbles: true, cancelable: true, view: window, buttons: 1 };
+            el.dispatchEvent(new MouseEvent('mouseover', opts));
+            el.dispatchEvent(new MouseEvent('mousedown', opts));
+            el.dispatchEvent(new MouseEvent('mouseup', opts));
+            el.dispatchEvent(new MouseEvent('click', opts));
+            
+            if (${dblClick}) {
+                el.dispatchEvent(new MouseEvent('dblclick', opts));
+            }
+            return "Clicked " + "${uid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 操作后等待
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 3. 输入 (增加延迟) ---
+    async webviewFill(uid, value) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found: ${uid}";
+            
+            el.focus();
+            
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+            if (nativeInputValueSetter && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                nativeInputValueSetter.call(el, ${JSON.stringify(value)});
+            } else {
+                el.value = ${JSON.stringify(value)};
+            }
+
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+            el.blur();
+
+            return "Filled " + "${uid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 操作后等待
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 4. 批量填表 (增加延迟) ---
+    async webviewFillForm(elements) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const dataStr = JSON.stringify(elements); 
+
+        const script = `
+        (function() {
+            const items = ${dataStr};
+            const log = [];
+            items.forEach(item => {
+                const el = document.querySelector('[data-ai-id="' + item.uid + '"]');
+                if (el) {
+                    el.focus();
+                    el.value = item.value;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    log.push(item.uid);
+                }
+            });
+            return "Filled elements: " + log.join(', ');
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 批量操作后等待
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 5. 拖拽 (增加延迟) ---
+    async webviewDrag(fromUid, toUid) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const src = document.querySelector('[data-ai-id="${fromUid}"]');
+            const tgt = document.querySelector('[data-ai-id="${toUid}"]');
+            if (!src || !tgt) return "Elements not found";
+
+            const srcRect = src.getBoundingClientRect();
+            const tgtRect = tgt.getBoundingClientRect();
+            const clientX = srcRect.left + srcRect.width / 2;
+            const clientY = srcRect.top + srcRect.height / 2;
+            const targetX = tgtRect.left + tgtRect.width / 2;
+            const targetY = tgtRect.top + tgtRect.height / 2;
+
+            const emit = (type, x, y) => {
+                const ev = new MouseEvent(type, { 
+                    bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 
+                });
+                (type === 'mouseup' ? tgt : src).dispatchEvent(ev);
+            };
+
+            emit('mousedown', clientX, clientY);
+            emit('mousemove', clientX + 5, clientY + 5); 
+            emit('mousemove', targetX, targetY);         
+            emit('mouseup', targetX, targetY);           
+
+            return "Dragged " + "${fromUid}" + " to " + "${toUid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 拖拽动作幅度大，等待时间可以稍微长一点（这里复用随机等待）
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 6. 悬停 (增加延迟) ---
+    async webviewHover(uid) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            const el = document.querySelector('[data-ai-id="${uid}"]');
+            if (!el) return "Element not found";
+            el.scrollIntoView({block: "center"});
+            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            return "Hovered " + "${uid}";
+        })()
+        `;
+        
+        const result = await wv.executeJavaScript(script);
+        
+        // ★ 悬停通常是为了看东西，稍微等一下合理
+        await this._humanDelay();
+        
+        return result;
+    },
+
+    // --- 7. 文件上传 (上传本身耗时，不再额外增加人为延迟，或者加一点也行) ---
+    async webviewUploadFile(uid, filePath) {
+        // ... (保持之前的错误提示或 IPC 逻辑) ...
+        // 如果这里能成功上传，建议也加一个 await this._humanDelay();
+        return "Error: File upload requires IPC/CDP setup.";
+    },
+
+    // --- 8. 处理弹窗 (无延迟) ---
+    async webviewHandleDialog(action, promptText) {
+        // ... (代码保持不变，弹窗处理通常是瞬时的) ...
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            window.__ai_dialog_action = "${action}"; 
+            window.__ai_dialog_text = ${JSON.stringify(promptText || "")};
+            window.alert = function() { return true; };
+            window.confirm = function() { return window.__ai_dialog_action === 'accept'; };
+            window.prompt = function() { return window.__ai_dialog_action === 'accept' ? window.__ai_dialog_text : null; };
+            return "Dialog handlers patched";
+        })()
+        `;
+        return await wv.executeJavaScript(script);
+    },
+
+    // --- 9. 按键 (增加延迟) ---
+    async webviewPressKey(keyCombo) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        
+        try {
+            const parts = keyCombo.split('+').map(k => k.trim());
+            const key = parts.pop();
+            const modifiers = parts.map(m => m.toLowerCase());
+            
+            wv.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+            if (key.length === 1) wv.sendInputEvent({ type: 'char', keyCode: key, modifiers });
+            wv.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+            
+            // ★ 按键后等待
+            await this._humanDelay();
+            
+            return "Pressed " + keyCombo;
+        } catch (e) {
+            return "PressKey Error: " + e.message;
+        }
+    },
+
+    // --- 10. 等待文本 (无延迟，这是轮询操作) ---
+    async webviewWaitFor(text, timeout) {
+        // ... (代码保持不变) ...
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        const script = `
+        (function() {
+            return new Promise((resolve) => {
+                const start = Date.now();
+                const check = () => {
+                    if (document.body.innerText.includes(${JSON.stringify(text)})) {
+                        resolve("Found: " + ${JSON.stringify(text)});
+                    } else if (Date.now() - start > ${timeout}) {
+                        resolve("Timeout waiting for text");
+                    } else {
+                        setTimeout(check, 500);
+                    }
+                };
+                check();
+            });
+        })()
+        `;
+        return await wv.executeJavaScript(script);
+    },
+
+    // --- 11. 截图 (无延迟) ---
+    async captureWebviewScreenshot(fullPage = false, uid = null) {
+        // ... (代码保持不变) ...
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+        try {
+            if (uid) {
+                await this.webviewClick(uid); // 注意：这里调用了带延迟的 click，可能会慢一点，如果不想慢，可以去掉
+            }
+            const image = await wv.capturePage();
+            return image.toDataURL();
+        } catch (e) {
+            return "Screenshot Error: " + e.message;
+        }
+    },
+    
+    // --- 12. 通用 JS 执行 (增加延迟) ---
+    async executeInActiveWebview(codeStr, args = []) {
+        const wv = this.getWebview();
+        if (!wv) return "Error: No active webview";
+
+        try {
+            const script = `(${codeStr})(...${JSON.stringify(args || [])})`;
+            const result = await wv.executeJavaScript(script);
+            
+            // ★ 自定义脚本执行后也等待，防止 Agent 连续高频调用
+            await this._humanDelay();
+
+            if (result === undefined) return "undefined";
+            if (result === null) return "null";
+            if (typeof result === 'object') return JSON.stringify(result);
+            return String(result);
+
+        } catch (e) {
+            return "JS Execution Error: " + e.message;
         }
     },
 }

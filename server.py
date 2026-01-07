@@ -632,7 +632,19 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
     from py.autoBehavior import auto_behavior
     from py.cli_tool import claude_code_async,qwen_code_async
     from py.cdp_tool import (
-        list_page
+        list_pages,
+        navigate_page,
+        new_page,
+        close_page,
+        select_page,
+        take_snapshot,
+        wait_for,
+        click,
+        fill,
+        hover,
+        press_key,
+        evaluate_script,
+        take_screenshot,
     )
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
@@ -668,7 +680,19 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "auto_behavior": auto_behavior,
         "claude_code_async": claude_code_async,
         "qwen_code_async": qwen_code_async,
-        "list_page": list_page
+        "list_pages": list_pages,
+        "new_page": new_page,
+        "close_page": close_page,
+        "select_page": select_page,
+        "navigate_page": navigate_page,
+        "take_snapshot": take_snapshot,
+        "click": click,
+        "fill": fill,
+        "evaluate_script": evaluate_script,
+        "take_screenshot": take_screenshot,
+        "hover": hover,
+        "press_key": press_key,
+        "wait_for": wait_for,
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
