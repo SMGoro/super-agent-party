@@ -12245,6 +12245,7 @@ async togglePlugin(plugin) {
         const tabId = this.getTabIdByIndex(index);
         if (tabId) {
             this.switchTab(tabId);
+            this.activeMenu = 'ai-browser';
             return "Selected tab index " + index;
         }
         return "Error: Tab index " + index + " not found";
@@ -12255,6 +12256,7 @@ async togglePlugin(plugin) {
         if (!wv) return "Error: No active webview";
 
         try {
+            this.activeMenu = 'ai-browser'; // 切换到 AI Browser 菜单
             switch (type) {
                 case 'url':
                     if (!url) return "Error: URL is required";
