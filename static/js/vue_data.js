@@ -1175,7 +1175,7 @@ let vue_data = {
       { id: 'interpreter', title: 'interpreter', icon: 'fa-solid fa-code'},
       { id: 'CLI', title: 'CLItool', icon: 'fa-solid fa-terminal'},
       { id: 'HA', title: 'homeAssistant', icon: 'fa-solid fa-house'},
-      { id: 'chromeMCP', title: 'browserControl', icon: 'fa-brands fa-chrome' },
+      { id: 'chromeMCP', title: 'browserControl', icon: 'fa-solid fa-compass' },
       { id: 'sql', title: 'sqlControl', icon: 'fa-solid fa-database' },
       { id: 'comfyui', title: 'ComfyUI', icon: 'fa-solid fa-palette'},
       { id: 'mcp', title: 'mcpServers', icon: 'fa-solid fa-server'},
