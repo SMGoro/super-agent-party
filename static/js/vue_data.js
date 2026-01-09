@@ -346,7 +346,7 @@ let vue_data = {
     },
     chromeMCPSettings: {
       enabled: false,
-      type:"external", // external or internal
+      type:"internal", // external or internal
       CDPport:9222
     },
     sqlSettings:{

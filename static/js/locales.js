@@ -1229,7 +1229,8 @@ key3`,
         'addFavorite': '添加收藏',
         'addFavoritesToSeeThemHere': '添加收藏以在此处查看它们',
         'remove':'删除',
-        'notEnabledInternalBrowserBontrol':'未在工具界面开启内置浏览器控制'
+        'notEnabledInternalBrowserBontrol':'未在工具界面开启内置浏览器控制',
+        'searchOrUrl': '搜索或网址',
     },
     'en-US': {
         'chat': 'Chat',
@@ -2458,6 +2459,7 @@ Key3`,
         'addFavorite': 'Add Favorite',
         'addFavoritesToSeeThemHere': 'Add Favorites to See Them Here',
         'remove':'Remove',
-        'notEnabledInternalBrowserBontrol':'Not enabled internal browser control in the tool interface'
+        'notEnabledInternalBrowserBontrol':'Not enabled internal browser control in the tool interface',
+        'searchOrUrl': 'Search or URL',
     },
   };

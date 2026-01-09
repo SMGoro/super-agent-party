@@ -11800,8 +11800,16 @@ async togglePlugin(plugin) {
                 // 否则当做搜索
                 if (this.searchEngine === 'google') {
                     val = `https://www.google.com/search?q=${encodeURIComponent(val)}`;
-                } else {
+                } else if (this.searchEngine === 'bing') {
                     val = `https://www.bing.com/search?q=${encodeURIComponent(val)}`;
+                } else {
+                    if (this.chromeMCPSettings.enabled == false || this.chromeMCPSettings.type != 'internal') {
+                        showNotification(this.t('notEnabledInternalBrowserBontrol'), 'error')
+                    }
+                    this.showBrowserChat = true;
+                    this.userInput = val;
+                    this.sendMessage();
+                    return;
                 }
             }
         }
@@ -12771,16 +12779,29 @@ async togglePlugin(plugin) {
     async webviewWaitFor(text, timeout) {
         const wv = this.getWebview();
         if (!wv) return "Error: No active webview";
+        
         const script = `
         (function() {
             return new Promise((resolve) => {
                 const start = Date.now();
                 const check = () => {
+                    // 1. 优先检查文本是否存在
                     if (document.body.innerText.includes(${JSON.stringify(text)})) {
                         resolve("Found: " + ${JSON.stringify(text)});
-                    } else if (Date.now() - start > ${timeout}) {
-                        resolve("Timeout waiting for text");
-                    } else {
+                    } 
+                    // 2. 检查是否超时
+                    else if (Date.now() - start > ${timeout}) {
+                        // 3. 关键修改：超时后，检查页面加载状态
+                        if (document.readyState === 'complete') {
+                            // 页面已加载完毕，但文本未找到
+                            resolve("Page loaded");
+                        } else {
+                            // 页面还在加载中，且超时
+                            resolve("Timeout waiting for text");
+                        }
+                    } 
+                    // 4. 继续轮询
+                    else {
                         setTimeout(check, 100);
                     }
                 };

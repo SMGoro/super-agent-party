@@ -329,7 +329,7 @@ if (globalConfig?.chromeMCPSettings?.type === 'internal') {
   app.commandLine.appendSwitch('remote-allow-origins', '*');
   
   IS_INTERNAL_MODE_ACTIVE = true;
-  console.log('[CDP] 已请求系统自动分配调试端口...');
+  console.log('[CDP] 已请求系统自动分配内置浏览器调试端口...');
 }
 
 // 新增：检测端口是否可用
@@ -781,7 +781,7 @@ app.whenReady().then(async () => {
                 
                 if (!isNaN(realPort)) {
                     SESSION_CDP_PORT = realPort;
-                    console.log(`✅ [CDP] 成功获取系统分配端口: ${SESSION_CDP_PORT}`);
+                    console.log(`✅ [CDP] 成功获取系统分配内置浏览器调试端口: ${SESSION_CDP_PORT}`);
                 }
             } else {
                 console.error('❌ [CDP] 未找到 DevToolsActivePort 文件，无法获取端口');

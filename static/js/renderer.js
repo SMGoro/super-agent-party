@@ -1002,6 +1002,53 @@ const app = Vue.createApp({
     },
   },
   computed: {
+    dynamicUserAgent() {
+      // 1. 定义一个较新的 Chrome 版本号 (定期更新这个版本号可以保持最佳兼容性)
+      // 目前 Chrome 124+ 是比较通用的
+      const chromeVersion = '124.0.0.0'; 
+      
+      // 2. 基础模板
+      const baseUA = `Mozilla/5.0 ({os_info}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+      
+      // 3. 获取当前平台
+      // 在 Electron Renderer 中，通常可以通过 global.process 或 navigator 判断
+      let platform = '';
+      
+      // 尝试使用 node 的 process.platform (最准确)
+      if (typeof window.process !== 'undefined' && window.process.platform) {
+        platform = window.process.platform;
+      } else {
+        // 降级方案：分析 navigator.userAgent
+        const navUA = navigator.userAgent.toLowerCase();
+        if (navUA.indexOf('mac') > -1) platform = 'darwin';
+        else if (navUA.indexOf('win') > -1) platform = 'win32';
+        else platform = 'linux';
+      }
+
+      // 4. 根据平台设置对应的 OS 信息
+      let osInfo = '';
+      switch (platform) {
+        case 'darwin': // macOS
+          // 模拟 macOS Intel/M1 通用标识
+          osInfo = 'Macintosh; Intel Mac OS X 10_15_7';
+          break;
+        case 'win32': // Windows
+          // 模拟 Windows 10/11 64位
+          osInfo = 'Windows NT 10.0; Win64; x64';
+          break;
+        case 'linux': // Linux
+          // 模拟标准 Linux x64
+          osInfo = 'X11; Linux x86_64';
+          break;
+        default:
+          // 默认回退到 Windows
+          osInfo = 'Windows NT 10.0; Win64; x64';
+      }
+
+      // 5. 返回替换后的完整字符串
+      return baseUA.replace('{os_info}', osInfo);
+    },
+
     isCurrentTabFavorite() {
         // 如果没有当前标签或当前标签没有URL（比如是新标签页），返回 false
         if (!this.currentTab || !this.currentTab.url) return false;

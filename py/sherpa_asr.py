@@ -35,7 +35,7 @@ def _get_recognizer(model_name: str = DEFAULT_MODEL_NAME):
         model = model_dir / "model.int8.onnx"
         tokens = model_dir / "tokens.txt"
         if not model.is_file() or not tokens.is_file():
-            raise ValueError(f"Sherpa 模型文件未找到，目录={model_dir}")
+            raise ValueError(f"Sherpa 模型文件未找到（如果未下载该模型请无视报错），目录={model_dir}")
 
         _recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
             model=str(model),
