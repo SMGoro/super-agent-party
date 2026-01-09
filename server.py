@@ -2142,7 +2142,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         reasoning_buffer = []
                         
                         yield f"data: {json.dumps(chunk_dict)}\n\n"
-                        full_content += delta.get("content", "")
+                        full_content += delta.get("content") or "" 
                 # 最终flush未完成内容
                 if content_buffer or reasoning_buffer:
                     final_chunk = {
@@ -2469,7 +2469,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     }
                                 ],
                                 "role": "assistant",
-                                "content": str(response_content),
+                                "content": "",
                             }
                         )
                         if (settings['webSearch']['when'] == 'after_thinking' or settings['webSearch']['when'] == 'both') and settings['tools']['asyncTools']['enabled'] is False:
@@ -2764,7 +2764,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 reasoning_buffer = []
                                 
                                 yield f"data: {json.dumps(chunk_dict)}\n\n"
-                                full_content += delta.get("content", "")
+                                full_content += delta.get("content") or "" 
                     # 最终flush未完成内容
                     if content_buffer or reasoning_buffer:
                         final_chunk = {
@@ -3659,7 +3659,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                             }
                         ],
                         "role": "assistant",
-                        "content": str(response_content),
+                        "content": "",
                     }
                 )
                 request.messages.append(

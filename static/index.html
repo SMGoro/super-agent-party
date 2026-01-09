@@ -12996,9 +12996,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </el-button>
                         </el-tooltip>
 
+                        <el-tooltip :content="t('tablePet')" placement="top">
+                          <el-button
+                            @click="startVRM"
+                            class="icon-btn vrm-btn"
+                            :type="'default'"
+                            circle>
+                            <i :class='isVRMStarting? "fa-solid fa-spinner fa-spin" : "fa-solid fa-user-ninja"'></i>
+                          </el-button>
+                        </el-tooltip>
+
                         <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
                           <el-button
-                            v-if="!isCapsuleMode"
                             @click="isSending ? stopGenerate() : sendMessage()"
                             :type="isSending ? 'danger' : 'primary'"
                             class="icon-btn send-btn"

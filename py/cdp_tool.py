@@ -381,7 +381,7 @@ all_cdp_tools = [
                 "type": "object",
                 "properties": {
                     "function": {"type": "string", "description": "JS function body"},
-                    "args": {"type": "array"}
+                    "args": {"type": "array","items": {"type": "string"}}
                 },
                 "required": ["function"]
             }
