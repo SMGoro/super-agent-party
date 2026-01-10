@@ -1772,86 +1772,86 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
             </div>
           </el-dialog>
+        </div>
 
-          <el-dialog
-            v-model="showHistoryDialog"
-            :title="t('chatHistory')"
-            width="600px">
-            <div class="knowledge-dialog-content">
-              <!-- 搜索框与操作按钮行 -->
-              <div class="search-action-row">
-                <el-input
-                  v-model="searchKeyword"
-                  :placeholder="t('searchChatHistoryPlaceholder')"
-                  clearable
-                  class="search-input"
-                  style="flex:1">
-                  <template #prefix>
-                    <el-icon><i class="fa-solid fa-magnifying-glass"></i></el-icon>
-                  </template>
-                </el-input>
+        <el-dialog
+          v-model="showHistoryDialog"
+          :title="t('chatHistory')"
+          width="600px">
+          <div class="knowledge-dialog-content">
+            <!-- 搜索框与操作按钮行 -->
+            <div class="search-action-row">
+              <el-input
+                v-model="searchKeyword"
+                :placeholder="t('searchChatHistoryPlaceholder')"
+                clearable
+                class="search-input"
+                style="flex:1">
+                <template #prefix>
+                  <el-icon><i class="fa-solid fa-magnifying-glass"></i></el-icon>
+                </template>
+              </el-input>
 
-                <div class="action-buttons">
-                  <el-tooltip 
-                    :content="t('keepLastWeek')" 
-                    placement="top"
+              <div class="action-buttons">
+                <el-tooltip 
+                  :content="t('keepLastWeek')" 
+                  placement="top"
+                  :disabled="conversations.length === 0">
+                  <el-button 
+                    type="info"
+                    circle 
+                    size="small"
+                    @click="keepLastWeek"
                     :disabled="conversations.length === 0">
-                    <el-button 
-                      type="info"
-                      circle 
-                      size="small"
-                      @click="keepLastWeek"
-                      :disabled="conversations.length === 0">
-                      <i class="fa-solid fa-calendar-week"></i>
-                    </el-button>
-                  </el-tooltip>
+                    <i class="fa-solid fa-calendar-week"></i>
+                  </el-button>
+                </el-tooltip>
 
-                  <el-tooltip 
-                    :content="t('clearAllHistory')" 
-                    placement="top"
+                <el-tooltip 
+                  :content="t('clearAllHistory')" 
+                  placement="top"
+                  :disabled="conversations.length === 0">
+                  <el-button 
+                    type="danger"
+                    circle 
+                    size="small"
+                    @click="confirmClearAll"
                     :disabled="conversations.length === 0">
-                    <el-button 
-                      type="danger"
-                      circle 
-                      size="small"
-                      @click="confirmClearAll"
-                      :disabled="conversations.length === 0">
-                      <i class="fa-solid fa-trash-can"></i>
-                    </el-button>
-                  </el-tooltip>
-                </div>
-              </div>
-
-              <!-- 对话记录列表 -->
-              <div v-for="conv in filteredConversations" 
-                  :key="conv.id" 
-                  class="knowledge-item"
-                  @click="loadConversation(conv.id)">
-                <el-button 
-                  @click.stop="confirmDeleteConversation(conv.id)"
-                  type="danger" 
-                  circle 
-                  size="small">
-                  <i class="fa-solid fa-trash"></i>
-                </el-button>
-                <div class="knowledge-info">
-                  <h3 class="knowledge-name">{{ conv.title || t('untitled') }}</h3>
-                  <div class="knowledge-desc">
-                    <el-icon class="meta-icon"><i class="fa-solid fa-message"></i></el-icon>
-                    <span>{{ conv.messages?.length || 0 }} {{ t('messages') }}</span><br>
-                    <el-icon class="meta-icon"><i class="fa-solid fa-clock"></i></el-icon>
-                    <span>{{ formatDate(conv.timestamp) }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 空状态提示 -->
-              <div v-if="filteredConversations.length === 0" class="empty-tip">
-                {{ searchKeyword ? t('noResults') : t('noChatHistory') }}
+                    <i class="fa-solid fa-trash-can"></i>
+                  </el-button>
+                </el-tooltip>
               </div>
             </div>
-          </el-dialog>
-        </div>
+
+            <!-- 对话记录列表 -->
+            <div v-for="conv in filteredConversations" 
+                :key="conv.id" 
+                class="knowledge-item"
+                @click="loadConversation(conv.id)">
+              <el-button 
+                @click.stop="confirmDeleteConversation(conv.id)"
+                type="danger" 
+                circle 
+                size="small">
+                <i class="fa-solid fa-trash"></i>
+              </el-button>
+              <div class="knowledge-info">
+                <h3 class="knowledge-name">{{ conv.title || t('untitled') }}</h3>
+                <div class="knowledge-desc">
+                  <el-icon class="meta-icon"><i class="fa-solid fa-message"></i></el-icon>
+                  <span>{{ conv.messages?.length || 0 }} {{ t('messages') }}</span><br>
+                  <el-icon class="meta-icon"><i class="fa-solid fa-clock"></i></el-icon>
+                  <span>{{ formatDate(conv.timestamp) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 空状态提示 -->
+            <div v-if="filteredConversations.length === 0" class="empty-tip">
+              {{ searchKeyword ? t('noResults') : t('noChatHistory') }}
+            </div>
+          </div>
+        </el-dialog>
 
         <div v-show="activeMenu === 'role'" class="page agent-suite-container">
           <div class="suite-layout">
@@ -12982,6 +12982,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                             type="danger"
                             circle>
                             <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </el-tooltip>
+
+                        <el-tooltip :content="t('chatHistory')" placement="top">
+                          <el-button
+                            v-if="!isCapsuleMode"
+                            @click="showHistoryDialog = true"
+                            class="icon-btn history-btn"
+                            :type="conversations.length === 0 ? 'default' : 'primary'"
+                            circle>
+                            <i class="fa-solid fa-clock-rotate-left"></i>
                           </el-button>
                         </el-tooltip>
 
