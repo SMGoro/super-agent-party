@@ -6362,11 +6362,22 @@ async def stop_HA():
 @app.post("/start_ChromeMCP")
 async def start_ChromeMCP(request: Request):
 
-    Chrome_config = {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["@browsermcp/mcp@latest"]
-    }
+    data = await request.json()
+
+    chromeMCPSettings = data['data']
+
+    if chromeMCPSettings.get('mcpName', 'browser-mcp') == 'browser-mcp':
+        Chrome_config = {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["@browsermcp/mcp@latest"]
+        }
+    else:
+        Chrome_config = {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["@playwright/mcp@latest"]
+        }    
 
     global ChromeMCP_client
     if ChromeMCP_client is not None:
