@@ -6748,6 +6748,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                               <i class="fa-solid fa-key"></i>
                             </el-icon>{{ t('downloadNodeJS') }}
                           </el-link>
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            href="https://github.com/heshengtao/browser-for-sap/releases" 
+                            target="_blank"
+                            v-if="chromeMCPSettings.type=='external'"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-key"></i>
+                            </el-icon>{{ t('gotoPartyExtension') }}
+                          </el-link>
                         </span>
                       </div>
                       <el-switch v-model="chromeMCPSettings.enabled" @click.stop @change="changeChromeMCPEnabled"/>
@@ -6790,6 +6801,11 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='internal'">
                         <div class="alert-content">
                           {{ t('browserNotice4') }}
+                        </div>
+                      </el-alert>
+                      <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='external'">
+                        <div class="alert-content">
+                          {{ t('browserNotice6') }}
                         </div>
                       </el-alert>
                     </div>
@@ -9426,7 +9442,7 @@ function updateElement(el, rawMarkdown, formatFn) {
         <!-- logo页面 -->
         <div v-show="activeMenu === 'logo'" class="page logo-container">
           <div class="license-notice">
-            <h1>Super Agent Party v0.3.5</h1>
+            <h1>Super Agent Party v0.3.6</h1>
             <h3>开源协议声明 / Open Source License</h3>
             <div class="notice-section">
               <p>❗ 注意！本项目是基于AGPL协议开源的，请遵守AGPL协议，以避免不必要的法律问题！</p>
