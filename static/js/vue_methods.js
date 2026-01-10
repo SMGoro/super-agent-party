@@ -2146,6 +2146,7 @@ let vue_methods = {
       this.abortController = null;
     },
     async autoSaveSettings() {
+      await window.electronAPI.saveChromeSettings(JSON.parse(JSON.stringify(this.chromeMCPSettings)));
       return new Promise((resolve, reject) => {
         // 构造 payload（保持原有逻辑）
         const payload = {
@@ -7598,7 +7599,6 @@ handleCreateDiscordSeparator(val) {
 
     if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'internal') {
         if (!window.electronAPI) return;
-        await window.electronAPI.saveChromeSettings(JSON.parse(JSON.stringify(this.chromeMCPSettings)));
         await this.autoSaveSettings();
         // 获取主进程实际状态
         const cdpInfo = await window.electronAPI.getInternalCDPInfo();
