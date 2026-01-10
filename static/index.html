@@ -955,7 +955,7 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                 <el-tooltip :content="t('extension')" placement="top">
                   <el-button
-                    v-if="!isCapsuleMode&&!isAssistantMode"
+                    v-if="!isMobile"
                     @click="openExtensionsDialog"
                     class="icon-btn history-btn"
                     :type="!sidePanelURL ? 'default' : 'primary'"
@@ -1046,8 +1046,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
                     class="icon-btn vision-btn"
                     :type="visionSettings.desktopVision ? 'primary' : 'default'"
-                    :disabled="!isElectron"
-                    v-if="MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode"
+                    v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode)"
                     circle>
                     <i class="fa-solid fa-eye"></i>
                   </el-button>
@@ -1058,7 +1057,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     @click="toggleScreenshot(true)"
                     class="icon-btn vision-btn"
                     type="default"
-                    v-if="MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode"
+                    v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode)"
                     circle>
                     <i class="fa-solid fa-scissors"></i>
                   </el-button>
@@ -6732,7 +6731,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                             :underline="false"
                             href="https://browsermcp.io/install" 
                             target="_blank"
-                            v-if="chromeMCPSettings.type=='external'"
+                            v-if="chromeMCPSettings.type=='external' && chromeMCPSettings.mcpName=='browser-mcp'"
                           >
                             <el-icon class="mr-1">
                               <i class="fa-solid fa-key"></i>
@@ -6765,7 +6764,23 @@ function updateElement(el, rawMarkdown, formatFn) {
                           <el-option :label="t('externalBrowser')" value="external" ></el-option>
                         </el-select>
                       </el-form-item>
-                      <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='external'">
+                      <el-form-item :label="t('mcpName')"  v-if="chromeMCPSettings.type=='external'">
+                        <el-select
+                          v-model="chromeMCPSettings.mcpName"
+                          @change="autoSaveSettings"
+                          class="full-width-input"
+                          :disabled="chromeMCPSettings.enabled"
+                        >
+                          <el-option :label="t('browser-mcp')" value="browser-mcp" ></el-option>
+                          <el-option :label="t('playwright-mcp')" value="playwright-mcp" ></el-option>
+                        </el-select>
+                      </el-form-item>
+                      <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='external' && chromeMCPSettings.mcpName=='playwright-mcp'">
+                        <div class="alert-content">
+                          {{ t('browserNotice5') }}
+                        </div>
+                      </el-alert>
+                      <el-alert type="info" :closable="false" class="mb-2" v-if="chromeMCPSettings.type=='external' && chromeMCPSettings.mcpName=='browser-mcp'">
                         <div class="alert-content">
                           {{ t('browserNotice1') }}<br>
                           {{ t('browserNotice2') }}<br>

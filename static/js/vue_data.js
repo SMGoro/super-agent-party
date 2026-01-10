@@ -346,6 +346,7 @@ let vue_data = {
     },
     chromeMCPSettings: {
       enabled: false,
+      mcpName: 'browser-mcp', // browser-mcp or playwright-mcp
       type:"internal", // external or internal
       CDPport:9222
     },

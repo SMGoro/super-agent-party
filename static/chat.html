@@ -769,6 +769,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-button
                     @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
                     class="icon-btn vision-btn"
+                    :disabled="!isElectron"
                     :type="visionSettings.desktopVision ? 'primary' : 'default'"
                     v-if="MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode"
                     circle>
@@ -779,6 +780,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 <el-tooltip :content="t('screenshot')" placement="top">
                   <el-button
                     @click="toggleScreenshot"
+                    :disabled="!isElectron"
                     class="icon-btn vision-btn"
                     type="default"
                     v-if="MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode"
