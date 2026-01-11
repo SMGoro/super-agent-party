@@ -2146,7 +2146,9 @@ let vue_methods = {
       this.abortController = null;
     },
     async autoSaveSettings() {
-      await window.electronAPI.saveChromeSettings(JSON.parse(JSON.stringify(this.chromeMCPSettings)));
+      if (this.isElectron) {
+        await window.electronAPI.saveChromeSettings(JSON.parse(JSON.stringify(this.chromeMCPSettings)));
+      }
       return new Promise((resolve, reject) => {
         // 构造 payload（保持原有逻辑）
         const payload = {
