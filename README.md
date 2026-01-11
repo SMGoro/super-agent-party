@@ -62,6 +62,9 @@
 ### Developer-Friendly: Provides open OpenAI API and MCP interfaces, allowing the agent to be exposed externally.
 ![image](doc/image/8.jpeg)
 
+### AI Browser: Empower Your AI Agents with Their Own Browser, Supporting Automatic Control
+![image](doc/image/9.jpeg)
+
 ## Quick Start
 
 ### 中国用户下载请点击 **中国用户点击下载** 的链接！
