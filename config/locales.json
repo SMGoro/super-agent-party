@@ -19,7 +19,11 @@
         "need_more_search":"需要更多搜索",
         "asyncToolsSetUP" : "异步工具已启动，ID为",
         "sendArg":"发送参数：",
-        "NoModelProvidersConfigured": "没有配置模型服务商"
+        "NoModelProvidersConfigured": "没有配置模型服务商",
+        "LockWindow": "锁定窗口（穿透模式）",
+        "UnlockWindow": "解锁窗口（正常模式）",
+        "AutoHideEnabled": "鼠标悬停自动隐藏已启用",
+        "AutoHideDescription": "锁定后鼠标移到模型上会自动隐藏，避免遮挡"
     },
     "en-US":{
         "web_search":"Searching the Internet, please wait...",
@@ -41,6 +45,10 @@
         "need_more_search":"Need more search",
         "asyncToolsSetUP" : "The asynchronous tool has started, with the ID",
         "sendArg":"Send parameters:",
-        "NoModelProvidersConfigured": "No model providers configured"
+        "NoModelProvidersConfigured": "No model providers configured",
+        "LockWindow": "Lock Window (Click-Through Mode)",
+        "UnlockWindow": "Unlock Window (Normal Mode)",
+        "AutoHideEnabled": "Auto-hide on hover enabled",
+        "AutoHideDescription": "Model will auto-hide when mouse hovers over it to avoid blocking"
     }
 }
