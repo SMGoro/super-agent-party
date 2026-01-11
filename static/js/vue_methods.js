@@ -7599,7 +7599,7 @@ handleCreateDiscordSeparator(val) {
   },
   async changeChromeMCPEnabled(){
 
-    if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'internal') {
+    if (this.chromeMCPSettings.enabled && this.chromeMCPSettings.type === 'internal' && this.isElectron) {
         if (!window.electronAPI) return;
         await this.autoSaveSettings();
         // 获取主进程实际状态

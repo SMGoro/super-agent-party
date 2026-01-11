@@ -175,7 +175,7 @@
     "chromeMCPSettings": {
       "enabled": false,
       "mcpName": "browser-mcp",
-      "type":"internal",
+      "type":"external",
       "CDPport":9222
     },
     "sqlSettings":{
