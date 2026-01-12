@@ -1216,6 +1216,9 @@ let vue_methods = {
             max_rounds: data.data.max_rounds || 0,
             selectedProvider: data.data.selectedProvider || '',
             top_p: data.data.top_p || 1,
+            reasoning_effort: data.data.reasoning_effort || null,
+            enableOmniTTS: data.data.enableOmniTTS || false,
+            omniVoice: data.data.omniVoice || 'Cherry',
             extra_params: data.data.extra_params || [],
           };
           this.isBtnCollapse = data.data.isBtnCollapse || false;

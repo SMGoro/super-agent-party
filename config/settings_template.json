@@ -12,6 +12,8 @@
     "selectedProvider": null,
     "top_p": 1,
     "reasoning_effort": null,
+    "enableOmniTTS": false,
+    "omniVoice": "Cherry",
     "extra_params":[],
     "systemSettings": {
       "language": "auto",

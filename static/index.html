@@ -4411,6 +4411,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </el-option>
                         </el-select>
                       </el-form-item>
+                      <el-form-item :label="t('enableOmniTTS')" class="form-item-align" label-position="left">
+                        <el-switch 
+                          v-model="settings.enableOmniTTS" 
+                          @change="autoSaveSettings"
+                        ></el-switch>
+                      </el-form-item>
+                      <el-form-item v-if="settings.enableOmniTTS" :label="t('omniVoice')" class="form-item-align" label-position="left">
+                        <el-input
+                          v-model="settings.omniVoice"
+                          :placeholder="t('omniVoicePlaceholder')"
+                        ></el-input>
+                      </el-form-item>
                     </div>
                       <el-alert
                         type="info"
