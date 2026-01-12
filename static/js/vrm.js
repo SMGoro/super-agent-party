@@ -20,7 +20,8 @@ let hoverCheckTimeout = null;            // 防抖定时器
 let mixerTimeScaleBeforeHide = 1;        // 隐藏前的动画速度
 let animationsPausedForHide = false;     // 标记是否因隐藏暂停动画
 const HOVER_CHECK_INTERVAL = 33;         // 检测间隔（毫秒），约30fps
-const FADE_DURATION = 200;               // 渐变动画时长（毫秒）
+const FADE_DURATION = 120;               // 渐变动画时长（毫秒），缩短以降低残留
+let hideTransitionTimer = null;          // 记录隐藏计时器，避免交叉覆盖
 
 // 在隐藏期间暂停/恢复动画播放，避免隐藏时继续消耗资源
 function pauseModelAnimationsForHide() {
@@ -2960,6 +2961,15 @@ function addcontrolPanel() {
                 }
             }, HOVER_CHECK_INTERVAL);
         }
+
+        // 鼠标离开窗口时重置自动隐藏状态
+        function handleMouseLeaveWindow(event) {
+            // 仅在完全离开文档（relatedTarget 为空）时处理
+            if (!event.relatedTarget && isAutoHideEnabled) {
+                isModelHiddenByHover = false;
+                showModelWithTransition();
+            }
+        }
         
         /**
          * 使用渐变效果隐藏模型窗口：淡出 WebGL 画布并让后面的界面可点击
@@ -2971,19 +2981,26 @@ function addcontrolPanel() {
             canvas.style.transition = `opacity ${FADE_DURATION}ms ease`;
             pauseModelAnimationsForHide();
 
+            // 清理未完成的隐藏定时器，避免后置覆盖
+            if (hideTransitionTimer) {
+                clearTimeout(hideTransitionTimer);
+                hideTransitionTimer = null;
+            }
+
             // 开始淡出
             requestAnimationFrame(() => {
                 canvas.style.opacity = '0';
             });
 
             // 淡出完成后关闭交互，允许点击穿透
-            setTimeout(() => {
+            hideTransitionTimer = setTimeout(() => {
                 canvas.style.pointerEvents = 'none';
                 if (currentVrm) currentVrm.scene.visible = false;
                 // 让整个窗口鼠标穿透，转发到底层（仅 Electron 生效）
                 if (isElectron && !isMouseLocked && window.electronAPI?.setIgnoreMouseEvents) {
                     window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
                 }
+                hideTransitionTimer = null;
             }, FADE_DURATION + 10);
         }
 
@@ -2999,6 +3016,12 @@ function addcontrolPanel() {
             canvas.style.opacity = '0'; // 确保从 0 开始
             if (currentVrm) currentVrm.scene.visible = true;
             resumeModelAnimationsAfterHide();
+
+            // 若有待执行的隐藏计时器，先清掉以防后续覆盖
+            if (hideTransitionTimer) {
+                clearTimeout(hideTransitionTimer);
+                hideTransitionTimer = null;
+            }
 
             requestAnimationFrame(() => {
                 canvas.style.opacity = '1';
@@ -3027,6 +3050,7 @@ function addcontrolPanel() {
             
             // 添加鼠标移动事件监听
             document.addEventListener('mousemove', handleModelHoverDetection);
+            document.addEventListener('mouseleave', handleMouseLeaveWindow);
             
             console.log('自动隐藏功能已启用');
         }
@@ -3043,6 +3067,7 @@ function addcontrolPanel() {
             
             // 移除鼠标移动事件监听
             document.removeEventListener('mousemove', handleModelHoverDetection);
+            document.removeEventListener('mouseleave', handleMouseLeaveWindow);
             
             // 清除防抖定时器
             if (hoverCheckTimeout) {
