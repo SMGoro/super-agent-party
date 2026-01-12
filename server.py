@@ -1628,6 +1628,9 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     extra['max_completion_tokens'] = request.max_tokens or settings['max_tokens']
                 else:
                     extra['max_tokens'] = request.max_tokens or settings['max_tokens']
+                if settings.get('enableOmniTTS',False):
+                    extra['modalities'] = ["text", "audio"]
+                    extra['audio'] ={"voice": settings.get('omniVoice',"Cherry"), "format": "wav"}
                 if reasoner_vendor == 'OpenAI':
                     reasoner_extra['max_completion_tokens'] = settings['reasoner']['max_tokens']
                 else:
@@ -2065,6 +2068,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     if not chunk.choices:
                         continue
                     choice = chunk.choices[0]
+                    if hasattr(choice.delta, "audio") and choice.delta.audio:
+                        # 只把 Base64 音频数据留在 delta 里，别动它
+                        yield f"data: {chunk.model_dump_json()}\n\n"
+                        continue
                     if choice.delta.tool_calls:  # function_calling
                         for idx, tool_call in enumerate(choice.delta.tool_calls):
                             tool = choice.delta.tool_calls[idx]
@@ -2688,6 +2695,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             continue
                         if chunk.choices:
                             choice = chunk.choices[0]
+                            if hasattr(choice.delta, "audio") and choice.delta.audio:
+                                # 只把 Base64 音频数据留在 delta 里，别动它
+                                yield f"data: {chunk.model_dump_json()}\n\n"
+                                continue
                             if choice.delta.tool_calls:  # function_calling
                                 for idx, tool_call in enumerate(choice.delta.tool_calls):
                                     tool = choice.delta.tool_calls[idx]

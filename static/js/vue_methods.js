@@ -1855,7 +1855,10 @@ let vue_methods = {
                   console.log(`first token processed in ${this.elapsedTime}ms`);
                   lastMessage.first_token_latency = this.elapsedTime;
                 }
-
+                if (parsed.choices?.[0]?.delta?.audio?.data) {
+                  this.playPCMChunk(parsed.choices[0].delta.audio.data);
+                  // 注意：这里 continue 也行，但音频和文字可以同时来，所以不 continue 直接往下走
+                }
                 // --- ✨ 核心修改：处理 content 并过滤代码块 ---
                 if (parsed.choices?.[0]?.delta?.content) {
                   const contentChunk = parsed.choices[0].delta.content;
@@ -2030,6 +2033,34 @@ let vue_methods = {
         await this.saveConversations();
       }
     },
+
+    playPCMChunk(b64) {
+      /* 1. 懒启动 */
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      /* 2. 解码 → Int16Array → Float32Array */
+      const raw = atob(b64);
+      const pcm16 = new Int16Array(raw.length / 2);
+      for (let i = 0; i < raw.length; i += 2) {
+        pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
+      }
+      const buf = this.audioCtx.createBuffer(1, pcm16.length, 24000);
+      const chan = buf.getChannelData(0);
+      for (let i = 0; i < pcm16.length; i++) chan[i] = pcm16[i] / 0x8000;
+
+      /* 3. 关键：如果当前时间已经落后于排期，就“追”到当前时间，
+            否则老老实实排队 */
+      const now = this.audioCtx.currentTime;
+      if (this.audioStartTime < now) this.audioStartTime = now;
+
+      /* 4. 播放并更新“下一帧”开始时间 */
+      const src = this.audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.audioCtx.destination);
+      src.start(this.audioStartTime);
+      this.audioStartTime += buf.duration;   // ★ 严格串行
+    },
+
     async translateMessage(index) {
       const msg = this.messages[index];
       const originalContent = msg.content;

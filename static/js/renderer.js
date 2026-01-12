@@ -693,6 +693,10 @@ const app = Vue.createApp({
               this.handleUrlEnter();
           });
       }
+      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 24000
+      });
+      this.audioStartTime = this.audioCtx.currentTime;
       const appPath = await window.electronAPI.getAppPath();
       // 拼接路径： App根目录 + static/js/webview-preload.js
       const fullPath = await window.electronAPI.pathJoin(appPath, 'static', 'js', 'webview-preload.js');
