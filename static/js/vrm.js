@@ -17,8 +17,26 @@ const mouse = new THREE.Vector2();
 let isAutoHideEnabled = false;           // 自动隐藏功能开关
 let isModelHiddenByHover = false;        // 模型当前是否因悬停而隐藏
 let hoverCheckTimeout = null;            // 防抖定时器
+let mixerTimeScaleBeforeHide = 1;        // 隐藏前的动画速度
+let animationsPausedForHide = false;     // 标记是否因隐藏暂停动画
 const HOVER_CHECK_INTERVAL = 33;         // 检测间隔（毫秒），约30fps
 const FADE_DURATION = 200;               // 渐变动画时长（毫秒）
+
+// 在隐藏期间暂停/恢复动画播放，避免隐藏时继续消耗资源
+function pauseModelAnimationsForHide() {
+    if (!animationsPausedForHide && currentMixer) {
+        mixerTimeScaleBeforeHide = currentMixer.timeScale ?? 1;
+        currentMixer.timeScale = 0;
+        animationsPausedForHide = true;
+    }
+}
+
+function resumeModelAnimationsAfterHide() {
+    if (animationsPausedForHide && currentMixer) {
+        currentMixer.timeScale = mixerTimeScaleBeforeHide || 1;
+    }
+    animationsPausedForHide = false;
+}
 
 // renderer
 // 检测运行环境
@@ -169,6 +187,7 @@ camera.far = 1000; // 根据场景需要调整（例如 1000 或更大）
 camera.updateProjectionMatrix(); // 必须调用以生效
 // camera controls
 const controls = new OrbitControls( camera, renderer.domElement );
+let controlsEnabledBeforeAutoHide = true;   // 记录自动隐藏前控制器状态
 controls.screenSpacePanning = true;
 controls.target.set( 0.0, 1.0, 0.0 );
 controls.update();
@@ -1865,7 +1884,8 @@ function animate() {
     
     const deltaTime = clock.getDelta();
     updatePointerLockMovement(deltaTime);
-    if (currentVrm) {
+    const shouldSkipModelUpdate = isModelHiddenByHover && isAutoHideEnabled;
+    if (currentVrm && !shouldSkipModelUpdate) {
         if (vmcReceiveEnabled) {
             for (const [vmcName, data] of vmcBoneBuffer) {
                 // 2.1 转官方名
@@ -1913,12 +1933,13 @@ function animate() {
                 if (currentMixer) {
                     currentMixer.update(deltaTime);
                 }
-        }
+            }
     }
     
-
-    sendVMCBones();
-    sendVMCBlends();  // 表情
+        if (!shouldSkipModelUpdate) {
+            sendVMCBones();
+            sendVMCBlends();  // 表情
+        }
     renderer.render(scene, camera);
     
     // 处理窗口大小变化时字幕位置
@@ -2905,7 +2926,7 @@ function addcontrolPanel() {
          * 3. 在 intersects.length > 0 判断处可添加距离过滤，如 intersects[0].distance < 某个值
          */
         function handleModelHoverDetection(event) {
-            if (!currentVrm || !isAutoHideEnabled) return;
+            if (!currentVrm || !isAutoHideEnabled || pointerLocked) return;
             
             // 清除之前的防抖定时器
             if (hoverCheckTimeout) {
@@ -2948,6 +2969,7 @@ function addcontrolPanel() {
 
             const canvas = renderer.domElement;
             canvas.style.transition = `opacity ${FADE_DURATION}ms ease`;
+            pauseModelAnimationsForHide();
 
             // 开始淡出
             requestAnimationFrame(() => {
@@ -2976,6 +2998,7 @@ function addcontrolPanel() {
             canvas.style.pointerEvents = 'auto';
             canvas.style.opacity = '0'; // 确保从 0 开始
             if (currentVrm) currentVrm.scene.visible = true;
+            resumeModelAnimationsAfterHide();
 
             requestAnimationFrame(() => {
                 canvas.style.opacity = '1';
@@ -2999,6 +3022,8 @@ function addcontrolPanel() {
             
             isAutoHideEnabled = true;
             isModelHiddenByHover = false;
+            controlsEnabledBeforeAutoHide = controls.enabled;
+            controls.enabled = false; // 禁止拖动模型以避免与自动隐藏冲突
             
             // 添加鼠标移动事件监听
             document.addEventListener('mousemove', handleModelHoverDetection);
@@ -3014,6 +3039,7 @@ function addcontrolPanel() {
             
             isAutoHideEnabled = false;
             isModelHiddenByHover = false;
+            controls.enabled = controlsEnabledBeforeAutoHide;
             
             // 移除鼠标移动事件监听
             document.removeEventListener('mousemove', handleModelHoverDetection);
@@ -3095,6 +3121,7 @@ function addcontrolPanel() {
         const hideButton = document.createElement('div');
         hideButton.id = 'hide-handle';
         let isAutoHideActive = false; // 自动隐藏功能状态
+        let autoHideDisabledByPointerLock = false; // 记录是否因第一人称暂时关闭
 
         // 初始化自动隐藏按钮
         async function initHideButton() {
@@ -3141,6 +3168,10 @@ function addcontrolPanel() {
 
         // 切换自动隐藏功能
         async function toggleAutoHide() {
+            if (pointerLocked && !isAutoHideActive) {
+                console.warn('Auto hide is disabled in first-person mode');
+                return;
+            }
             isAutoHideActive = !isAutoHideActive;
             
             if (isAutoHideActive) {
@@ -3211,12 +3242,24 @@ function addcontrolPanel() {
                 pointerLockControls.lock();              // 锁定鼠标
                 enablePointerLockMovement();
                 pointerLocked = true;
+                if (isAutoHideActive) {
+                    disableAutoHide();
+                    isAutoHideActive = false;
+                    autoHideDisabledByPointerLock = true;
+                    updateHideButtonState();
+                }
                 switchCtrlBtn.style.color = '#ffc73bff';
             } else {
                 // 回到 OrbitControls
                 pointerLockControls.unlock();
                 disablePointerLockMovement(); 
                 pointerLocked = false;
+                if (autoHideDisabledByPointerLock) {
+                    enableAutoHide();
+                    isAutoHideActive = true;
+                    autoHideDisabledByPointerLock = false;
+                    updateHideButtonState();
+                }
                 switchCtrlBtn.style.color = '#333';
                 if (orbitControlsSaved) {
                     orbitControlsSaved.enabled = true;
@@ -3684,6 +3727,16 @@ async function switchToModel(index,isRefresh = false) {
     userModelURL.host = window.location.host;
     selectedModel.path = userModelURL.href;
     console.log(`Switching to model: ${selectedModel.name} (${selectedModel.id}) - Index: ${currentModelIndex}`);
+    // 切换模型前确保画布和交互恢复为可见状态
+    isModelHiddenByHover = false;
+    resumeModelAnimationsAfterHide();
+    if (renderer?.domElement) {
+        const canvas = renderer.domElement;
+        canvas.style.opacity = '1';
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.transition = '';
+        if (currentVrm) currentVrm.scene.visible = true;
+    }
     
     try {
         // 显示加载提示（可选）
