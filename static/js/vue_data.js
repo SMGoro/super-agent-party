@@ -93,6 +93,7 @@ let vue_data = {
     hasUpdate: false,
     updateSuccess: false,
     audioCtx: null,          // WebAudio 上下文
+    activeSources: [], 
     audioStartTime: 0,       // 下一帧应该开始的时间
     omniQueue: [],        // [{idx, text, expressions, voice, pcmBase64}, ...]
     omniIdx: 0,           // 当前正在播的索引

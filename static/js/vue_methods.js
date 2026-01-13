@@ -1517,6 +1517,7 @@ let vue_methods = {
           this.currentAudio.pause();
           this.currentAudio = null;
           this.stopGenerate();
+          this.stopAllAudioPlayback();
         }
         this.TTSrunning = false;
       }
@@ -2114,6 +2115,10 @@ let vue_methods = {
         const src = this.audioCtx.createBufferSource();
         src.buffer = buf;
 
+        // 【关键修复 1】将当前节点加入全局管理数组，以便 stopAllAudioPlayback 可以强制停止它
+        if (!this.activeSources) this.activeSources = [];
+        this.activeSources.push(src);
+
         // 6. VRM 同步：将音频和文字通过 WebSocket 发送给 VRM 模型
         if (this.vrmOnline) {
           this.sendTTSStatusToVRM('omniStreaming', {
@@ -2127,36 +2132,43 @@ let vue_methods = {
         // 7. 音量控制节点
         const gainNode = this.audioCtx.createGain();
         // 关键逻辑：如果 VRM 在线，本地主界面静音（或极小声），由 VRM 界面发声
-        // 这样可以避免两个网页声音重叠，且保证本地进度条依赖的 clock 正常运行
         gainNode.gain.value = this.vrmOnline ? 0.000001 : 1.0;
 
         src.connect(gainNode);
         gainNode.connect(this.audioCtx.destination);
 
         // 8. 绑定进度更新与结束回调
-        if (message && message.isOmni) {
-          const chunkDuration = buf.duration;
-          
-          src.onended = () => {
-            // 只有在消息仍处于播放状态时才更新进度条（防止手动停止后进度还在跳）
-            if (message.isPlaying) {
-              message.omniCurrentTime += chunkDuration;
+        const chunkDuration = buf.duration;
 
-              // 播放结束判定：如果当前进度接近总时长
-              if (message.omniCurrentTime >= (message.omniDuration || 0) - 0.05) {
-                message.isPlaying = false;
-                message.omniCurrentTime = message.omniDuration; // 进度条吸附到终点
-                
-                // 通知 VRM 播放彻底结束，重置表情
-                this.sendTTSStatusToVRM('allChunksCompleted', {});
-                console.log('Playback finished for message:', message.id);
-              }
+        src.onended = () => {
+          // 【关键修复 2】播放结束（或被强制 stop）后，从数组中移除该节点，防止内存泄漏
+          if (this.activeSources) {
+            this.activeSources = this.activeSources.filter(s => s !== src);
+          }
+
+          // 只有在消息仍处于播放状态时才更新进度条（防止手动停止后进度还在跳）
+          if (message && message.isOmni && message.isPlaying) {
+            message.omniCurrentTime += chunkDuration;
+
+            // 播放结束判定：如果当前进度接近总时长
+            if (message.omniCurrentTime >= (message.omniDuration || 0) - 0.05) {
+              message.isPlaying = false;
+              message.omniCurrentTime = message.omniDuration; // 进度条吸附到终点
+              
+              // 通知 VRM 播放彻底结束，重置表情
+              this.sendTTSStatusToVRM('allChunksCompleted', {});
+              console.log('Playback finished for message:', message.id);
             }
-            // 显式断开节点，帮助垃圾回收
+          }
+          
+          // 显式断开节点，帮助垃圾回收
+          try {
             src.disconnect();
             gainNode.disconnect();
-          };
-        }
+          } catch (e) {
+            // 忽略断开连接时的潜在错误
+          }
+        };
 
         // 9. 启动播放并更新下一段的起始时间
         src.start(this.audioStartTime);
@@ -2285,6 +2297,21 @@ let vue_methods = {
       this.isSending = false;
       this.isTyping = false;
       this.abortController = null;
+      if(this.settings.enableOmniTTS){
+        if (this.activeSources && this.activeSources.length > 0) {
+          this.activeSources.forEach(src => {
+            try {
+              src.stop(); // 立即停止播放
+            } catch (e) {
+              // 忽略已经停止或未开始的错误
+            }
+          });
+          // 清空数组
+          this.activeSources = [];
+        }
+        this.audioStartTime = 0; 
+        this.stopAllAudioPlayback();
+      }
     },
     async autoSaveSettings() {
       if (this.isElectron) {
@@ -5778,7 +5805,7 @@ handleCreateDiscordSeparator(val) {
     handleASRResult(data) {
       if (data.type === 'transcription') {
         const lastMessage = this.messages[this.messages.length - 1];
-        if (!this.ttsSettings.enabledInterruption && this.ttsSettings.enabled) {
+        if (!this.ttsSettings.enabledInterruption && (this.ttsSettings.enabled||this.settings.enableOmniTTS)) {
           // 如果TTS正在运行，并且不允许中断，则不处理ASR结果
           if(this.TTSrunning){
             if ((!lastMessage || (lastMessage?.currentChunk ?? 0) >= (lastMessage?.ttsChunks?.length ?? 0)) && !this.isTyping) {
@@ -5801,6 +5828,10 @@ handleCreateDiscordSeparator(val) {
             this.TTSrunning = false;
             this.cur_audioDatas = [];
             // 通知VRM所有音频播放完成
+            this.sendTTSStatusToVRM('allChunksCompleted', {});
+        }
+        else if(this.settings.enableOmniTTS && this.ttsSettings.enabledInterruption){
+            this.stopAllAudioPlayback();
             this.sendTTSStatusToVRM('allChunksCompleted', {});
         }
         if (data.is_final) {
@@ -5994,8 +6025,9 @@ handleCreateDiscordSeparator(val) {
               if (this.currentAudio) {
                 this.currentAudio.pause();
                 this.currentAudio = null;
-                this.stopGenerate();
               }
+              this.stopGenerate();
+              this.sendTTSStatusToVRM('stopSpeaking', {});
             }
             if (!this.currentAudio || this.currentAudio.paused) {
               if (this.asrSettings.engine === 'webSpeech') {
@@ -6702,24 +6734,41 @@ handleCreateDiscordSeparator(val) {
 
     // 停止所有正在播放的音频
     stopAllAudioPlayback() {
-      // 停止当前正在播放的音频
+      // 1. 停止 HTML5 Audio (普通 TTS)
       if (this.currentAudio) {
         this.currentAudio.pause();
         this.currentAudio = null;
       }
-      this.messages.forEach(m => m.isPlaying = false);
-      // 停止阅读音频
+      
+      // 2. 停止阅读音频
       if (this.currentReadAudio) {
         this.currentReadAudio.pause();
         this.currentReadAudio = null;
       }
-
-      // 停止所有消息的播放状态
+      // 3. 【核心修复】停止所有 Web Audio API 的 Omni 节点
+      if (this.activeSources && this.activeSources.length > 0) {
+        this.activeSources.forEach(src => {
+          try {
+            src.stop(); // 立即停止播放
+          } catch (e) {
+            // 忽略已经停止或未开始的错误
+          }
+        });
+        // 清空数组
+        this.activeSources = [];
+      }
+      this.audioStartTime = 0; 
+      // 4. 重置所有消息状态
       this.messages.forEach(message => {
         message.isPlaying = false;
       });
 
-      // 发送停止信号到VRM
+      // 5. 也可以选择暂停 AudioContext (可选，更彻底)
+      // if (this.audioCtx && this.audioCtx.state === 'running') {
+      //   this.audioCtx.suspend();
+      // }
+
+      // 6. 发送停止信号到VRM
       this.sendTTSStatusToVRM('stopSpeaking', {});
     },
 

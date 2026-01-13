@@ -3302,26 +3302,60 @@ let isAudioStreaming = false;
 let isOmniMode = false;           // 是否处于 Omni 流模式
 let omniNextStartTime = 0;        // 预估的音频流结束时间点
 
+/**
+ * 强制停止所有音频播放并重置音频上下文
+ * 解决“上一句话还没说完，下一句话就开始了”产生的重叠问题
+ */
+async function haltCurrentAudio() {
+    // 1. 停止音频上下文（最关键的一步）
+    if (currentAudioContext) {
+        try {
+            // suspend() 会立即停止音频输出
+            await currentAudioContext.suspend();
+            // close() 释放硬件资源，强迫下次创建新的 Context，避免时间戳错乱
+            await currentAudioContext.close();
+        } catch (e) {
+            console.warn("AudioContext cleanup warning:", e);
+        }
+        currentAudioContext = null; // 置空，以便下次 processOmniStreaming 重新创建
+    }
+
+    // 2. 重置音频流时间戳
+    omniNextStartTime = 0;
+    
+    // 3. 停止所有动画与分析器连接
+    stopAllChunkAnimations();
+    chunkAnimations.clear(); // 清空 Map，防止残留状态
+}
+
 function handleTTSMessage(message) {
     const { type, data } = message;
 
     switch (type) {
         case 'ttsStarted':
+            // 建议：在这里也调用一次 haltCurrentAudio() 以防万一，
+            // 但如果这里是同步调用，可能会导致上一句结尾被切断太快。
+            // 只要 stopSpeaking 处理得当，这里重置变量即可。
             isOmniMode = false;
             fullTargetText = "";
             currentVisibleCount = 0;
             displayStartIndex = 0;
             isAudioStreaming = false;
             omniNextStartTime = 0;
+            
+            // 确保如果有旧的打字机在跑，立即停止
             stopTypewriterLoop();
             stopAllChunkAnimations();
             clearSubtitle();
+            
+            // 如果希望极其保险，防止上一句尾音残留，取消下面这行的注释：
+            // haltCurrentAudio(); 
             break;
 
         case 'omniStreaming':
             if (windowName === 'default') {
                 isOmniMode = true;
-                isAudioStreaming = true;
+                isAudioStreaming = true; // 标记正在接收流
                 if (data.text) fullTargetText = data.text;
                 if (data.audioData) processOmniStreaming(data);
                 startTypewriterLoop();
@@ -3339,17 +3373,40 @@ function handleTTSMessage(message) {
             }
             break;
 
+        // ==========================================
+        // 修改点 1: 强制打断 (用户停止或新对话开始前)
+        // ==========================================
         case 'stopSpeaking':
             isOmniMode = false;
+            isAudioStreaming = false;
             displayStartIndex = 0;
+            
+            // 1. 停止打字机
             stopTypewriterLoop();
+            
+            // 2. 【核心修复】强制销毁音频上下文，立即静音
+            // 不加这一步，浏览器缓冲区里已调度的音频还会继续播放几秒
+            haltCurrentAudio(); 
+
+            // 3. 清理 UI
             finalizeSpeech(true); 
             break;
 
+        // ==========================================
+        // 修改点 2: 流传输结束 (自然播放结束)
+        // ==========================================
         case 'allChunksCompleted':
+            // 标记流已结束，不再接收新数据
             isOmniMode = false; 
             isAudioStreaming = false; 
-            // 如果字还没打完，打字机循环会继续跑，直到跑完自动调用 finalizeSpeech
+            
+            // 注意：这里不要调用 haltCurrentAudio()，
+            // 否则句子最后几秒的语音会被切断（因为音频播放通常滞后于数据接收）。
+            // 音频的自然结束交给 AudioContext 自己跑完，或者等待下一次 ttsStarted/stopSpeaking 清理。
+            
+            // 如果文字已经打完，触发收尾；
+            // 如果文字没打完，打字机循环通过 isAudioStreaming=false 判断会进入加速收尾模式，
+            // 跑完所有字后会自动调用 finalizeSpeech(false)。
             if (currentVisibleCount >= fullTargetText.length) {
                 finalizeSpeech(false);
             }
@@ -3361,18 +3418,6 @@ function handleTTSMessage(message) {
             }
             break;
     }
-}
-
-/**
- * 翻页时的视觉反馈效果
- */
-function triggerPageFlipEffect() {
-    if (!subtitleElement) return;
-    subtitleElement.style.transition = 'none';
-    subtitleElement.style.opacity = '0.3'; 
-    void subtitleElement.offsetWidth;
-    subtitleElement.style.transition = 'opacity 0.3s ease';
-    subtitleElement.style.opacity = '1';
 }
 
 // ==========================================

@@ -750,7 +750,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       {{ (message?.first_sentence_latency ?? 0) }}ms
                     </span>
                   </div>
-                  <div class="message-content" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
+                  <div class="message-content" v-if="!allBriefly||message.role !== 'system'||index === 0" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
                     <!-- 用户消息内容 -->
                     <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
                       <div v-html="message.content" class = "user-msg"></div>
@@ -823,7 +823,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
                   <!-- 添加复制按钮 -->
-                  <div class="message-actions">
+                  <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
                     <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
                       <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small">
                         <i class="fa-solid fa-pen-to-square"></i>
@@ -871,7 +871,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <i class="fa-solid fa-rotate"></i>
                       </el-button>
                     </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'" :content="t('oneClickExpand')" placement="bottom">
+                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
                       <el-button 
                         class="Gen-btn" 
                         @click="toggleQuickGen(index)"
@@ -881,7 +881,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <i class="fa-solid fa-wand-magic-sparkles"></i>
                       </el-button>
                     </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'" :content="t('save')" placement="bottom">
+                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
                       <el-button 
                         class="Gen-btn" 
                         @click="saveSystemPrompt(index)"
