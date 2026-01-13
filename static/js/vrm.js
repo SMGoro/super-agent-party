@@ -3293,7 +3293,7 @@ function sendToMain(type, data) {
 let fullTargetText = "";          // 记录当前对话收到的所有文本
 let currentVisibleCount = 0;      // 当前已显示的字符数
 let displayStartIndex = 0; // 新增：锁定当前显示的起始位置
-const MAX_WINDOW_SIZE = 60;  // 一屏最多显示约40个字（视UI宽度而定）
+const MAX_WINDOW_SIZE = 80;  // 一屏最多显示约40个字（视UI宽度而定）
 const OVERLAP_SIZE = 40;     // 翻页时保留的字数（即“半页”重叠）
 const SAFE_PUNC_LIST = /[，。！？；：、“”（）《》,.!?;:()]/; // 定义安全分割的标点符号
 
