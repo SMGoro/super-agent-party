@@ -3292,7 +3292,13 @@ function sendToMain(type, data) {
 
 let fullTargetText = "";          // 记录当前对话收到的所有文本
 let currentVisibleCount = 0;      // 当前已显示的字符数
+let displayStartIndex = 0; // 新增：锁定当前显示的起始位置
+const MAX_WINDOW_SIZE = 60;  // 一屏最多显示约40个字（视UI宽度而定）
+const OVERLAP_SIZE = 40;     // 翻页时保留的字数（即“半页”重叠）
+const SAFE_PUNC_LIST = /[，。！？；：、“”（）《》,.!?;:()]/; // 定义安全分割的标点符号
+
 let typewriterTimer = null;       // 打字机计时器
+let isAudioStreaming = false;
 let isOmniMode = false;           // 是否处于 Omni 流模式
 let omniNextStartTime = 0;        // 预估的音频流结束时间点
 
@@ -3304,6 +3310,8 @@ function handleTTSMessage(message) {
             isOmniMode = false;
             fullTargetText = "";
             currentVisibleCount = 0;
+            displayStartIndex = 0;
+            isAudioStreaming = false;
             omniNextStartTime = 0;
             stopTypewriterLoop();
             stopAllChunkAnimations();
@@ -3313,6 +3321,7 @@ function handleTTSMessage(message) {
         case 'omniStreaming':
             if (windowName === 'default') {
                 isOmniMode = true;
+                isAudioStreaming = true;
                 if (data.text) fullTargetText = data.text;
                 if (data.audioData) processOmniStreaming(data);
                 startTypewriterLoop();
@@ -3332,12 +3341,14 @@ function handleTTSMessage(message) {
 
         case 'stopSpeaking':
             isOmniMode = false;
+            displayStartIndex = 0;
             stopTypewriterLoop();
             finalizeSpeech(true); 
             break;
 
         case 'allChunksCompleted':
             isOmniMode = false; 
+            isAudioStreaming = false; 
             // 如果字还没打完，打字机循环会继续跑，直到跑完自动调用 finalizeSpeech
             if (currentVisibleCount >= fullTargetText.length) {
                 finalizeSpeech(false);
@@ -3352,9 +3363,25 @@ function handleTTSMessage(message) {
     }
 }
 
+/**
+ * 翻页时的视觉反馈效果
+ */
+function triggerPageFlipEffect() {
+    if (!subtitleElement) return;
+    subtitleElement.style.transition = 'none';
+    subtitleElement.style.opacity = '0.3'; 
+    void subtitleElement.offsetWidth;
+    subtitleElement.style.transition = 'opacity 0.3s ease';
+    subtitleElement.style.opacity = '1';
+}
+
 // ==========================================
 // 3. 动态打字机逻辑
 // ==========================================
+/**
+ * 完整改进版打字机循环
+ * 支持：动态语速、半页重叠翻页、标点符号安全分割、视觉反馈
+ */
 function startTypewriterLoop() {
     if (typewriterTimer) return;
 
@@ -3362,33 +3389,73 @@ function startTypewriterLoop() {
         const pendingChars = fullTargetText.length - currentVisibleCount;
         
         if (pendingChars > 0) {
-            // 获取当前音频播放进度
             const now = currentAudioContext ? currentAudioContext.currentTime : 0;
             const remainingAudioTime = Math.max(0, omniNextStartTime - now);
+            
+            let idealDelay = 0;
+            const isChinese = /[\u4e00-\u9fa5]/.test(fullTargetText);
+            const naturalDelay = isChinese ? 200 : 100; 
+            if (isAudioStreaming) {
+                // --- A模式：流增长阶段 (固定语速模式) ---
+                // 提高一点基础延迟，让语速更自然
+                idealDelay = naturalDelay;
 
-            // 计算理想延迟: 剩余时间 / 剩余字数
-            let idealDelay = (remainingAudioTime / pendingChars) * 1000;
+                // 只有大幅落后（>40字）才轻微补偿，步进不超过 50ms
+                if (pendingChars > 40) idealDelay -= 40;
 
-            if (remainingAudioTime <= 0) {
-                idealDelay = 150; // 音频播完后，按固定语速收尾
+            } else {
+                // --- B 模式：收尾阶段 (修正拖后腿问题) ---
+                if (remainingAudioTime > 0) {
+                    // 计算同步所需的延迟
+                    let syncDelay = (remainingAudioTime / pendingChars) * 1000;
+                    idealDelay = Math.min(syncDelay, naturalDelay);
+                } else {
+                    // 音频已经放完了，文字还没打完，用较快的固定语速收尾
+                    idealDelay = 100; 
+                }
+
+                // 最终 B 模式最快限制在 80ms，不至于快到闪瞎眼
+                idealDelay = Math.max(idealDelay, 80);
             }
             
-            // 速度限制：最快 60ms，最慢 400ms
-            const finalDelay = Math.min(Math.max(idealDelay, 60), 400);
+            // 综合约束：最快 60ms (约每秒7字)，最慢 450ms
+            const finalDelay = Math.min(Math.max(idealDelay, 60), 450);
 
             currentVisibleCount++;
-            
-            // 滚动窗口逻辑 (显示最近 45 个字符)
-            const windowSize = 45;
-            const start = Math.max(0, currentVisibleCount - windowSize);
-            const displayText = fullTargetText.slice(start, currentVisibleCount);
-            
-            renderSubtitleUI((start > 0 ? "..." : "") + displayText);
+
+            // --- 智能翻页逻辑 (保持不变) ---
+            const currentDisplayLength = currentVisibleCount - displayStartIndex;
+            if (currentDisplayLength > MAX_WINDOW_SIZE) {
+                let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                let lastPuncIndex = -1;
+                for (let i = searchText.length - 1; i >= 0; i--) {
+                    if (SAFE_PUNC_LIST.test(searchText[i])) {
+                        lastPuncIndex = i;
+                        break;
+                    }
+                }
+                if (lastPuncIndex !== -1) {
+                    const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                    const newOverlap = currentVisibleCount - foundIndex;
+                    if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                        targetStartIndex = foundIndex;
+                    }
+                }
+                displayStartIndex = targetStartIndex;
+                // triggerPageFlipEffect();
+            }
+
+            // --- 渲染 ---
+            const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
+            const prefix = displayStartIndex > 0 ? "..." : "";
+            renderSubtitleUI(prefix + displayText);
 
             typewriterTimer = setTimeout(type, finalDelay);
         } else {
             typewriterTimer = null;
-            // 如果音频也放完了，触发最终清理
+            // 只有当所有文字都打完了，才进入收尾倒计时
             if (!isOmniMode) {
                 finalizeSpeech(false);
             }
@@ -3396,6 +3463,7 @@ function startTypewriterLoop() {
     }
     type();
 }
+
 
 function stopTypewriterLoop() {
     if (typewriterTimer) {
@@ -3462,10 +3530,9 @@ async function processOmniStreaming(data) {
 function renderSubtitleUI(text) {
     if (!isSubtitleEnabled) return;
     if (!subtitleElement) initSubtitleElement();
-    
     subtitleElement.textContent = text;
     subtitleElement.style.opacity = '1';
-    adjustSubtitleSize();
+    if (typeof adjustSubtitleSize === 'function') adjustSubtitleSize();
 }
 
 function updateSubtitle(text, chunkIndex) {
@@ -3483,6 +3550,7 @@ function clearSubtitle() {
 }
 
 function finalizeSpeech(immediate = false) {
+    // 停止动画驱动
     stopAllChunkAnimations();
     if (chunkAnimations.has('omni_live_stream')) {
         stopChunkAnimation('omni_live_stream');
@@ -3493,15 +3561,19 @@ function finalizeSpeech(immediate = false) {
         clearSubtitle();
         fullTargetText = "";
         currentVisibleCount = 0;
+        displayStartIndex = 0;
     } else {
+        // --- 优化点：文字全部打完后，多留 2.5 秒的“静止阅读时间” ---
         if (subtitleTimeout) clearTimeout(subtitleTimeout);
         subtitleTimeout = setTimeout(() => {
-            if (!isOmniMode) {
+            // 确保这期间没有开启新的对话
+            if (!isOmniMode && !typewriterTimer) {
                 clearSubtitle();
                 fullTargetText = "";
                 currentVisibleCount = 0;
+                displayStartIndex = 0;
             }
-        }, 1500);
+        }, 2000); 
     }
 }
 
