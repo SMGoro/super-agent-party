@@ -2064,15 +2064,13 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 full_content = ""
                 search_not_done = False
                 search_task = ""
+                is_tool_call = False
                 async for chunk in response:
                     if not chunk.choices:
                         continue
                     choice = chunk.choices[0]
-                    if hasattr(choice.delta, "audio") and choice.delta.audio:
-                        # 只把 Base64 音频数据留在 delta 里，别动它
-                        yield f"data: {chunk.model_dump_json()}\n\n"
-                        continue
                     if choice.delta.tool_calls:  # function_calling
+                        is_tool_call = True
                         for idx, tool_call in enumerate(choice.delta.tool_calls):
                             tool = choice.delta.tool_calls[idx]
                             if len(tool_calls) <= idx:
@@ -2085,6 +2083,12 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 else:
                                     tool_calls[idx].function.arguments = tool.function.arguments
                     else:
+                        if hasattr(choice.delta, "audio") and choice.delta.audio and is_tool_call == False:
+                            # 只把 Base64 音频数据留在 delta 里，别动它
+                            yield f"data: {chunk.model_dump_json()}\n\n"
+                            continue
+                        elif hasattr(choice.delta, "audio") and choice.delta.audio and is_tool_call == True:
+                            continue
                         # 创建原始chunk的拷贝
                         chunk_dict = chunk.model_dump()
                         delta = chunk_dict["choices"][0]["delta"]
@@ -2144,7 +2148,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         else:
                             content_buffer = []
                         reasoning_buffer = []
-                        
                         yield f"data: {json.dumps(chunk_dict)}\n\n"
                         full_content += delta.get("content") or "" 
                 # 最终flush未完成内容
