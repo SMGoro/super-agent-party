@@ -5258,7 +5258,8 @@ async def text_to_speech(request: Request):
                     default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
                     endpoint=""  # 因为 TTS URL 通常已经包含了路径
                 )
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                timeout_config = httpx.Timeout(None, connect=10.0) 
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
                     try:
                         async with client.stream("GET", safe_tts_url, params=params) as response:
                             response.raise_for_status()
@@ -5266,12 +5267,14 @@ async def text_to_speech(request: Request):
                             if custom_streaming:
                                 # 流式模式：直接返回数据，假设服务端能返回正确格式
                                 async for chunk in response.aiter_bytes():
-                                    yield chunk
+                                    if chunk:
+                                        yield chunk
                             else:
                                 # 非流式模式：收集完整数据，进行格式转换
                                 audio_chunks = []
                                 async for chunk in response.aiter_bytes():
-                                    audio_chunks.append(chunk)
+                                    if chunk:
+                                        audio_chunks.append(chunk)
                                 
                                 full_audio = b''.join(audio_chunks)
                                 
@@ -5352,13 +5355,15 @@ async def text_to_speech(request: Request):
                     default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
                     endpoint="/tts"  # 因为 TTS URL 通常已经包含了路径
                 )
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                timeout_config = httpx.Timeout(None, connect=10.0) 
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
                     try:
                         async with client.stream("POST", safe_tts_url, json=gsv_params) as response:
                             response.raise_for_status()
                             # 直接流式返回，不管目标格式（假设GSV的ogg内部是opus编码）
                             async for chunk in response.aiter_bytes():
-                                yield chunk
+                                if chunk:
+                                    yield chunk
                                 
                     except httpx.HTTPStatusError as e:
                         error_detail = f"GSV服务错误: {e.response.status_code}"
