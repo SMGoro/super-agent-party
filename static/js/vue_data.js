@@ -221,6 +221,10 @@ let vue_data = {
       autoBehavior: {
         enabled: false
       },
+      randomTopic: {
+        enabled: false,
+        baseURL:'https://topics-after-party.zeabur.app'
+      },
     },
     toolForShowInfo: {"name": "", "description": ""},
     showToolInfoDialog: false,
@@ -1272,7 +1276,8 @@ let vue_data = {
           events:[""],
           type:"random",
           orderIndex:0,
-        }
+        },
+        topicLimit: 1, // 话题限制
       }
     },
     allBriefly:false,

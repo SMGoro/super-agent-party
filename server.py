@@ -649,6 +649,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         drag,
         handle_dialog
     )
+    from py.random_topic import get_random_topics,get_categories
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
         "searxng_async": searxng_async,
@@ -698,7 +699,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "wait_for": wait_for,
         "fill_form":fill_form,
         "drag": drag,
-        "handle_dialog": handle_dialog
+        "handle_dialog": handle_dialog,
+        "get_random_topics":get_random_topics,
+        "get_categories":get_categories
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
@@ -1317,6 +1320,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
     from py.autoBehavior import auto_behavior_tool
     from py.cli_tool import claude_code_tool,qwen_code_tool
     from py.cdp_tool import all_cdp_tools
+    from py.random_topic import random_topics_tools
     m0 = None
     memoryId = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -1411,6 +1415,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         if settings["tools"]["wikipedia"]['enabled']:
             tools.append(wikipedia_summary_tool)
             tools.append(wikipedia_section_tool)
+        if settings["tools"]["randomTopic"]['enabled']:
+            tools.extend(random_topics_tools)
         if settings["tools"]["arxiv"]['enabled']:
             tools.append(arxiv_tool)
         if settings['text2imgSettings']['enabled']:
@@ -2967,7 +2973,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 return
             except Exception as e:
                 logger.error(f"Error occurred: {e}")
-                traceback.print_exc()
                 # 捕获异常并返回错误信息
                 error_chunk = {
                     "choices": [{
@@ -2990,6 +2995,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
             }
         )
     except Exception as e:
+        logger.error(f"Error occurred: {e}")
         # 如果e.status_code存在，则使用它作为HTTP状态码，否则使用500
         return JSONResponse(
             status_code=getattr(e, "status_code", 500),
@@ -4299,7 +4305,6 @@ async def extension_proxy(request: Request, url: str):
             
         except Exception as e:
             print(f"[Proxy Error] System: {repr(e)}")
-            traceback.print_exc()
             return Response(content="Internal Server Error during proxy", status_code=500)
 
         
@@ -4465,7 +4470,6 @@ async def funasr_recognize(audio_data: bytes, funasr_settings: dict,ws: WebSocke
             
     except Exception as e:
         print(f"FunASR recognition error: {e}")
-        traceback.print_exc()
         return f"FunASR识别错误: {str(e)}"
 
 def hotwords_to_json(input_str):
@@ -4698,7 +4702,6 @@ async def asr_websocket_endpoint(websocket: WebSocket):
                         print(f"ASR WebSocket disconnected: {connection_id}")
                     except Exception as e:
                         print(f"ASR WebSocket error: {e}")
-                        traceback.print_exc()
     finally:
         # 清理资源
         if connection_id in audio_buffer:
@@ -4788,7 +4791,6 @@ async def asr_transcription(
         
     except Exception as e:
         print(f"ASR HTTP interface error: {e}")
-        traceback.print_exc()
         
         return JSONResponse(
             status_code=500,
@@ -4894,7 +4896,6 @@ async def funasr_recognize_offline(audio_data: bytes, funasr_settings: dict) -> 
             
     except Exception as e:
         print(f"FunASR offline recognition error: {e}")
-        traceback.print_exc()
         return f"FunASR识别错误: {str(e)}"
 
 
@@ -5252,7 +5253,8 @@ async def text_to_speech(request: Request):
                     default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
                     endpoint=""  # 因为 TTS URL 通常已经包含了路径
                 )
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                timeout_config = httpx.Timeout(None, connect=10.0) 
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
                     try:
                         async with client.stream("GET", safe_tts_url, params=params) as response:
                             response.raise_for_status()
@@ -5260,12 +5262,14 @@ async def text_to_speech(request: Request):
                             if custom_streaming:
                                 # 流式模式：直接返回数据，假设服务端能返回正确格式
                                 async for chunk in response.aiter_bytes():
-                                    yield chunk
+                                    if chunk:
+                                        yield chunk
                             else:
                                 # 非流式模式：收集完整数据，进行格式转换
                                 audio_chunks = []
                                 async for chunk in response.aiter_bytes():
-                                    audio_chunks.append(chunk)
+                                    if chunk:
+                                        audio_chunks.append(chunk)
                                 
                                 full_audio = b''.join(audio_chunks)
                                 
@@ -5329,7 +5333,7 @@ async def text_to_speech(request: Request):
                 "streaming_mode": True,
                 "text_split_method": "cut0",
                 "media_type": "ogg",
-                "batch_size": 20,
+                "batch_size": 1,
                 "seed": 42,
             }
             
@@ -5346,13 +5350,15 @@ async def text_to_speech(request: Request):
                     default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
                     endpoint="/tts"  # 因为 TTS URL 通常已经包含了路径
                 )
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                timeout_config = httpx.Timeout(None, connect=10.0) 
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
                     try:
                         async with client.stream("POST", safe_tts_url, json=gsv_params) as response:
                             response.raise_for_status()
                             # 直接流式返回，不管目标格式（假设GSV的ogg内部是opus编码）
                             async for chunk in response.aiter_bytes():
-                                yield chunk
+                                if chunk:
+                                    yield chunk
                                 
                     except httpx.HTTPStatusError as e:
                         error_detail = f"GSV服务错误: {e.response.status_code}"
@@ -5728,7 +5734,6 @@ async def text_to_speech(request: Request):
 
                 except Exception as e:
                     print(f"[ERROR] Tetos 合成线程内部报错: {str(e)}")
-                    traceback.print_exc()
                     raise e
 
             # 3. 异步执行合成
@@ -5788,7 +5793,6 @@ async def text_to_speech(request: Request):
     
     except Exception as e:
         print(f"[ERROR] TTS 合成失败: {str(e)}")
-        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(e)}"})
 
 @app.post("/tts/tetos/list_voices")

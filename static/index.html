@@ -3147,7 +3147,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </el-select>
                         </el-form-item>
                         <!-- 提示音频选择框 -->
-                        <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
+                        <el-form-item :label="t('promptAudio')" class="form-item-align">
                           <el-select
                             v-model="newTTSConfig.gsvRefAudioPath"
                             @change="handleRefAudioPathChange"
@@ -3961,6 +3961,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                               <el-select v-model="b.action.type" @change="autoSaveSettings">
                                 <el-option :label="t('prompt')" value="prompt"></el-option>
                                 <el-option :label="t('randomEvent')" value="random"></el-option>
+                                <el-option :label="t('randomTopic')" value="topic"></el-option>
                               </el-select>
                             </el-form-item>
 
@@ -3999,6 +4000,42 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   class="full-width-input"/>
                               </el-form-item>
                             </div>
+
+                            <el-form-item v-if="b.action.type === 'topic'" :label="t('baseURL')">
+                              <el-input
+                                v-model="toolsSettings.randomTopic.baseURL"
+                                @change="autoSaveSettings"
+                                :placeholder="t('randomTopicPlaceholder')"
+                              ></el-input>
+                            </el-form-item>
+
+                            <el-form-item v-if="b.action.type === 'topic'" :label="t('topicLimit')">
+                              <el-slider
+                                  v-model="b.action.topicLimit"
+                                  :min="1"
+                                  :max="5"
+                                  :step="1"
+                                  show-input
+                                  @change="autoSaveSettings"
+                              ></el-slider>
+                            </el-form-item>
+
+                            <el-alert v-if="b.action.type === 'topic'" type="info" :closable="false" class="mb-2" style="margin-bottom: 20px;">
+                              <div class="alert-content">
+                                {{ t('randomTopicNotice') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://github.com/heshengtao/topics-after-party" 
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1">
+                                    <i class="fa-solid fa-key"></i>
+                                  </el-icon>{{ t('gotoGithub') }}
+                                </el-link>
+                              </div>
+                            </el-alert>
+
                             <div style="display: flex; justify-content: flex-end;margin-bottom: 16px;">
                               <el-tooltip :content="t('resetBehavior')" placement="top">
                                 <el-button 
@@ -5657,7 +5694,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                       <!-- 提示音频选择框 -->
-                      <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
+                      <el-form-item :label="t('promptAudio')" class="form-item-align">
                         <el-select
                           v-model="ttsSettings.gsvRefAudioPath"
                           @change="handleRefAudioPathChange"
@@ -6428,6 +6465,43 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </el-alert>
                   </div>
 
+                  <!-- 随机话题工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch
+                        v-model="toolsSettings.randomTopic.enabled"
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div class="tool-card-title">
+                      <h3 class="kb-title">{{ t('randomTopicTool') }}</h3>
+                      <el-link
+                        type="primary"
+                        :underline="false"
+                        href="https://github.com/heshengtao/topics-after-party" 
+                        target="_blank"
+                      >
+                        <el-icon class="mr-1">
+                          <i class="fa-solid fa-key"></i>
+                        </el-icon>{{ t('gotoGithub') }}
+                      </el-link>
+                    </div>
+                    <el-form-item :label="t('baseURL')">
+                      <el-input
+                        v-model="toolsSettings.randomTopic.baseURL"
+                        @change="autoSaveSettings"
+                        class="mini-input"
+                        :placeholder="t('randomTopicPlaceholder')"
+                      ></el-input>
+                    </el-form-item>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('randomTopicNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
                   <!-- 维基百科工具 -->
                   <div class="provider-card tool-card">
                     <div class="card-header">
@@ -6683,7 +6757,7 @@ function updateElement(el, rawMarkdown, formatFn) {
               <!-- 浏览器控制界面 -->
               <div v-show="subMenu === 'chromeMCP'" class="page">
                <!-- 顶部说明条 -->
-                <div class="toolbar">
+                <div v-if="isElectron" class="toolbar">
                     <el-alert
                       :title="t('chromeMCPDescription')"
                       type="info"
@@ -6695,7 +6769,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       3. {{ t('chromeMCPNotice3') }}
                     </el-alert>
                 </div>
-                <el-form :model="chromeMCPSettings" class="settings-form"  label-position="top">
+                <el-form v-if="isElectron" :model="chromeMCPSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
                       <div class="header-left">
@@ -6821,6 +6895,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     />
                   </el-card>
                 </el-form> 
+                <!-- Web端提示 -->
+                <div v-else >
+                  <el-empty :description="t('webNotSupported')" />
+                </div>
               </div>
               
               <!-- SQL控制界面 -->
@@ -9442,10 +9520,10 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="social-links">
               <div class="link-item">
                 <span>Official Website：</span>
-                <a href="https://super-agent-party.github.io/" 
+                <a href="https://www.agentparty.top/" 
                   target="_blank" 
                   class="social-link">
-                  super-agent-party.github.io
+                  www.agentparty.top
                 </a>
               </div>
 
