@@ -2973,7 +2973,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 return
             except Exception as e:
                 logger.error(f"Error occurred: {e}")
-                traceback.print_exc()
                 # 捕获异常并返回错误信息
                 error_chunk = {
                     "choices": [{
@@ -2996,6 +2995,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
             }
         )
     except Exception as e:
+        logger.error(f"Error occurred: {e}")
         # 如果e.status_code存在，则使用它作为HTTP状态码，否则使用500
         return JSONResponse(
             status_code=getattr(e, "status_code", 500),
@@ -4305,7 +4305,6 @@ async def extension_proxy(request: Request, url: str):
             
         except Exception as e:
             print(f"[Proxy Error] System: {repr(e)}")
-            traceback.print_exc()
             return Response(content="Internal Server Error during proxy", status_code=500)
 
         
@@ -4471,7 +4470,6 @@ async def funasr_recognize(audio_data: bytes, funasr_settings: dict,ws: WebSocke
             
     except Exception as e:
         print(f"FunASR recognition error: {e}")
-        traceback.print_exc()
         return f"FunASR识别错误: {str(e)}"
 
 def hotwords_to_json(input_str):
@@ -4704,7 +4702,6 @@ async def asr_websocket_endpoint(websocket: WebSocket):
                         print(f"ASR WebSocket disconnected: {connection_id}")
                     except Exception as e:
                         print(f"ASR WebSocket error: {e}")
-                        traceback.print_exc()
     finally:
         # 清理资源
         if connection_id in audio_buffer:
@@ -4794,7 +4791,6 @@ async def asr_transcription(
         
     except Exception as e:
         print(f"ASR HTTP interface error: {e}")
-        traceback.print_exc()
         
         return JSONResponse(
             status_code=500,
@@ -4900,7 +4896,6 @@ async def funasr_recognize_offline(audio_data: bytes, funasr_settings: dict) -> 
             
     except Exception as e:
         print(f"FunASR offline recognition error: {e}")
-        traceback.print_exc()
         return f"FunASR识别错误: {str(e)}"
 
 
@@ -5739,7 +5734,6 @@ async def text_to_speech(request: Request):
 
                 except Exception as e:
                     print(f"[ERROR] Tetos 合成线程内部报错: {str(e)}")
-                    traceback.print_exc()
                     raise e
 
             # 3. 异步执行合成
@@ -5799,7 +5793,6 @@ async def text_to_speech(request: Request):
     
     except Exception as e:
         print(f"[ERROR] TTS 合成失败: {str(e)}")
-        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(e)}"})
 
 @app.post("/tts/tetos/list_voices")

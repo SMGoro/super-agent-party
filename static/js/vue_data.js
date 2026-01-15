@@ -1276,7 +1276,8 @@ let vue_data = {
           events:[""],
           type:"random",
           orderIndex:0,
-        }
+        },
+        topicLimit: 1, // 话题限制
       }
     },
     allBriefly:false,
