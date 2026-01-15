@@ -221,6 +221,10 @@ let vue_data = {
       autoBehavior: {
         enabled: false
       },
+      randomTopic: {
+        enabled: false,
+        baseURL:'https://topics-after-party.zeabur.app'
+      },
     },
     toolForShowInfo: {"name": "", "description": ""},
     showToolInfoDialog: false,

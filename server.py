@@ -649,6 +649,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         drag,
         handle_dialog
     )
+    from py.random_topic import get_random_topics,get_categories
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
         "searxng_async": searxng_async,
@@ -698,7 +699,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "wait_for": wait_for,
         "fill_form":fill_form,
         "drag": drag,
-        "handle_dialog": handle_dialog
+        "handle_dialog": handle_dialog,
+        "get_random_topics":get_random_topics,
+        "get_categories":get_categories
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
@@ -1317,6 +1320,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
     from py.autoBehavior import auto_behavior_tool
     from py.cli_tool import claude_code_tool,qwen_code_tool
     from py.cdp_tool import all_cdp_tools
+    from py.random_topic import random_topics_tools
     m0 = None
     memoryId = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -1411,6 +1415,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         if settings["tools"]["wikipedia"]['enabled']:
             tools.append(wikipedia_summary_tool)
             tools.append(wikipedia_section_tool)
+        if settings["tools"]["randomTopic"]['enabled']:
+            tools.extend(random_topics_tools)
         if settings["tools"]["arxiv"]['enabled']:
             tools.append(arxiv_tool)
         if settings['text2imgSettings']['enabled']:
@@ -5329,7 +5335,7 @@ async def text_to_speech(request: Request):
                 "streaming_mode": True,
                 "text_split_method": "cut0",
                 "media_type": "ogg",
-                "batch_size": 20,
+                "batch_size": 1,
                 "seed": 42,
             }
             
