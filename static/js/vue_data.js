@@ -335,6 +335,8 @@ let vue_data = {
       enabled: false,
       engine: 'cc',
       cc_path: '',
+      cc_permissionMode: 'default',
+      qc_permissionMode: 'default',
     },
     ccSettings: {
       enabled: false,

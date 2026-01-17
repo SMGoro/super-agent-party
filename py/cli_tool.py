@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -78,7 +79,7 @@ async def claude_code_async(prompt) -> str | AsyncIterator[str]:
     async def _stream() -> AsyncIterator[str]:
         options = ClaudeAgentOptions(
             cwd=cwd,
-            permission_mode='acceptEdits',
+            permission_mode=ccSettings.get("cc_permissionMode","default"),
             continue_conversation=True,
             env={
                 **os.environ,
@@ -138,6 +139,10 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
 
     if not cwd or not cwd.strip():
         return "No working directory is set, please set the working directory first!"
+    
+    # 增加校验：确保目录真实存在，防止 subprocess 报错
+    if not os.path.isdir(cwd):
+        return f"The working directory '{cwd}' does not exist!"
 
     # 2. 构造环境变量
     extra_config: dict[str, str] = {}
@@ -147,22 +152,49 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
             "OPENAI_API_KEY":  str(qcSettings.get("api_key")  or ""),
             "OPENAI_MODEL":    str(qcSettings.get("model")    or ""),
         }
+    
+    approval_mode = str(qcSettings.get("qc_permissionMode", "default"))
+    
+    # 寻找可执行文件路径，提高稳定性（可选，找不到则直接用 "qwen"）
+    executable = shutil.which("qwen") or "qwen"
 
     # 3. 内层异步生成器：真正干活
     async def _stream() -> AsyncIterator[str]:
-        process = await asyncio.create_subprocess_shell(
-            f'qwen -p "{prompt}"',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env={**os.environ, **extra_config},
-        )
-        print("你的配置",extra_config)
+        # --- 核心修改：使用列表构造命令 ---
+        cmd_args = [
+            executable,           # 程序名
+            "--approval-mode",    # 参数名
+            approval_mode,        # 参数值
+            "-p",                 # 参数名
+            prompt                # 参数值 (系统会自动处理内部的引号和特殊字符)
+        ]
+        
+        try:
+            # 使用 create_subprocess_exec 而不是 shell
+            process = await asyncio.create_subprocess_exec(
+                *cmd_args,  # 拆包列表
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env={**os.environ, **extra_config},
+            )
+        except FileNotFoundError:
+            yield f"[ERROR] System cannot find the executable: {executable}. Is it installed and in PATH?"
+            return
+        except Exception as e:
+            yield f"[ERROR] Failed to start subprocess: {str(e)}"
+            return
+
+        print("你的配置:", extra_config)
+
         async def read_stream(stream, *, is_error: bool = False):
+            # 使用 errors='replace' 防止某些特殊字符导致 decode 崩溃
             async for line in stream:
                 prefix = "[ERROR] " if is_error else ""
-                yield f"{prefix}{line.decode('utf-8').rstrip()}"
+                yield f"{prefix}{line.decode('utf-8', errors='replace').rstrip()}"
 
+        # 这里的 _merge_streams 需要你确保上下文中有定义
+        # 通常是用 aiostream.stream.merge 或者 asyncio.gather 的变体
         async for out in _merge_streams(
             read_stream(process.stdout),
             read_stream(process.stderr, is_error=True),
