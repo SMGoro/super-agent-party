@@ -75,12 +75,13 @@ async def claude_code_async(prompt) -> str | AsyncIterator[str]:
             for k, v in extra_config.items()
         }
         print(f"Using Claude Code with the following settings: {extra_config}")
+    print(f"Using mode: {ccSettings.get("permissionMode", "default")}")
     # 3. 正常场景：返回异步生成器
     async def _stream() -> AsyncIterator[str]:
         options = ClaudeAgentOptions(
             cwd=cwd,
             continue_conversation=True,
-            permission_mode=ccSettings.get("permission_mode", "default"),
+            permission_mode=ccSettings.get("permissionMode", "default"),
             env={
                 **os.environ,
                 **extra_config
