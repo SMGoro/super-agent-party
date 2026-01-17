@@ -2097,6 +2097,7 @@ let vue_methods = {
     },
 
     async playPCMChunk(b64, currentText = '', message = null) {
+      this.isOmniPlaying = true;
       try {
         // 1. 确保 AudioContext 已启动（浏览器安全策略要求）
         if (!this.audioCtx) {
@@ -2176,6 +2177,7 @@ let vue_methods = {
               
               // 通知 VRM 播放彻底结束，重置表情
               this.sendTTSStatusToVRM('allChunksCompleted', {});
+              this.isOmniPlaying = false;
               console.log('Playback finished for message:', message.id);
             }
           }
@@ -9422,7 +9424,7 @@ stopTTSActivities() {
         
         console.log('Random Topic Prompt:', finalPrompt);
         
-        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt;
+        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题，因为这是系统消息，用户看不到！";
         // 调用发送函数
         this.sendMessage('system'); 
 

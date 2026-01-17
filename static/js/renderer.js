@@ -1125,7 +1125,8 @@ const app = Vue.createApp({
       return !this.TTSrunning &&
              !this.ASRrunning &&
              !this.isInputting &&
-             !this.isTyping
+             !this.isTyping &&
+             !this.isOmniPlaying
     },
     // 计算处理百分比
     processingPercentage() {

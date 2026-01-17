@@ -97,6 +97,7 @@ let vue_data = {
     audioStartTime: 0,       // 下一帧应该开始的时间
     omniQueue: [],        // [{idx, text, expressions, voice, pcmBase64}, ...]
     omniIdx: 0,           // 当前正在播的索引
+    isOmniPlaying: false, // 是否正在播放
     settings: {
       model: '',
       base_url: '',
