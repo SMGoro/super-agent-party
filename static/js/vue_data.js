@@ -361,6 +361,36 @@ let vue_data = {
       model:'',
       permissionMode: 'default',
     },
+    prefrontalCortexSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    NeocortexSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    LimbicSystemSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    ReptilianBrainSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    showBrainEditDialog: false, // 控制模态框显示
+    currentEditingKey: '',      // 当前正在编辑哪个脑区 (例如 'prefrontalCortex')
     HASettings: {
       enabled: false,
       api_key: '',

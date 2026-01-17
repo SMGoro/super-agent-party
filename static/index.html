@@ -2626,7 +2626,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <div class="mind-grid-bg"></div>
 
                   <!-- 核心大脑容器 -->
-                  <div class="brain-wrapper">
+                  <div class="brain-wrapper" :class="{'full-power-mode': isAllBrainsActive}">
                     
                     <!-- SVG 抽象大脑线框图 -->
                     <svg class="brain-svg" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
@@ -2659,50 +2659,157 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <circle cx="200" cy="180" r="4" class="pulse-dot" style="animation-delay: 1s" />
                     </svg>
 
-                    <!-- 四个功能区卡片 (悬浮在SVG之上) -->
+                    <!-- 四个功能区卡片 (添加了 @click 事件) -->
                     
-                    <!-- 1. 前额叶 (Prefrontal Cortex) - 决策与控制 -->
-                    <div class="mind-card prefrontal-card">
+                    <!-- 1. 前额叶 -->
+                    <div class="mind-card prefrontal-card" @click="openBrainEdit('prefrontalCortex')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-chess-king"></i></div>
                       <div class="mind-content">
                         <h3>{{ t('prefrontalCortex')}}</h3>
                         <p>{{t('prefrontalCortexNotice')}}</p>
+                        <!-- 可选：显示当前状态的小标签 -->
+                        <el-tag size="small" :type="prefrontalCortexSettings.enabled ? 'success' : 'info'">
+                          {{ prefrontalCortexSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
                       </div>
                     </div>
 
-                    <!-- 2. 理性脑 (Rational Brain) - 认知与分析 -->
-                    <div class="mind-card rational-card">
+                    <!-- 2. 理性脑 -->
+                    <div class="mind-card rational-card" @click="openBrainEdit('Neocortex')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-microchip"></i></div>
                       <div class="mind-content">
                         <h3>{{ t('Neocortex') }}</h3>
                         <p>{{t('NeocortexNotice')}}</p>
+                        <el-tag size="small" :type="NeocortexSettings.enabled ? 'success' : 'info'">
+                          {{ NeocortexSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
                       </div>
                     </div>
 
-                    <!-- 3. 感性脑 (Emotional Brain) - 情绪与直觉 -->
-                    <div class="mind-card emotional-card">
+                    <!-- 3. 感性脑 -->
+                    <div class="mind-card emotional-card" @click="openBrainEdit('LimbicSystem')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-heart-pulse"></i></div>
                       <div class="mind-content">
                         <h3>{{ t('LimbicSystem') }}</h3>
                         <p>{{t('LimbicSystemNotice')}}</p>
+                        <el-tag size="small" :type="LimbicSystemSettings.enabled ? 'success' : 'info'">
+                          {{ LimbicSystemSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
                       </div>
                     </div>
 
-                    <!-- 4. 生理脑 (Physiological Brain) - 本能与生存 -->
-                    <div class="mind-card physio-card">
+                    <!-- 4. 生理脑 -->
+                    <div class="mind-card physio-card" @click="openBrainEdit('ReptilianBrain')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-dna"></i></div>
                       <div class="mind-content">
                         <h3>{{ t('ReptilianBrain')}}</h3>
                         <p>{{t('ReptilianBrainNotice')}}</p>
+                        <el-tag size="small" :type="ReptilianBrainSettings.enabled ? 'success' : 'info'">
+                          {{ ReptilianBrainSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
                       </div>
                     </div>
 
                   </div>
                 </div>
+
+                <!-- 新增：右下角极简控制面板 -->
+                <div class="mind-quick-panel">
+                  <!-- 头部 -->
+                  <div class="panel-header">
+                    <span class="panel-title">
+                      <i class="fa-solid fa-sliders"></i> {{ t('neuralControl') || 'Neural Control' }}
+                    </span>
+                    <!-- 状态指示灯 -->
+                    <div class="system-status" :class="{'active': isAllBrainsActive}">
+                      <div class="status-pulse"></div>
+                    </div>
+                  </div>
+
+                  <!-- 分割线 -->
+                  <div class="panel-divider"></div>
+
+                  <!-- 列表控制 -->
+                  <div class="panel-rows">
+                    <!-- 前额叶 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('prefrontalCortex') }}</span>
+                      <el-switch v-model="prefrontalCortexSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 理性脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('Neocortex') }}</span>
+                      <el-switch v-model="NeocortexSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 感性脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('LimbicSystem') }}</span>
+                      <el-switch v-model="LimbicSystemSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 生理脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('ReptilianBrain') }}</span>
+                      <el-switch v-model="ReptilianBrainSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                  </div>
+                </div>
+
+
+                <!-- 通用脑区设置模态框 -->
+                <el-dialog
+                  v-model="showBrainEditDialog"
+                  :title="currentBrainTitle"
+                  width="50%"
+                  align-center
+                >
+                  <!-- 只有当 currentBrainSettings 存在时才渲染表单，防止报错 -->
+                  <el-form label-position="top">
+                    
+                    <!-- 1. 启用/禁用开关 -->
+                    <el-form-item :label="t('enableFunction')" class="form-item-align"  label-position="left">
+                        <el-switch 
+                          v-model="currentBrainSettings.enabled" 
+                        />
+                    </el-form-item>
+                    <!-- 2. 模型供应商选择 -->
+                    <el-form-item :label="t('provider')" required>
+                      <el-select
+                        v-model="currentBrainSettings.selectedProvider"
+                        :placeholder="t('selectProvider')"
+                        filterable
+                        class="full-width-input"
+                        @change="selectBrainProvider"
+                        @visible-change="handleBrainProviderVisibleChange"
+                      >
+                        <el-option
+                          v-for="provider in modelProviders"
+                          :key="provider.id"
+                          :label="provider.vendor+' - '+provider.modelId"
+                          :value="provider.id"
+                        >
+                          <div class="provider-option">
+                            <img 
+                              :src="getVendorLogo(provider.vendor)" 
+                              class="mini-vendor-logo"
+                            />
+                            <span class="model-id">{{ provider.modelId }}</span>
+                          </div>
+                        </el-option>
+                      </el-select>
+                    </el-form-item>
+
+                  </el-form>
+
+                  <template #footer>
+                    <el-button @click="showBrainEditDialog = false">{{ t('close') }}</el-button>
+                    <!-- 如果需要手动保存按钮，可以使用下面的，但在 switch/select 上加 @change 自动保存通常体验更好 -->
+                    <el-button type="primary" @click="showBrainEditDialog = false;autoSaveSettings()">{{ t('confirm') }}</el-button> 
+                  </template>
+                </el-dialog>
               </div>
               <!-- 角色语音 -->
               <div v-show="subMenu === 'voice'" class="page">

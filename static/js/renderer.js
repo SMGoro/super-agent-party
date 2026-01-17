@@ -955,7 +955,11 @@ const app = Vue.createApp({
       handler(newProviders) {
         const existingIds = new Set(newProviders.map(p => p.id));
         // 自动清理无效的 selectedProvider
-        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings,this.qcSettings].forEach(config => {
+        [this.settings, this.reasonerSettings,this.visionSettings,
+          this.KBSettings,this.text2imgSettings,this.ccSettings,
+          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
+          this.LimbicSystemSettings,this.ReptilianBrainSettings
+        ].forEach(config => {
           if (config.selectedProvider && !existingIds.has(config.selectedProvider)) {
             config.selectedProvider = null;
             // 可选项：同时重置相关字段
@@ -967,7 +971,11 @@ const app = Vue.createApp({
             config.selectedProvider = newProviders[0].id;
           }
         });
-        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings,this.qcSettings].forEach(config => {
+        [this.settings, this.reasonerSettings,this.visionSettings,
+          this.KBSettings,this.text2imgSettings,this.ccSettings,
+          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
+          this.LimbicSystemSettings,this.ReptilianBrainSettings
+        ].forEach(config => {
           if (config.selectedProvider) this.syncProviderConfig(config);
         });
       }
@@ -1032,6 +1040,29 @@ const app = Vue.createApp({
     },
   },
   computed: {
+    // 动态获取当前正在编辑的配置对象
+    currentBrainSettings() {
+      if (!this.currentEditingKey) return null;
+      // 根据 key 拼接字符串来访问 data 中的数据
+      // 例如：'prefrontalCortex' -> this.prefrontalCortexSettings
+      return this[`${this.currentEditingKey}Settings`];
+    },
+
+    // 动态获取模态框标题
+    currentBrainTitle() {
+      if (!this.currentEditingKey) return '';
+      // 这里复用你已有的翻译 key
+      return this.t(this.currentEditingKey); // 结果如: "前额叶 设置"
+    },
+    isAllBrainsActive() {
+      // 注意：使用 this. 且不需要 .value
+      return (
+        this.prefrontalCortexSettings.enabled &&
+        this.NeocortexSettings.enabled &&
+        this.LimbicSystemSettings.enabled &&
+        this.ReptilianBrainSettings.enabled
+      );
+    },
     dynamicUserAgent() {
       // 1. 定义一个较新的 Chrome 版本号 (定期更新这个版本号可以保持最佳兼容性)
       // 目前 Chrome 124+ 是比较通用的

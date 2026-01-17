@@ -1266,6 +1266,10 @@ let vue_methods = {
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.ocSettings = data.data.ocSettings || this.ocSettings;
+          this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
+          this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
+          this.LimbicSystemSettings = data.data.LimbicSystemSettings || this.LimbicSystemSettings;
+          this.ReptilianBrainSettings = data.data.ReptilianBrainSettings || this.ReptilianBrainSettings;
           this.HASettings = data.data.HASettings || this.HASettings;
           this.chromeMCPSettings = data.data.chromeMCPSettings || this.chromeMCPSettings;
           this.sqlSettings = data.data.sqlSettings || this.sqlSettings;
@@ -2368,6 +2372,10 @@ let vue_methods = {
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
           ocSettings: this.ocSettings,
+          prefrontalCortexSettings: this.prefrontalCortexSettings,
+          NeocortexSettings: this.NeocortexSettings,
+          LimbicSystemSettings: this.LimbicSystemSettings,
+          ReptilianBrainSettings: this.ReptilianBrainSettings,
           HASettings: this.HASettings,
           chromeMCPSettings: this.chromeMCPSettings,
           sqlSettings: this.sqlSettings,
@@ -3083,6 +3091,26 @@ let vue_methods = {
         await this.autoSaveSettings();
       }
     },
+    async selectBrainProvider(providerId) {
+      // 1. 在供应商列表中查找详细信息
+      const provider = this.modelProviders.find(p => p.id === providerId);
+
+      // 2. 校验：确保找到了供应商，且当前有正在编辑的脑区配置
+      if (provider && this.currentBrainSettings) {
+        // 3. 将供应商的详细信息 (model, url, key) 同步到当前脑区的设置中
+        this.currentBrainSettings.model = provider.modelId;
+        this.currentBrainSettings.base_url = provider.url;
+        this.currentBrainSettings.api_key = provider.apiKey;
+
+        // 4. 打印日志方便调试
+        console.log(`[${this.currentEditingKey}] 切换模型为: ${provider.modelId}`);
+
+        // 5. 自动保存
+        if (typeof this.autoSaveSettings === 'function') {
+          await this.autoSaveSettings();
+        }
+      }
+    },
     // 推理模型供应商选择
     async selectReasonerProvider(providerId) {
       const provider = this.modelProviders.find(p => p.id === providerId);
@@ -3189,6 +3217,12 @@ let vue_methods = {
     handleVisionProviderVisibleChange(visible) {
       if (!visible) {
         this.selectVisionProvider(this.visionSettings.selectedProvider);
+      }
+    },
+    handleBrainProviderVisibleChange(visible) {
+      // 当下拉框关闭 (!visible) 且当前有选中的供应商 ID 时
+      if (!visible && this.currentBrainSettings && this.currentBrainSettings.selectedProvider) {
+        this.selectBrainProvider(this.currentBrainSettings.selectedProvider);
       }
     },
     // 创建知识库
@@ -13475,4 +13509,8 @@ async togglePlugin(plugin) {
         }
     },
 
+    openBrainEdit(brainKey) {
+      this.currentEditingKey = brainKey;
+      this.showBrainEditDialog = true;
+    },
 }
