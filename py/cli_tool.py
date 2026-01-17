@@ -79,7 +79,6 @@ async def claude_code_async(prompt) -> str | AsyncIterator[str]:
     async def _stream() -> AsyncIterator[str]:
         options = ClaudeAgentOptions(
             cwd=cwd,
-            permission_mode=ccSettings.get("cc_permissionMode","default"),
             continue_conversation=True,
             env={
                 **os.environ,
@@ -105,6 +104,10 @@ cli_info = """这是一个交互式命令行工具，专门帮助用户完成软
   - 以及其他编程相关的任务
 
   运行在您的本地环境中，可以访问文件系统并使用各种工具来帮助您完成工作。
+
+  当你被要求写一些项目或者对工作区的项目进行操作时，请尽量使用自然语言描述你的需求，这样交互式命令行工具能更好地理解并执行你的指令。
+  
+  你只需要给出计划，而不是具体实现，控制CLI的智能体会根据你的计划自动生成代码并执行。
 """
 
 claude_code_tool = {
@@ -163,10 +166,10 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
         # --- 核心修改：使用列表构造命令 ---
         cmd_args = [
             executable,           # 程序名
-            "--approval-mode",    # 参数名
-            approval_mode,        # 参数值
             "-p",                 # 参数名
-            prompt                # 参数值 (系统会自动处理内部的引号和特殊字符)
+            prompt,                # 参数值 (系统会自动处理内部的引号和特殊字符)
+            "--approval-mode",    # 参数名
+            approval_mode        # 参数值
         ]
         
         try:
