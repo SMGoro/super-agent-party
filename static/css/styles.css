@@ -7118,3 +7118,252 @@ hr.footnotes-sep {
   /* 进度条改为半透明白色 */
   background: rgba(255, 255, 255, 0.4) !important;
 }
+
+/* --- Mind Page Container --- */
+.mind-page {
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 页面背景：中心径向渐变 */
+  background: radial-gradient(circle at center, var(--el-bg-color-page) 0%, var(--bg-color) 100%);
+}
+
+/* 背景网格动画 */
+.mind-grid-bg {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image: 
+    linear-gradient(rgba(128, 128, 128, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(128, 128, 128, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  perspective: 1000px;
+  transform-style: preserve-3d;
+  opacity: 0.5;
+  z-index: 0;
+}
+
+.brain-wrapper {
+  position: relative;
+  width: 800px;
+  height: 600px;
+  z-index: 1;
+}
+
+/* --- SVG Brain Styles --- */
+.brain-svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px;
+  height: 500px;
+  opacity: 0.8;
+  pointer-events: none; /* 让鼠标穿透 SVG 点击下面的元素 */
+}
+
+.brain-path {
+  fill: none;
+  stroke: var(--el-color-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.3;
+  transition: all 0.5s ease;
+}
+
+.connector-line {
+  fill: none;
+  stroke: var(--el-text-color-secondary);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.2;
+}
+
+/* 脉冲点动画 */
+.pulse-dot {
+  fill: var(--el-color-primary);
+  filter: drop-shadow(0 0 5px var(--el-color-primary));
+  animation: mind-pulse 3s infinite;
+}
+
+@keyframes mind-pulse {
+  0% { r: 2; opacity: 0.5; }
+  50% { r: 6; opacity: 1; }
+  100% { r: 2; opacity: 0.5; }
+}
+
+/* --- Holographic Cards (The 4 Regions) --- */
+.mind-card {
+  position: absolute;
+  width: 220px;
+  padding: 16px;
+  border-radius: 16px;
+  /* 磨砂玻璃核心 */
+  background: color-mix(in srgb, var(--el-bg-color) 60%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* 
+   ------------------------------------------------------
+   卡片布局定位 (已按要求调整)
+   ------------------------------------------------------ 
+*/
+
+/* 1. 理性脑 (Rational) - 顶部居中 */
+.rational-card { 
+  top: 0; 
+  left: 50%; 
+  transform: translateX(-50%); 
+}
+
+/* 2. 前额叶 (Prefrontal) - 左侧 */
+.prefrontal-card { 
+  top: 40%; 
+  left: 0; 
+  transform: none; /* 不需要位移 */
+}
+
+/* 3. 感性脑 (Emotional) - 右侧 */
+.emotional-card { 
+  top: 40%; 
+  right: 0; 
+  transform: none;
+}
+
+/* 4. 生理脑 (Physio) - 底部居中 */
+.physio-card { 
+  bottom: 50px; 
+  left: 50%; 
+  transform: translateX(-50%); 
+}
+
+/* 
+   ------------------------------------------------------
+   悬停效果 (Hover) - 修正动画逻辑
+   ------------------------------------------------------ 
+*/
+
+/* 通用高亮 */
+.mind-card:hover {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 20px rgba(var(--el-color-primary-rgb), 0.2);
+  z-index: 10;
+}
+
+/* 位于中间的卡片 (理性脑、生理脑) - 悬停时需保持居中位移 */
+.rational-card:hover, 
+.physio-card:hover {
+  transform: scale(1.05) translateX(-50%);
+}
+
+/* 位于两侧的卡片 (前额叶、感性脑) - 悬停时直接放大 */
+.prefrontal-card:hover, 
+.emotional-card:hover {
+  transform: scale(1.05);
+}
+
+/* 内部发光装饰 */
+.card-glow {
+  position: absolute;
+  top: -50%; left: -50%; width: 200%; height: 200%;
+  background: radial-gradient(circle, rgba(var(--el-color-primary-rgb), 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.5s;
+  pointer-events: none;
+}
+.mind-card:hover .card-glow { opacity: 1; }
+
+/* 图标样式 */
+.mind-icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: rgba(var(--el-color-primary-rgb), 0.1);
+  color: var(--el-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.mind-content h3 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  color: var(--el-text-color-primary);
+}
+
+.subtitle {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 波动动画 (用于感性脑等装饰) */
+.wave-visual {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+}
+.wave-visual span {
+  width: 3px;
+  background: var(--el-color-danger);
+  border-radius: 2px;
+  animation: wave 1s ease-in-out infinite;
+}
+.wave-visual span:nth-child(2) { animation-delay: 0.1s; height: 60%; }
+.wave-visual span:nth-child(3) { animation-delay: 0.2s; height: 100%; }
+.wave-visual span:nth-child(4) { animation-delay: 0.3s; height: 70%; }
+.wave-visual span:nth-child(5) { animation-delay: 0.4s; height: 40%; }
+
+@keyframes wave {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .brain-wrapper { 
+    width: 100%; 
+    height: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 16px; 
+    padding: 20px; 
+  }
+  
+  .brain-svg { 
+    display: none; /* 手机上隐藏复杂的连线 */ 
+  }
+  
+  /* 强制重置所有定位和变换，改为流式布局 */
+  .mind-card, 
+  .rational-card, 
+  .prefrontal-card, 
+  .emotional-card, 
+  .physio-card {
+    position: relative;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 100%;
+  }
+  
+  /* 移动端点击效果 */
+  .mind-card:active {
+    transform: scale(0.98) !important;
+  }
+}

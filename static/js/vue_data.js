@@ -1174,6 +1174,7 @@ let vue_data = {
 ],
     roleTiles:[
         { id: 'memory', title: 'CharacterMemory', icon: 'fa-solid fa-brain' },
+        { id: 'mind', title: 'CharacterMind', icon: 'fa-solid fa-heart' },
         { id: 'voice', title: 'CharacterVoice', icon: 'fa-solid fa-volume-high' },
         { id: 'appearance', title: 'CharacterAppearance', icon: 'fa-solid fa-person' },
         { id: 'behavior', title: 'CharacterBehavior', icon: 'fa-solid fa-person-running' },
