@@ -175,6 +175,13 @@
       "api_key":"",
       "model":""
     },
+    "ocSettings": {
+      "enabled": false,
+      "selectedProvider": null,
+      "base_url":"",
+      "api_key":"",
+      "model":""
+    },
     "HASettings": {
       "enabled": false,
       "api_key": "",

@@ -967,7 +967,7 @@ const app = Vue.createApp({
             config.selectedProvider = newProviders[0].id;
           }
         });
-        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings].forEach(config => {
+        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings,this.qcSettings].forEach(config => {
           if (config.selectedProvider) this.syncProviderConfig(config);
         });
       }

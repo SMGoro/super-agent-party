@@ -80,6 +80,7 @@ async def claude_code_async(prompt) -> str | AsyncIterator[str]:
         options = ClaudeAgentOptions(
             cwd=cwd,
             continue_conversation=True,
+            permission_mode=ccSettings.get("permission_mode", "default"),
             env={
                 **os.environ,
                 **extra_config
@@ -156,7 +157,7 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
             "OPENAI_MODEL":    str(qcSettings.get("model")    or ""),
         }
     
-    approval_mode = str(qcSettings.get("qc_permissionMode", "default"))
+    approval_mode = str(qcSettings.get("permissionMode", "default"))
     
     # 寻找可执行文件路径，提高稳定性（可选，找不到则直接用 "qwen"）
     executable = shutil.which("qwen") or "qwen"

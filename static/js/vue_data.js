@@ -335,22 +335,30 @@ let vue_data = {
       enabled: false,
       engine: 'cc',
       cc_path: '',
-      cc_permissionMode: 'default',
-      qc_permissionMode: 'default',
     },
     ccSettings: {
       enabled: false,
       selectedProvider: null,
       base_url:'',
       api_key:'',
-      model:''
+      model:'',
+      permissionMode: 'default',
     },
     qcSettings: {
       enabled: false,
       selectedProvider: null,
       base_url:'',
       api_key:'',
-      model:''
+      model:'',
+      permissionMode: 'default',
+    },
+    ocSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+      permissionMode: 'default',
     },
     HASettings: {
       enabled: false,

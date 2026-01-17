@@ -7149,6 +7149,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         >
                           <el-option label="Claude Code" value="cc" ></el-option>
                           <el-option label="Qwen Code" value="qc" ></el-option>
+                          <el-option label="Open Code" value="oc" ></el-option>
                         </el-select>
                       </el-form-item>
                     </div>
@@ -7190,7 +7191,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-form-item>
                       <el-form-item :label="t('permissionMode')" class="form-item-align">
                         <el-select
-                          v-model="CLISettings.cc_permissionMode"
+                          v-model="ccSettings.permissionMode"
                           @change="autoSaveSettings"
                           class="full-width-input"
                         >
@@ -7281,7 +7282,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-form-item>
                       <el-form-item :label="t('permissionMode')" class="form-item-align">
                         <el-select
-                          v-model="CLISettings.qc_permissionMode"
+                          v-model="qcSettings.permissionMode"
                           @change="autoSaveSettings"
                           class="full-width-input"
                         >
