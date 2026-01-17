@@ -214,6 +214,7 @@ class DiscordClient(discord.Client):
                 extra_body={
                     "asyncToolsID": async_tools,
                     "fileLinks": file_links,
+                    "is_app_bot": True,
                 },
             )
         except Exception as e:          # 捕获任意网络/超时异常

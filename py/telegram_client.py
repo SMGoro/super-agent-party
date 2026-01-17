@@ -174,6 +174,7 @@ class TelegramClient:
             extra_body={
                 "asyncToolsID": self.asyncToolsID[chat_id],
                 "fileLinks": self.fileLinks[chat_id],
+                "is_app_bot": True,
             },
         )
         async for chunk in stream:

@@ -795,6 +795,7 @@ class ChatRequest(BaseModel):
     enable_web_search: bool = False
     asyncToolsID: List[str] = None
     reasoning_effort: str = None
+    is_app_bot: bool = False
 
 async def message_without_images(messages: List[Dict]) -> List[Dict]:
     if messages:
@@ -891,10 +892,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         sql_status = await sql_client.call_tool("all_table_names", {})
         sql_message = f"\n\n以下是当前数据库all_table_names工具的返回结果：{sql_status}\n\n"
         content_append(request.messages, 'system', sql_message)
-    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled']:
+    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot:
         language_message = f"\n\n当你看到被插入到对话之间的系统消息，这是自主行为系统向你发送的消息，例如用户主动或者要求你设置了一些定时任务或者延时任务，当你看到自主行为系统向你发送的消息时，说明这些任务到了需要被执行的节点，例如：用户要你三点或五分钟后提醒开会的事情，然后当你看到一个被插入的“提醒用户开会”的系统消息，你需要立刻提醒用户开会，以此类推\n\n"
         content_append(request.messages, 'system', language_message)
-    if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] == True:
+    if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
         # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
         for key in settings['ttsSettings']['newtts']:
             if settings['ttsSettings']['newtts'][key]['enabled']:
@@ -904,7 +905,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             print(f"可用音色：{newttsList}")
             newtts_messages = f"你可以使用以下音色：\n{newttsList}\n以及特殊无声音色<silence>标签（如果要使用，必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分会不会进入语音合成，当你生成回答时，你需要以XML格式组织回答，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><silence>(眼睛笑成了一条线)</silence><Narrator>说完她伸了个懒腰。</Narrator>\n\n还有注意！<音色名></音色名>之间不能嵌套，只能并列，并且<音色名>和</音色名>必须成对出现，防止出现音色混乱！\n\n如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！\n\n"
             content_prepend(request.messages, 'system', newtts_messages)
-    if settings['vision']['desktopVision']:
+    if settings['vision']['desktopVision'] and not request.is_app_bot:
         desktop_message = "\n\n用户与你对话时，会自动发给你当前的桌面截图。\n\n"
         content_append(request.messages, 'system', desktop_message)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'beforeThinking':
@@ -928,10 +929,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     if settings['text2imgSettings']['enabled']:
         text2img_messages = "\n\n当你使用画图工具后，必须将图片的URL放在markdown的图片标签中，例如：\n\n<silence>![图片名](图片URL)</silence>\n\n，图片markdown必须另起并且独占一行！请主动发给用户，工具返回的结果，用户看不到！<silence>和</silence>是控制TTS的静音标签，表示这个图片部分不会进入语音合成\n\n你必须在回复中正确使用 <silence> 标签来包裹图片的 Markdown 语法\n\n注意！！！<silence>和</silence>与图片的 Markdown 语法之间不能有空格和回车，会导致解析失败！\n\n"
         content_append(request.messages, 'system', text2img_messages)
-    if settings['VRMConfig']['enabledExpressions']:
+    if settings['VRMConfig']['enabledExpressions'] and not request.is_app_bot:
         Expression_messages = "\n\n你可以使用以下表情：<happy> <angry> <sad> <neutral> <surprised> <relaxed>\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头（如果有音色标签，就放到音色标签之后即可），才能在说这句话的时候同步做表情，例如：<angry>我真的生气了。<surprised>哇！<happy>我好开心。\n\n一定要把表情符号跟要做表情的句子放在同一行，如果表情符号和要做表情的句子中间有换行符，表情也将不会生效，例如：\n\n<happy>\n我好开心。\n\n此时，表情符号将不会生效。"
         content_append(request.messages, 'system', Expression_messages)
-    if settings['VRMConfig']['enabledMotions']:
+    if settings['VRMConfig']['enabledMotions'] and not request.is_app_bot:
         # 1. 合并动作列表
         motions = settings['VRMConfig']['defaultMotions'] + settings['VRMConfig']['userMotions']
         # 2. 给每个动作加上 <>
@@ -948,7 +949,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         )
 
         content_append(request.messages, 'system', Motion_messages)
-    if settings['tools']['a2ui']['enabled']:
+    if settings['tools']['a2ui']['enabled'] and not request.is_app_bot:
         A2UI_messages = """
 除了使用自然语言回答用户问题外，你还拥有一个特殊能力：**渲染 A2UI 界面**。
 
