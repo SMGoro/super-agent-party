@@ -6905,3 +6905,216 @@ hr.footnotes-sep {
   color: #666;
   white-space: nowrap;
 }
+
+/* =========================================
+   Advanced Pro Notification (Top-Right Toast)
+   ========================================= */
+
+.notification {
+  /* 定位：右上角悬浮 */
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  left: auto; /* 重置之前的居中设置 */
+  
+  /* 初始状态：完全位移到屏幕右侧外，透明 */
+  transform: translateX(120%);
+  opacity: 0;
+  
+  /* 布局 */
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px;
+  
+  /* 尺寸限制 */
+  min-width: 320px;
+  max-width: 400px;
+  
+  /* 视觉风格：保持不变 (磨砂 + 高级阴影) */
+  background: var(--el-bg-color-overlay, rgba(255, 255, 255, 0.95));
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  
+  /* 边框与圆角 */
+  border: 1px solid var(--el-border-color-light, rgba(0,0,0,0.1));
+  border-radius: 12px;
+  
+  /* 阴影：侧边弹出更适合稍重的左侧阴影 */
+  box-shadow: 
+    -5px 5px 20px -5px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  /* 字体 */
+  color: var(--el-text-color-primary, #333);
+  font-family: var(--el-font-family, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  
+  /* 动画过渡：使用这种贝塞尔曲线会有“快速进入，缓慢刹车”的高级感 */
+  transition: all 0.4s cubic-bezier(0.215, 0.61, 0.355, 1);
+  z-index: 10000;
+  pointer-events: auto; /* 右上角通常允许点击关闭，保持可交互 */
+  overflow: hidden;
+}
+
+/* 激活状态：滑入屏幕 */
+.notification.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* 离开状态：滑出屏幕 */
+.notification.hide {
+  opacity: 0;
+  transform: translateX(120%);
+}
+
+/* --- 下面的样式保持不变 (图标、内容、进度条、主题适配) --- */
+
+.notif-icon-box {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.notif-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 24px;
+}
+
+.notif-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+  font-size: 15px;
+}
+
+.notif-desc {
+  color: var(--el-text-color-secondary, #666);
+  font-size: 13px;
+  word-break: break-word; /* 防止长单词撑破布局 */
+}
+
+/* 进度条 */
+.notif-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: currentColor;
+  width: 100%;
+  opacity: 0.2;
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+.notification.show .notif-progress {
+  transition-property: transform;
+  transition-timing-function: linear;
+  transform: scaleX(1);
+}
+
+/* ================= 主题颜色适配 (保持不变) ================= */
+.notification.success { border-left: 4px solid var(--el-color-success, #67c23a); }
+.notification.success .notif-icon-box { color: var(--el-color-success, #67c23a); }
+.notification.success .notif-progress { background: var(--el-color-success, #67c23a); }
+
+.notification.error { border-left: 4px solid var(--el-color-danger, #f56c6c); }
+.notification.error .notif-icon-box { color: var(--el-color-danger, #f56c6c); }
+.notification.error .notif-progress { background: var(--el-color-danger, #f56c6c); }
+
+.notification.warning { border-left: 4px solid var(--el-color-warning, #e6a23c); }
+.notification.warning .notif-icon-box { color: var(--el-color-warning, #e6a23c); }
+.notification.warning .notif-progress { background: var(--el-color-warning, #e6a23c); }
+
+.notification.info { border-left: 4px solid var(--el-color-primary, #409eff); }
+.notification.info .notif-icon-box { color: var(--el-color-primary, #409eff); }
+.notification.info .notif-progress { background: var(--el-color-primary, #409eff); }
+
+/* ================= 移动端适配 ================= */
+/* 手机屏幕很窄，右上角弹出显示不全，强制改回顶部居中 */
+@media (max-width: 768px) {
+  .notification {
+    top: 16px;
+    left: 50%;
+    right: auto;
+    width: 90%;
+    min-width: auto;
+    /* 手机端改成向下弹出 */
+    transform: translateX(-50%) translateY(-150%);
+    border-radius: 12px;
+  }
+  
+  .notification.show {
+    transform: translateX(-50%) translateY(0);
+  }
+  
+  .notification.hide {
+    transform: translateX(-50%) translateY(-150%);
+  }
+}
+
+
+/* =========================================================
+   特殊覆盖：Warning 和 Error 使用实色背景 + 白色文字
+   ========================================================= */
+
+/* --- 1. Error (Danger) 红色实底模式 --- */
+.notification.error {
+  /* 强制背景为红色 (使用变量或默认色) */
+  background: var(--el-color-danger, #f56c6c) !important;
+  /* 去掉磨砂玻璃的半透明边框 */
+  border: 1px solid transparent !important;
+  /* 强制主标题文字为白色 */
+  color: #ffffff !important;
+  /* 稍微增加一点深色投影，增加立体感 */
+  box-shadow: 0 8px 16px rgba(245, 108, 108, 0.3) !important;
+}
+
+/* --- 2. Warning 橙色实底模式 --- */
+.notification.warning {
+  /* 强制背景为橙色 */
+  background: var(--el-color-warning, #e6a23c) !important;
+  border: 1px solid transparent !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 16px rgba(230, 162, 60, 0.3) !important;
+}
+
+/* --- 3. 统一修正这两个模式下的内部元素颜色 --- */
+
+/* 修正描述文字 (notif-desc) */
+.notification.error .notif-desc,
+.notification.warning .notif-desc {
+  /* 使用 90% 透明度的白色，既保持清晰又有层次感 */
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* 修正图标颜色 */
+.notification.error .notif-icon-box,
+.notification.warning .notif-icon-box {
+  /* 图标改为纯白 */
+  color: #ffffff !important;
+}
+
+/* 修正左侧装饰线 (因为背景已经是彩色了，左侧线可以去掉或者改成白色) */
+.notification.error,
+.notification.warning {
+  border-left: none !important; /* 建议去掉左侧条，因为整体已经是彩色了 */
+  /* 或者如果你想保留左侧条，可以改成深色一点的：
+     border-left: 4px solid rgba(0,0,0,0.2) !important; 
+  */
+}
+
+/* 修正底部进度条颜色 */
+.notification.error .notif-progress,
+.notification.warning .notif-progress {
+  /* 进度条改为半透明白色 */
+  background: rgba(255, 255, 255, 0.4) !important;
+}

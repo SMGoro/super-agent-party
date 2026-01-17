@@ -1492,27 +1492,62 @@ const app = Vue.createApp({
   },
 });
 
-function showNotification(message, type = 'success') {
-  const notification = document.createElement('div');
-  notification.className = `notification ${type}`;
-  notification.textContent = message;
-  document.body.appendChild(notification);
-  
-  // 强制重绘确保动画生效
-  void notification.offsetWidth;
-  
-  notification.classList.add('show');
+// FontAwesome 图标映射
+const NOTIFICATION_ICONS = {
+    success: 'fa-solid fa-circle-check',
+    error: 'fa-solid fa-circle-xmark',
+    warning: 'fa-solid fa-triangle-exclamation',
+    info: 'fa-solid fa-circle-info'
+};
 
-  // 设置显示时间：错误提示显示5秒，其他提示显示2秒
-  const duration = type === 'error' ? 5000 : 2000;
+let notificationTimeout;
 
-  setTimeout(() => {
-    notification.classList.remove('show');
-    notification.classList.add('hide');
-    setTimeout(() => notification.remove(), 400);
-  }, duration);
+function showNotification(message, type = 'success', title = '') {
+    // 移除旧通知 (单例模式，避免右上角堆叠过多)
+    const existingNotification = document.querySelector('.notification');
+    if (existingNotification) {
+        existingNotification.remove();
+        clearTimeout(notificationTimeout);
+    }
+
+    const iconClass = NOTIFICATION_ICONS[type] || NOTIFICATION_ICONS.info;
+    const duration = type === 'error' ? 5000 : 3000;
+
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    
+    notification.innerHTML = `
+        <div class="notif-icon-box">
+            <i class="${iconClass}"></i>
+        </div>
+        <div class="notif-content">
+            ${title ? `<div class="notif-title">${title}</div>` : ''}
+            <div class="notif-desc" style="${!title ? 'color: var(--el-text-color-primary);' : ''}">${message}</div>
+        </div>
+        <div class="notif-progress" style="transition-duration: ${duration}ms"></div>
+    `;
+
+    document.body.appendChild(notification);
+    
+    // 强制重绘
+    void notification.offsetWidth;
+
+    requestAnimationFrame(() => {
+        notification.classList.add('show');
+    });
+
+    notificationTimeout = setTimeout(() => {
+        notification.classList.remove('show');
+        notification.classList.add('hide');
+        setTimeout(() => {
+            if (notification.parentNode) notification.remove();
+        }, 400); 
+    }, duration);
 }
 
+// 兼容旧代码调用方式 (如果你的代码里只传了 message)
+// showNotification("保存成功"); -> 默认为 success
+// showNotification("保存失败", "error");
 function removeNonAsciiTags(html) {
   // 匹配所有标签（包括开始标签和结束标签）
   // 例如：<旁白> 和 </旁白>

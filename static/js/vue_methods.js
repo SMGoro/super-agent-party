@@ -9788,7 +9788,7 @@ stopTTSActivities() {
   },
   savePrompt() {
     if (!this.promptForm.name || !this.promptForm.content) {
-      ElMessage.warning(this.t('pleaseCompleteForm'))
+      showNotification(this.t('pleaseCompleteForm'), 'warning')
       return
     }
     if (!this.promptForm.id) {
