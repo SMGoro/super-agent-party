@@ -1,4 +1,5 @@
 # -- coding: utf-8 --
+import mimetypes
 import sys
 import traceback
 
@@ -171,6 +172,20 @@ ALLOWED_EXTENSIONS = [
 ALLOWED_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
 
 ALLOWED_VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', '3gp', 'm4v']
+
+# 1. 先清空系统可能给错的条目
+for ext in ("js", "mjs", "css", "html", "htm", "json", "xml", "map", "svg"):
+    mimetypes.add_type("", f".{ext}")          # 先删掉
+# 2. 再写死我们想要的
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("text/html", ".html")
+mimetypes.add_type("text/html", ".htm")
+mimetypes.add_type("application/json", ".json")
+mimetypes.add_type("application/xml", ".xml")
+mimetypes.add_type("application/json", ".map")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 
 def _get_target_message(message, role):
