@@ -6946,7 +6946,7 @@ hr.footnotes-sep {
     0 4px 6px -2px rgba(0, 0, 0, 0.05);
 
   /* 字体 */
-  color: var(--el-text-color-primary, #333);
+  color: var(--el-text-color-primary);
   font-family: var(--el-font-family, system-ui, sans-serif);
   font-size: 14px;
   line-height: 1.5;
@@ -7022,21 +7022,21 @@ hr.footnotes-sep {
 }
 
 /* ================= 主题颜色适配 (保持不变) ================= */
-.notification.success { border-left: 4px solid var(--el-color-success, #67c23a); }
-.notification.success .notif-icon-box { color: var(--el-color-success, #67c23a); }
-.notification.success .notif-progress { background: var(--el-color-success, #67c23a); }
+.notification.success { border-left: 4px solid var(--el-color-success); background: var(--el-bg-color-page) !important; color: var(--el-text-color-primary) !important;}
+.notification.success .notif-icon-box { color: var(--el-color-success); }
+.notification.success .notif-progress { background: var(--el-color-success); }
 
-.notification.error { border-left: 4px solid var(--el-color-danger, #f56c6c); }
-.notification.error .notif-icon-box { color: var(--el-color-danger, #f56c6c); }
-.notification.error .notif-progress { background: var(--el-color-danger, #f56c6c); }
+.notification.error { border-left: 4px solid var(--el-color-danger); }
+.notification.error .notif-icon-box { color: var(--el-color-danger); }
+.notification.error .notif-progress { background: var(--el-color-danger); }
 
-.notification.warning { border-left: 4px solid var(--el-color-warning, #e6a23c); }
-.notification.warning .notif-icon-box { color: var(--el-color-warning, #e6a23c); }
-.notification.warning .notif-progress { background: var(--el-color-warning, #e6a23c); }
+.notification.warning { border-left: 4px solid var(--el-color-warning); }
+.notification.warning .notif-icon-box { color: var(--el-color-warning); }
+.notification.warning .notif-progress { background: var(--el-color-warning); }
 
-.notification.info { border-left: 4px solid var(--el-color-primary, #409eff); }
-.notification.info .notif-icon-box { color: var(--el-color-primary, #409eff); }
-.notification.info .notif-progress { background: var(--el-color-primary, #409eff); }
+.notification.info { border-left: 4px solid var(--el-color-primary);  background: var(--el-bg-color-page) !important; color: var(--el-text-color-primary) !important;}
+.notification.info .notif-icon-box { color: var(--el-color-primary); }
+.notification.info .notif-progress { background: var(--el-color-primary); }
 
 /* ================= 移动端适配 ================= */
 /* 手机屏幕很窄，右上角弹出显示不全，强制改回顶部居中 */
@@ -7069,7 +7069,7 @@ hr.footnotes-sep {
 /* --- 1. Error (Danger) 红色实底模式 --- */
 .notification.error {
   /* 强制背景为红色 (使用变量或默认色) */
-  background: var(--el-color-danger, #f56c6c) !important;
+  background: var(--el-color-danger) !important;
   /* 去掉磨砂玻璃的半透明边框 */
   border: 1px solid transparent !important;
   /* 强制主标题文字为白色 */
@@ -7081,7 +7081,7 @@ hr.footnotes-sep {
 /* --- 2. Warning 橙色实底模式 --- */
 .notification.warning {
   /* 强制背景为橙色 */
-  background: var(--el-color-warning, #e6a23c) !important;
+  background: var(--el-color-warning) !important;
   border: 1px solid transparent !important;
   color: #ffffff !important;
   box-shadow: 0 8px 16px rgba(230, 162, 60, 0.3) !important;
@@ -7569,3 +7569,50 @@ hr.footnotes-sep {
 }
 
 
+/* =========================================
+   新功能：卡片启用状态 (Active/Enabled State)
+   ========================================= */
+
+/* 1. 当卡片被启用时 (.enabled 类)，保持高亮状态 */
+.mind-card.enabled {
+  border-color: var(--el-color-primary);
+  /* 使用呼吸灯阴影效果 */
+  box-shadow: 0 0 15px rgba(var(--el-color-primary-rgb), 0.25);
+  /* 稍微加深背景，表示已通电 */
+  background: color-mix(in srgb, var(--el-bg-color) 70%, rgba(var(--el-color-primary-rgb), 0.1));
+}
+
+/* 2. 启用状态下，内部发光层常驻 */
+.mind-card.enabled .card-glow {
+  opacity: 0.6; /* 保持可见，但比 hover (1.0) 稍微弱一点 */
+  animation: card-breathe 3s infinite alternate; /* 添加呼吸动画 */
+}
+
+/* 3. 启用状态下，图标变亮 (实心发光) */
+.mind-card.enabled .mind-icon {
+  background: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 0 10px var(--el-color-primary);
+  text-shadow: 0 0 5px rgba(255,255,255,0.8);
+}
+
+/* 4. 启用状态下的 Hover 叠加效果 */
+.mind-card.enabled:hover {
+  transform: scale(1.02); /* 启用时 Hover 放大比例稍微减小，更稳重 */
+  box-shadow: 0 0 25px rgba(var(--el-color-primary-rgb), 0.4);
+}
+
+.mind-card.enabled:hover .card-glow {
+  opacity: 0.9;
+}
+
+/* 定义卡片呼吸动画 */
+@keyframes card-breathe {
+  0% { opacity: 0.3; }
+  100% { opacity: 0.7; }
+}
+
+/* 
+   注意：原有的 .full-power-mode 样式不需要删除，
+   它控制的是 .brain-path (连线) 和背景能量场，这正是你想要的“全部启用后才激活连线”的效果。
+*/

@@ -10093,6 +10093,7 @@ stopTTSActivities() {
     } finally {
       this.isGenerating = false;
       this.QuickGenAbortController = null;
+      this.quickCreatePrompt = '';
     }
   },
   stopQuickGen() {

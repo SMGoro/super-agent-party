@@ -2662,13 +2662,15 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <!-- 四个功能区卡片 (添加了 @click 事件) -->
                     
                     <!-- 1. 前额叶 -->
-                    <div class="mind-card prefrontal-card" @click="openBrainEdit('prefrontalCortex')">
+                    <!-- 增加 :class="{ 'enabled': prefrontalCortexSettings.enabled }" -->
+                    <div class="mind-card prefrontal-card" 
+                         :class="{ 'enabled': prefrontalCortexSettings.enabled }"
+                         @click="openBrainEdit('prefrontalCortex')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-chess-king"></i></div>
                       <div class="mind-content">
                         <h3>{{ t('prefrontalCortex')}}</h3>
                         <p>{{t('prefrontalCortexNotice')}}</p>
-                        <!-- 可选：显示当前状态的小标签 -->
                         <el-tag size="small" :type="prefrontalCortexSettings.enabled ? 'success' : 'info'">
                           {{ prefrontalCortexSettings.enabled ? t('enabled') : t('disabled') }}
                         </el-tag>
@@ -2676,7 +2678,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- 2. 理性脑 -->
-                    <div class="mind-card rational-card" @click="openBrainEdit('Neocortex')">
+                    <!-- 增加 :class="{ 'enabled': NeocortexSettings.enabled }" -->
+                    <div class="mind-card rational-card" 
+                         :class="{ 'enabled': NeocortexSettings.enabled }"
+                         @click="openBrainEdit('Neocortex')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-microchip"></i></div>
                       <div class="mind-content">
@@ -2689,7 +2694,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- 3. 感性脑 -->
-                    <div class="mind-card emotional-card" @click="openBrainEdit('LimbicSystem')">
+                    <!-- 增加 :class="{ 'enabled': LimbicSystemSettings.enabled }" -->
+                    <div class="mind-card emotional-card" 
+                         :class="{ 'enabled': LimbicSystemSettings.enabled }"
+                         @click="openBrainEdit('LimbicSystem')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-heart-pulse"></i></div>
                       <div class="mind-content">
@@ -2702,7 +2710,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- 4. 生理脑 -->
-                    <div class="mind-card physio-card" @click="openBrainEdit('ReptilianBrain')">
+                    <!-- 增加 :class="{ 'enabled': ReptilianBrainSettings.enabled }" -->
+                    <div class="mind-card physio-card" 
+                         :class="{ 'enabled': ReptilianBrainSettings.enabled }"
+                         @click="openBrainEdit('ReptilianBrain')">
                       <div class="card-glow"></div>
                       <div class="mind-icon"><i class="fa-solid fa-dna"></i></div>
                       <div class="mind-content">
