@@ -4252,7 +4252,7 @@ def sanitize_proxy_url(input_url: str) -> str:
 @app.api_route("/extension_proxy", methods=["GET", "POST"])
 async def extension_proxy(request: Request, url: str):
     """
-    方便浏览器插件调用的通用代理接口，让插件能够绕过 CORS 限制访问任意 URL。
+    方便SAP插件调用的通用代理接口，让插件能够绕过 CORS 限制访问任意 URL。
     """
     BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     # --- 阶段 A: 安全校验 (保留，防止 SSRF 攻击内网) ---
