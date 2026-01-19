@@ -4249,48 +4249,49 @@ def sanitize_proxy_url(input_url: str) -> str:
 
     return safe_url
 
-# 建议 UA 包含项目地址
-USER_AGENT = "Mozilla/5.0 (compatible; OpenSourceProxyBot/1.0)"
-ROBOTS_CACHE = {}
-
-# ================= 2. 修改后的代理路由 =================
-
 @app.api_route("/extension_proxy", methods=["GET", "POST"])
 async def extension_proxy(request: Request, url: str):
     """
-    集成安全校验与 Robots 协议的代理接口
+    方便浏览器插件调用的通用代理接口，让插件能够绕过 CORS 限制访问任意 URL。
     """
-    # --- 阶段 A: 安全校验 ---
+    BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    # --- 阶段 A: 安全校验 (保留，防止 SSRF 攻击内网) ---
     try:
         target_url = sanitize_proxy_url(url)
     except HTTPException as e:
         return Response(content=e.detail, status_code=e.status_code)
-
-    # --- 阶段 B: 合规性校验 (Robots.txt) ---
-    is_allowed = await check_robots_txt(target_url)
-    if not is_allowed:
-        return Response(
-            content="Access denied by robots.txt", 
-            status_code=403,
-            media_type="text/plain"
-        )
-
-    # --- 阶段 C: 执行代理请求 ---
+    
+    # --- 阶段 B: 执行代理请求 ---
     method = request.method
     body = await request.body()
     
-    # 构造 Header
-    excluded_headers = {'host', 'content-length', 'connection', 'keep-alive'}
+    # 构造 Header：只保留必要的，去除杂质，添加身份标识
+    # 排除可能导致指纹泄露或被拒绝的 Header
+    excluded_headers = {
+        'host', 'content-length', 'connection', 'keep-alive', 
+        'upgrade-insecure-requests', 'accept-encoding', 'cookie', 'user-agent'
+    }
+    
     headers = {
         k: v for k, v in request.headers.items() 
         if k.lower() not in excluded_headers
     }
-    headers["User-Agent"] = USER_AGENT
+    
+    # 【关键点 1】：使用标准浏览器 UA，声明这是用户阅读行为
+    headers["User-Agent"] = BROWSER_USER_AGENT
+    
+    # 【关键点 2】：明确告诉服务器我们接受 XML/RSS 格式，这显得更像一个良性阅读器
+    if "accept" not in headers or "*/*" in headers["accept"]:
+        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+
+    # 【关键点 3】：处理 Referer。有些防盗链机制需要 Referer，有些（如 Reddit）看到奇怪的 Referer 会拦截
+    # 最安全的做法是不发送 Referer，或者设为目标域名的根目录
+    headers.pop("Referer", None) 
     
     print(f"--- [Extension Proxy] ---")
-    print(f"Safe Target: {target_url} | Method: {method}")
+    print(f"Target: {target_url} | Method: {method} | Mode: Browser Emulation")
     
-    # 使用 trust_env=False 进一步防止被环境变量代理干扰（SSRF 防御一部分）
+    # trust_env=False: 防止你的 Python 代码意外使用了系统层的 HTTP 代理
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=30.0, trust_env=False) as client:
         try:
             resp = await client.request(
@@ -4300,12 +4301,19 @@ async def extension_proxy(request: Request, url: str):
                 content=body
             )
             
-            # 透传响应头
+            # 清洗响应头：防止将压缩编码或分块传输透传给前端导致解析错误
             resp_headers = {
                 k: v for k, v in resp.headers.items()
-                if k.lower() not in {'content-encoding', 'content-length', 'transfer-encoding', 'server'}
+                if k.lower() not in {
+                    'content-encoding', 'content-length', 'transfer-encoding', 
+                    'server', 'set-cookie' # 也不要透传 Set-Cookie，保护用户隐私
+                }
             }
             
+            # 如果 Reddit 依然返回 403，通常内容里会有错误提示，照样返回给前端便于调试
+            if resp.status_code == 403:
+                print(f"[Proxy Warning] Target returned 403. Body sample: {resp.content[:100]}")
+
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
@@ -4315,13 +4323,12 @@ async def extension_proxy(request: Request, url: str):
 
         except httpx.ConnectError as e:
             err_msg = f"Proxy Connect Error: {e}"
-            if "json" in request.headers.get("accept", "").lower():
-                 return Response(content=f'{{"error": "{err_msg}"}}', status_code=502, media_type="application/json")
-            return Response(content=f"<error>{err_msg}</error>", status_code=502, media_type="text/xml")
+            # 返回 JSON 格式错误以便前端优雅处理
+            return Response(content=f'{{"error": "{err_msg}"}}', status_code=502, media_type="application/json")
             
         except Exception as e:
             print(f"[Proxy Error] System: {repr(e)}")
-            return Response(content="Internal Server Error during proxy", status_code=500)
+            return Response(content='{"error": "Internal Proxy Error"}', status_code=500, media_type="application/json")
 
         
 # 存储活跃的ASR WebSocket连接
