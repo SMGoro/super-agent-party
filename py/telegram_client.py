@@ -197,25 +197,61 @@ class TelegramClient:
             state["text_buffer"] += seg
             full_response.append(content)
 
-            # 分段发送
-            if self.separators:
+            if state["text_buffer"]:
+                # Telegram 限制 4096，设 3500 为安全线
+                force_split = len(state["text_buffer"]) > 3500
+                
                 while True:
-                    buf = state["text_buffer"]
+                    buffer = state["text_buffer"]
                     split_pos = -1
-                    for i, ch in enumerate(buf):
-                        if ch in self.separators:
-                            split_pos = i + 1
-                            break
-                    if split_pos <= 0:
+                    in_code_block = False
+                    
+                    if force_split:
+                        # 简单暴力查找
+                        min_idx = len(buffer) + 1
+                        found_sep_len = 0
+                        for sep in self.separators:
+                            idx = buffer.find(sep)
+                            if idx != -1 and idx < min_idx:
+                                min_idx = idx
+                                found_sep_len = len(sep)
+                        if min_idx <= len(buffer):
+                            split_pos = min_idx + found_sep_len
+                    else:
+                        # 智能扫描
+                        i = 0
+                        while i < len(buffer):
+                            if buffer[i:].startswith("```"):
+                                in_code_block = not in_code_block
+                                i += 3
+                                continue
+                            
+                            if not in_code_block:
+                                found_sep = False
+                                for sep in self.separators:
+                                    if buffer[i:].startswith(sep):
+                                        split_pos = i + len(sep)
+                                        found_sep = True
+                                        break
+                                if found_sep:
+                                    break
+                            i += 1
+                    
+                    if split_pos == -1:
                         break
-                    send_chunk = buf[:split_pos]
-                    state["text_buffer"] = buf[split_pos:]
+                        
+                    # 执行切分
+                    send_chunk = buffer[:split_pos]
+                    state["text_buffer"] = buffer[split_pos:]
+                    
                     clean = self._clean_text(send_chunk)
                     if clean:
                         if self.enableTTS:
                             pass
                         else:
                             await self._send_text(chat_id, clean)
+                            
+                    if force_split: break
 
         # 剩余文本
         if state["text_buffer"]:
@@ -249,10 +285,29 @@ class TelegramClient:
     # -------------------- 发送 API 封装 --------------------
     async def _send_text(self, chat_id: int, text: str, reply_to_msg_id: Optional[int] = None):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
+        
+        # 1. 尝试使用 Markdown (Legacy) 模式
+        # 相比 MarkdownV2，Legacy 模式容错率更高，虽然不支持下划线和删除线，但支持粗体、斜体、代码块和链接
+        payload = {
+            "chat_id": chat_id, 
+            "text": text, 
+            "parse_mode": "Markdown" 
+        }
         if reply_to_msg_id:
             payload["reply_to_message_id"] = reply_to_msg_id
-        await self.session.post(url, json=payload)
+            
+        async with self.session.post(url, json=payload) as resp:
+            if resp.status == 200:
+                return # 发送成功
+            
+            # 2. 如果发送失败（通常是因为 Markdown 语法未闭合导致的 400 错误）
+            # 读取错误信息（可选，用于调试）
+            # err_text = await resp.text() 
+            # logging.warning(f"Markdown 发送失败，尝试纯文本重发: {err_text}")
+
+            # 3. 回退策略：移除 parse_mode，发送纯文本
+            payload.pop("parse_mode")
+            await self.session.post(url, json=payload)
 
     async def _send_photo(self, chat_id: int, image_url: str):
         # 先下载
@@ -353,15 +408,14 @@ class TelegramClient:
             res = await resp.json()
             return res.get("text") if res.get("success") else None
 
-    def _clean_text(self, text):
-        """清理文本中的特殊标记"""
-        # 移除图片标记
-        clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-        # 移除超链接
-        clean = re.sub(r'\[.*?\]\(.*?\)', '', clean)
-        # 移除纯URL
-        clean = re.sub(r'https?://\S+', '', clean)
-        return clean.strip()
+    def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
+        return text.strip()
 
     def _extract_images(self, full_text: str, state: dict):
         for m in re.finditer(r"!\[.*?\]\((https?://[^\s)]+)", full_text):

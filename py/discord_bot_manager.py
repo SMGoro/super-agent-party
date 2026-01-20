@@ -254,22 +254,58 @@ class DiscordClient(discord.Client):
             state["text_buffer"] += content
             state["image_buffer"] += content
 
-            # —— 分段发送（与飞书逻辑一致） —— #
-            if self.config.separators:
+            if state["text_buffer"]:
+                # Discord 限制 2000，设 1800 为安全线
+                force_split = len(state["text_buffer"]) > 1800
+                
                 while True:
                     buffer = state["text_buffer"]
                     split_pos = -1
-                    for sep in self.config.separators:
-                        p = buffer.find(sep)
-                        if p != -1:
-                            split_pos = p + len(sep)
-                            break
+                    in_code_block = False
+                    
+                    if force_split:
+                        # 简单暴力查找（用于超长兜底）
+                        min_idx = len(buffer) + 1
+                        found_sep_len = 0
+                        for sep in self.config.separators:
+                            idx = buffer.find(sep)
+                            if idx != -1 and idx < min_idx:
+                                min_idx = idx
+                                found_sep_len = len(sep)
+                        if min_idx <= len(buffer):
+                            split_pos = min_idx + found_sep_len
+                    else:
+                        # 智能扫描
+                        i = 0
+                        while i < len(buffer):
+                            if buffer[i:].startswith("```"):
+                                in_code_block = not in_code_block
+                                i += 3
+                                continue
+                            
+                            if not in_code_block:
+                                found_sep = False
+                                for sep in self.config.separators:
+                                    if buffer[i:].startswith(sep):
+                                        split_pos = i + len(sep)
+                                        found_sep = True
+                                        break
+                                if found_sep:
+                                    break
+                            i += 1
+                    
                     if split_pos == -1:
-                        break
-                    seg, state["text_buffer"] = buffer[:split_pos], buffer[split_pos:]
+                        break # 没有找到有效的切分点
+                        
+                    # 执行切分
+                    seg = buffer[:split_pos]
+                    state["text_buffer"] = buffer[split_pos:]
+                    
                     seg = self._clean_text(seg)
                     if seg:
                         await self._send_segment(msg, seg)
+                    
+                    if force_split: break
 
         # 5. 剩余文本
         if state["text_buffer"]:
@@ -305,9 +341,12 @@ class DiscordClient(discord.Client):
                 return res.get("text") if res.get("success") else None
 
     def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
         text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"https?://\S+", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
         return text.strip()
 
     def clean_markdown(self, buffer):

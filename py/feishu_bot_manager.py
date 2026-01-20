@@ -757,29 +757,67 @@ class FeishuClient:
                 state["image_buffer"] += content
                 
                 # 处理文本实时发送
-                if self.separators:
+                if state["text_buffer"]:
+                    # 安全阈值：如果缓冲区堆积过大(4000字符)，强制忽略代码块逻辑进行切分，防止内存溢出
+                    force_split = len(state["text_buffer"]) > 4000
+                    
                     while True:
-                        # 查找分隔符
                         buffer = state["text_buffer"]
                         split_pos = -1
-                        for i, c in enumerate(buffer):
-                            if c in self.separators:
-                                split_pos = i + 1
-                                break
-                                
-                        # 有分段符，发送当前段落
-                        if split_pos > 0:
-                            current_chunk = buffer[:split_pos]
-                            state["text_buffer"] = buffer[split_pos:]
-                            
-                            # 清洗并发送文本
-                            clean_text = self._clean_text(current_chunk)
-                            if clean_text:
-                                if self.enableTTS:
-                                    pass
-                                else:
-                                    await self._send_text(msg, clean_text)
+                        in_code_block = False
+                        
+                        # 如果强制切分，直接用简单查找；否则使用智能扫描
+                        if force_split:
+                            # 简单查找最早的分隔符
+                            min_idx = len(buffer) + 1
+                            found_sep_len = 0
+                            for sep in self.separators:
+                                idx = buffer.find(sep)
+                                if idx != -1 and idx < min_idx:
+                                    min_idx = idx
+                                    found_sep_len = len(sep)
+                            if min_idx <= len(buffer):
+                                split_pos = min_idx + found_sep_len
                         else:
+                            # 智能扫描：寻找【不在代码块内】的第一个分隔符
+                            i = 0
+                            while i < len(buffer):
+                                # 检测代码块标记 ```
+                                if buffer[i:].startswith("```"):
+                                    in_code_block = not in_code_block
+                                    i += 3
+                                    continue
+                                
+                                # 只有不在代码块内时，才检测分隔符
+                                if not in_code_block:
+                                    found_sep = False
+                                    for sep in self.separators:
+                                        if buffer[i:].startswith(sep):
+                                            split_pos = i + len(sep)
+                                            found_sep = True
+                                            break
+                                    if found_sep:
+                                        break # 找到了合法的切分点
+                                i += 1
+                        
+                        # 如果没找到合法的切分点，跳出循环等待更多字符
+                        if split_pos == -1:
+                            break
+                            
+                        # 执行切分
+                        current_chunk = buffer[:split_pos]
+                        state["text_buffer"] = buffer[split_pos:]
+                        
+                        # 发送
+                        clean_text = self._clean_text(current_chunk)
+                        if clean_text:
+                            if self.enableTTS:
+                                pass
+                            else:
+                                await self._send_text(msg, clean_text)
+                        
+                        # 如果是强制切分模式，切一次就够了，避免死循环
+                        if force_split:
                             break
             
             # 提取图片链接
@@ -1141,23 +1179,42 @@ class FeishuClient:
         for match in matches:
             state["image_cache"].append(match.group(1))
     
-    def _clean_text(self, text):
-        """清理文本中的特殊标记"""
-        # 移除图片标记
-        clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-        # 移除超链接
-        clean = re.sub(r'\[.*?\]\(.*?\)', '', clean)
-        # 移除纯URL
-        clean = re.sub(r'https?://\S+', '', clean)
-        return clean.strip()
+    def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
+        return text.strip()
     
     async def _send_text(self, original_msg, text):
-        """发送文本消息"""
+        """发送文本消息（使用富文本 Post 格式以支持 Markdown）"""
         try:
             if not text:
                 return
-                
+            
+            # 构建富文本结构
+            # 飞书 Post 结构: {"zh_cn": {"title": "可选标题", "content": [[Nodes]]}}
+            # 我们使用 md 标签，它独占一个段落
+            content_dict = {
+                "zh_cn": {
+                    "content": [
+                        [
+                            {
+                                "tag": "md",
+                                "text": text
+                            }
+                        ]
+                    ]
+                }
+            }
+            
+            # 序列化为 JSON 字符串
+            content_str = json.dumps(content_dict)
+            
             chat_type = original_msg.chat_type
+            msg_type = "post"  # 关键：改为 post 类型
             
             if chat_type == "p2p":  # 私聊
                 req = CreateMessageRequest.builder()\
@@ -1165,8 +1222,8 @@ class FeishuClient:
                     .request_body(
                         CreateMessageRequestBody.builder()
                         .receive_id(original_msg.chat_id)
-                        .msg_type("text")
-                        .content(json.dumps({"text": text}))
+                        .msg_type(msg_type)
+                        .content(content_str)
                         .build()
                     ).build()
                 
@@ -1177,19 +1234,24 @@ class FeishuClient:
                     .message_id(original_msg.message_id)\
                     .request_body(
                         ReplyMessageRequestBody.builder()
-                        .msg_type("text")
-                        .content(json.dumps({"text": text}))
+                        .msg_type(msg_type)
+                        .content(content_str)
                         .build()
                     ).build()
                 
                 resp = self.lark_client.im.v1.message.reply(req)
             
             if not resp.success():
-                logging.error(f"发送文本失败: {resp.code} {resp.msg}")
+                logging.error(f"发送 Markdown 文本失败: {resp.code} {resp.msg}")
+                # 如果发送失败（可能是 md 语法太复杂或有非法字符），可以考虑回退到纯文本
+                # logging.info("尝试回退到纯文本发送...")
+                # ... (可选的回退逻辑)
                 
         except Exception as e:
             logging.error(f"发送文本异常: {e}")
-    
+            import traceback
+            logging.debug(traceback.format_exc())
+                
     async def _send_image(self, original_msg, image_url):
         """发送图片消息"""
         try:
