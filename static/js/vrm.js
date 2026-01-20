@@ -1241,9 +1241,8 @@ function stopAllChunkAnimations() {
 }
 
 /**
- * 单个语音块的动画循环，用于驱动口型
- * @param {string|number} chunkId 
- * @param {object} chunkState 
+ * 改进版：基于频谱分析的元音口型同步
+ * 将音频分为低/中/高频段，映射到 VRM 的 aa, ih, ou, ee, oh
  */
 function startChunkAnimation(chunkId, chunkState) {
     if (!chunkState || !chunkState.isPlaying || !chunkState.analyser) {
@@ -1251,80 +1250,110 @@ function startChunkAnimation(chunkId, chunkState) {
         return;
     }
 
-    const dataArray = new Uint8Array(chunkState.analyser.frequencyBinCount);
-    let frameCount = 0;
+    const analyser = chunkState.analyser;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    // 用于平滑过渡的变量 (Lerp)
+    const smoothFactor = 0.3; // 0.1(慢) - 1.0(快)
+    let currentVowels = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
 
     function animateChunk() {
         const currentState = chunkAnimations.get(chunkId);
         if (!currentState || !currentState.isPlaying) {
-            console.log(`因状态改变，停止 Chunk ${chunkId} 的动画`);
+            // 停止时重置所有口型
+            if (currentVrm && currentVrm.expressionManager) {
+                ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => {
+                    currentVrm.expressionManager.setValue(v, 0);
+                });
+            }
             return;
         }
 
-        frameCount++;
-
-        // 从分析器获取实时音频频率数据
-        chunkState.analyser.getByteFrequencyData(dataArray);
-
-        // 计算音量强度
-        let sum = 0;
-        // 人声主要集中在低频区域，可以只分析这部分以获得更准确的结果
-        const relevantData = dataArray.slice(0, dataArray.length * 0.5);
-        for (let i = 0; i < relevantData.length; i++) {
-            sum += relevantData[i];
-        }
-        const average = sum / relevantData.length;
-
-        // 应用口型动画
-        if (currentVrm && currentVrm.expressionManager) {
-            let max_mouthOpen = 0.8; // 默认最大张嘴程度
-            const expression = chunkState.expression;
-            
-            // 处理其他表情
-            if (expression) {
-                // 1. 将 口型动画 添加到 mouthExpressionNames（作为被覆盖者）
-                currentVrm.expressionManager.mouthExpressionNames = ['aa'];
-
-                // 2. 为'happy', 'surprised'表情设置 overrideMouth 属性（作为覆盖者）
-                const mouthExpressions = ['happy', 'surprised'];
-
-                mouthExpressions.forEach(expressionName => {
-                    const exp = currentVrm.expressionManager.getExpression(expressionName);
-                    if (exp) {
-                        exp.overrideMouth = 'block'; 
-                    }
-                });
-                if (['surprised','happy','angry', 'sad', 'neutral', 'relaxed'].includes(expression)) {
-                    currentVrm.expressionManager.setValue(expression, 1.0);
-                } else if (['blink', 'blinkLeft', 'blinkRight'].includes(expression)) {
-                    // 简单的眨眼动画，持续1秒
-                    const progress = (frameCount % 30) / 30;
-                    const blinkValue = Math.sin(progress * Math.PI);
-                    currentVrm.expressionManager.setValue(expression, blinkValue);
-                }
-            }
-
-            // 根据音量驱动口型
-            const intensity = Math.min(average / 400, 1.0); // 40是敏感度系数，可调整
-            if (intensity > 0.05) { // 阈值，防止背景噪音导致嘴动
-                const mouthOpen = Math.min(intensity * 1.5, max_mouthOpen);
-                currentVrm.expressionManager.setValue('aa', mouthOpen); 
-                // 添加一些'ih'口型作为变化
-                const variation = Math.sin(frameCount * 0.2) * 0.1;
-                currentVrm.expressionManager.setValue('ih', Math.min(Math.max(0, mouthOpen * 0.5 + variation), max_mouthOpen));
-            } else {
-                // 平滑地闭上嘴巴
-                const currentAA = currentVrm.expressionManager.getValue('aa') || 0;
-                const currentIH = currentVrm.expressionManager.getValue('ih') || 0;
-                currentVrm.expressionManager.setValue('aa', Math.max(0, currentAA * 0.8 - 0.05));
-                currentVrm.expressionManager.setValue('ih', Math.max(0, currentIH * 0.7 - 0.03));
-            }
-        }
-
         currentState.animationId = requestAnimationFrame(animateChunk);
+
+        // 1. 获取频域数据 (FFT)
+        analyser.getByteFrequencyData(dataArray);
+
+        // 2. 计算特定频段的能量平均值
+        // 假设采样率 44.1kHz或24kHz，FFTSize 256 -> bin 大约宽 86Hz-170Hz
+        // 粗略划分：
+        // Low: 0-500Hz (基频) -> 对应 U, O
+        // Mid: 500-2000Hz (共振峰) -> 对应 A, E
+        // High: 2000Hz+ (齿音/摩擦音) -> 对应 I
+        
+        const binCount = dataArray.length;
+        const lowBound = Math.floor(binCount * 0.1); // 前10%
+        const midBound = Math.floor(binCount * 0.4); // 中间部分
+        
+        let lowSum = 0, midSum = 0, highSum = 0;
+        
+        for (let i = 0; i < binCount; i++) {
+            const val = dataArray[i];
+            if (i < lowBound) lowSum += val;
+            else if (i < midBound) midSum += val;
+            else highSum += val;
+        }
+
+        const lowAvg = lowSum / lowBound;
+        const midAvg = midSum / (midBound - lowBound);
+        const highAvg = highSum / (binCount - midBound);
+        
+        // 全局音量 (用于门限控制)
+        const totalVolume = (lowSum + midSum + highSum) / binCount;
+        const sensitivity = 2.0; // 敏感度系数，可根据麦克风调整
+        const threshold = 10;    // 噪音门限
+
+        // 3. 目标口型权重计算
+        let targetVowels = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+
+        if (totalVolume > threshold) {
+            // 归一化强度 0.0 - 1.0
+            const intensity = Math.min(1.0, (totalVolume / 255) * sensitivity);
+
+            // 简单的元音检测逻辑 (Formant Estimation Logic)
+            if (highAvg > midAvg && highAvg > lowAvg) {
+                // 高频主导 -> I (ih)
+                targetVowels.ih = intensity;
+                targetVowels.ee = intensity * 0.5;
+            } else if (lowAvg > midAvg * 1.2) {
+                // 低频极强 -> U (ou)
+                targetVowels.ou = intensity;
+                targetVowels.oh = intensity * 0.5;
+            } else if (midAvg > highAvg && midAvg > lowAvg) {
+                // 中频主导 -> E (ee) 或 A (aa)
+                targetVowels.ee = intensity;
+                targetVowels.aa = intensity * 0.6;
+            } else {
+                // 均衡或 broad spectrum -> A (aa)
+                targetVowels.aa = intensity;
+                targetVowels.oh = intensity * 0.3;
+            }
+        }
+
+        // 4. 应用到 VRM (带有平滑插值)
+        if (currentVrm && currentVrm.expressionManager) {
+            
+            // 处理覆盖表情 (Happy/Surprised 等)
+            // 如果有特定表情正在播放，可能需要限制口型幅度，或者让表情覆盖口型
+            const expression = chunkState.expression;
+            if (expression && ['happy', 'surprised', 'angry', 'sad'].includes(expression)) {
+                // 简单的策略：如果是有情绪的，我们稍微减弱口型的幅度，或者根据需求调整
+                // 这里保持原样，仅做口型叠加
+            }
+
+            // 更新当前值并应用
+            ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(vowel => {
+                // Lerp: 当前值 + (目标值 - 当前值) * 平滑系数
+                currentVowels[vowel] += (targetVowels[vowel] - currentVowels[vowel]) * smoothFactor;
+                
+                // 设置 VRM 表情
+                currentVrm.expressionManager.setValue(vowel, currentVowels[vowel]);
+            });
+        }
     }
 
-    console.log(`为 Chunk ${chunkId} 启动动画循环`);
+    console.log(`为 Chunk ${chunkId} 启动频谱口型分析循环`);
     chunkState.animationId = requestAnimationFrame(animateChunk);
 }
 
