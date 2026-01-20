@@ -130,7 +130,7 @@ import aiofiles
 import argparse
 from py.dify_openai_async import DifyOpenAIAsync
 
-from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
+from py.get_setting import EXT_DIR, convert_to_opus_simple, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
@@ -5212,18 +5212,24 @@ async def text_to_speech(request: Request):
                             audio_chunks.append(chunk["data"])
                     
                     full_audio = b''.join(audio_chunks)
-                    opus_audio = await convert_to_opus_simple(full_audio)
+                    
+                    # 【修复点 2】放入线程池 + 解包元组
+                    convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
+                    if isinstance(convert_result, tuple):
+                        opus_audio = convert_result[0]
+                    else:
+                        opus_audio = convert_result
                     
                     # 分块返回opus数据
                     chunk_size = 4096
                     for i in range(0, len(opus_audio), chunk_size):
                         yield opus_audio[i:i + chunk_size]
                 else:
-                    # 真流式：直接返回mp3格式，不等待完整数据
+                    # 真流式
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             yield chunk["data"]
-            
+
             # 设置正确的媒体类型和文件名
             if target_format == "opus":
                 media_type = "audio/ogg"  # opus通常包装在ogg容器中
@@ -5298,7 +5304,13 @@ async def text_to_speech(request: Request):
                                 
                                 # 转换为opus
                                 if target_format == "opus":
-                                    opus_audio = await convert_to_opus_simple(full_audio)
+                                    # 【修复点 3】放入线程池 + 解包元组
+                                    convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
+                                    if isinstance(convert_result, tuple):
+                                        opus_audio = convert_result[0]
+                                    else:
+                                        opus_audio = convert_result
+                                        
                                     chunk_size = 4096
                                     for i in range(0, len(opus_audio), chunk_size):
                                         yield opus_audio[i:i + chunk_size]
@@ -5619,8 +5631,12 @@ async def text_to_speech(request: Request):
                     # 格式转换逻辑 (WAV -> OPUS)
                     final_audio = wav_content
                     if target_format == "opus":
-                        # 确保你有 convert_to_opus_simple 函数可用
-                        final_audio = await convert_to_opus_simple(wav_content)
+                        # 【修复点 1】放入线程池 + 解包元组
+                        convert_result = await asyncio.to_thread(convert_to_opus_simple, wav_content)
+                        if isinstance(convert_result, tuple):
+                            final_audio = convert_result[0] # 取出数据部分
+                        else:
+                            final_audio = convert_result
                     
                     # 分块返回 (模拟流式)
                     chunk_size = 4096
@@ -5630,7 +5646,6 @@ async def text_to_speech(request: Request):
                         
                 except Exception as e:
                     raise HTTPException(status_code=500, detail=f"SystemTTS 处理失败: {str(e)}")
-
             # 4. 设置响应头
             if target_format == "opus":
                 media_type = "audio/ogg"
@@ -5776,8 +5791,13 @@ async def text_to_speech(request: Request):
                         file_data = f.read()
                     
                     if target_format == "opus":
-                        # 假设 convert_to_opus_simple 是可用的
-                        opus_data = await convert_to_opus_simple(file_data)
+                        # 【修复点 4】放入线程池 + 解包元组
+                        convert_result = await asyncio.to_thread(convert_to_opus_simple, file_data)
+                        if isinstance(convert_result, tuple):
+                            opus_data = convert_result[0]
+                        else:
+                            opus_data = convert_result
+                            
                         chunk_size = 4096
                         for i in range(0, len(opus_data), chunk_size):
                             yield opus_data[i:i + chunk_size]
@@ -6100,51 +6120,6 @@ async def get_system_voices():
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-async def convert_to_opus_simple(audio_data):
-    """使用pydub将音频转换为opus格式（适合飞书）"""
-    from pydub import AudioSegment
-    from imageio_ffmpeg import get_ffmpeg_exe   # ① 关键：拿到捆绑的 ffmpeg
-    # 设置 converter (利用 getattr 避免重复设置)
-    if not getattr(AudioSegment, 'converter_configured', False):
-        AudioSegment.converter = get_ffmpeg_exe()
-        AudioSegment.converter_configured = True
-    try:
-
-        try:
-            # ② 先尝试用 pydub 自动探测格式
-            audio_io = io.BytesIO(audio_data)
-            audio = AudioSegment.from_file(audio_io)          # 会自动调用捆绑的 ffmpeg
-        except Exception as e:
-            logging.warning(f"pydub 自动探测失败({e})，降级为 WAV 假设")
-            audio_io = io.BytesIO(audio_data)
-            audio = AudioSegment.from_wav(audio_io)           # 纯 WAV 场景
-
-        # ③ 统一成飞书推荐参数
-        audio = (audio
-                .set_frame_rate(16000)
-                .set_channels(1))
-
-        # ④ 导出 opus
-        out_io = io.BytesIO()
-        audio.export(
-            out_io,
-            format="opus",
-            codec="libopus",
-            parameters=["-b:a", "64k",
-                        "-application", "voip",
-                        "-compression_level", "3"]
-        )
-        opus_data = out_io.getvalue()
-        logging.info(f"Opus 转换完成：{len(audio_data)} B → {len(opus_data)} B")
-        return opus_data
-
-        
-    except ImportError:
-        logging.error("pydub未安装，无法转换为opus格式")
-        return audio_data
-    except Exception as e:
-        logging.error(f"转换opus格式失败: {e}")
-        return audio_data
 
 # 添加状态存储
 mcp_status = {}
