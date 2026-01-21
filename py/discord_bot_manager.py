@@ -14,7 +14,7 @@ from discord.ext import commands, tasks
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from py.get_setting import get_port, load_settings
+from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 # ------------------ 配置模型 ------------------
 class DiscordBotConfig(BaseModel):
@@ -173,7 +173,7 @@ class DiscordClient(discord.Client):
                 })
                 has_media = True
 
-        # 2.3 语音（任意音频当文件收）
+        # 2.3 语音
         for att in msg.attachments:
             if att.content_type and att.content_type.startswith("audio"):
                 audio_bytes = await att.read()
@@ -182,15 +182,16 @@ class DiscordClient(discord.Client):
                     user_text += f"\n[语音转写] {asr_text}"
                 else:
                     user_text += "\n[语音转写失败]"
+        
         if self.config.wakeWord:
-            if self.config.wakeWord not in user_text: # 唤醒词检测
+            if self.config.wakeWord not in user_text:
                 logging.info(f"未检测到唤醒词: {self.config.wakeWord}")
                 return
-        # 2.4 最终 user 消息
+
         if has_media and user_text:
             user_content.append({"type": "text", "text": user_text})
         if not has_media and not user_text:
-            return  # 空消息
+            return
 
         self.memory[cid].append({"role": "user", "content": user_content or user_text})
 
@@ -198,13 +199,8 @@ class DiscordClient(discord.Client):
         settings = await load_settings()
         client = AsyncOpenAI(api_key="super-secret-key", base_url=f"http://127.0.0.1:{get_port()}/v1")
 
-        # —— 与飞书完全对齐：取上下文工具 & 文件链接 —— #
         async_tools = self.async_tools.get(cid, [])
         file_links = self.file_links.get(cid, [])
-        if cid not in self.async_tools:
-            self.async_tools[cid] = []
-        if cid not in self.file_links:
-            self.file_links[cid] = []
 
         try:
             stream = await client.chat.completions.create(
@@ -214,26 +210,39 @@ class DiscordClient(discord.Client):
                 extra_body={
                     "asyncToolsID": async_tools,
                     "fileLinks": file_links,
+                    "is_app_bot": True,
                 },
             )
-        except Exception as e:          # 捕获任意网络/超时异常
+        except Exception as e:
             logging.warning(f"LLM 请求失败: {e}")
             await msg.channel.send("LLM 响应超时，请稍后再试。")
             return
 
         # 4. 流式解析
-        state = {"text_buffer": "", "image_buffer": "", "image_cache": []}
+        # [新增] audio_buffer
+        state = {
+            "text_buffer": "", 
+            "image_buffer": "", 
+            "image_cache": [],
+            "audio_buffer": [] 
+        }
         full_response = []
 
         async for chunk in stream:
+            if not chunk.choices: continue
+            
             delta_raw = chunk.choices[0].delta
-            # ⭐ 安全取推理字段（对齐飞书）
+            
+            # [新增] 捕获音频流
+            if hasattr(delta_raw, "audio") and delta_raw.audio:
+                if "data" in delta_raw.audio:
+                    state["audio_buffer"].append(delta_raw.audio["data"])
+
             reasoning_content = getattr(delta_raw, "reasoning_content", None) or ""
             tool_content = getattr(delta_raw, "tool_content", None) or ""
             async_tool_id = getattr(delta_raw, "async_tool_id", None) or ""
             tool_link = getattr(delta_raw, "tool_link", None) or ""
 
-            # —— 工具链路更新（完全等价飞书） —— #
             if tool_link and settings.get("tools", {}).get("toolMemorandum", {}).get("enabled"):
                 if tool_link not in self.file_links[cid]:
                     self.file_links[cid].append(tool_link)
@@ -244,7 +253,6 @@ class DiscordClient(discord.Client):
                 else:
                     self.async_tools[cid].remove(async_tool_id)
 
-            # 当前文本块
             content = delta_raw.content or ""
             if reasoning_content and self.config.reasoning_visible:
                 content = reasoning_content
@@ -253,27 +261,55 @@ class DiscordClient(discord.Client):
             state["text_buffer"] += content
             state["image_buffer"] += content
 
-            # —— 分段发送（与飞书逻辑一致） —— #
-            if self.config.separators:
+            # 文本分段发送
+            if state["text_buffer"]:
+                force_split = len(state["text_buffer"]) > 1800
                 while True:
                     buffer = state["text_buffer"]
                     split_pos = -1
-                    for sep in self.config.separators:
-                        p = buffer.find(sep)
-                        if p != -1:
-                            split_pos = p + len(sep)
-                            break
-                    if split_pos == -1:
-                        break
-                    seg, state["text_buffer"] = buffer[:split_pos], buffer[split_pos:]
+                    in_code_block = False
+                    
+                    if force_split:
+                        min_idx = len(buffer) + 1
+                        found_sep_len = 0
+                        for sep in self.config.separators:
+                            idx = buffer.find(sep)
+                            if idx != -1 and idx < min_idx:
+                                min_idx = idx
+                                found_sep_len = len(sep)
+                        if min_idx <= len(buffer): split_pos = min_idx + found_sep_len
+                    else:
+                        i = 0
+                        while i < len(buffer):
+                            if buffer[i:].startswith("```"):
+                                in_code_block = not in_code_block
+                                i += 3
+                                continue
+                            if not in_code_block:
+                                found_sep = False
+                                for sep in self.config.separators:
+                                    if buffer[i:].startswith(sep):
+                                        split_pos = i + len(sep)
+                                        found_sep = True
+                                        break
+                                if found_sep: break
+                            i += 1
+                    
+                    if split_pos == -1: break
+                        
+                    seg = buffer[:split_pos]
+                    state["text_buffer"] = buffer[split_pos:]
+                    
                     seg = self._clean_text(seg)
-                    if seg:
+                    if seg and not self.config.enable_tts:
                         await self._send_segment(msg, seg)
+                    
+                    if force_split: break
 
         # 5. 剩余文本
         if state["text_buffer"]:
             seg = self._clean_text(state["text_buffer"])
-            if seg:
+            if seg and not self.config.enable_tts:
                 await self._send_segment(msg, seg)
 
         # 6. 图片
@@ -281,15 +317,53 @@ class DiscordClient(discord.Client):
         for img_url in state["image_cache"]:
             await self._send_image(msg, img_url)
 
-        # 7. TTS & 记忆
+        # [新增] Omni 音频处理
+        has_omni_audio = False
+        if state["audio_buffer"]:
+            try:
+                logging.info(f"处理 Discord Omni 音频，分片数: {len(state['audio_buffer'])}")
+                full_audio_b64 = "".join(state["audio_buffer"])
+                raw_audio_bytes = base64.b64decode(full_audio_b64)
+                
+                # 异步执行转码
+                final_audio, is_opus = await asyncio.to_thread(
+                    convert_to_opus_simple, 
+                    raw_audio_bytes
+                )
+                
+                await self._send_omni_voice(msg, final_audio, is_opus)
+                has_omni_audio = True
+            except Exception as e:
+                logging.error(f"Omni 音频处理失败: {e}")
+
+        # 7. 记忆 & 旧版 TTS
         full_content = "".join(full_response)
-        if self.config.enable_tts:
+        
+        # 只有在没有 Omni 音频时，才使用旧版 TTS
+        if self.config.enable_tts and not has_omni_audio:
             await self._send_voice(msg, full_content)
 
         self.memory[cid].append({"role": "assistant", "content": full_content})
         if self.config.memory_limit > 0:
             while len(self.memory[cid]) > self.config.memory_limit * 2:
                 self.memory[cid].pop(0)
+
+    # [新增] 发送 Omni 语音
+    async def _send_omni_voice(self, msg: discord.Message, audio_data: bytes, is_opus: bool):
+        """发送 Omni 模型生成的音频文件"""
+        try:
+            # Discord 没有专门的 Voice Message API，通常作为文件附件发送
+            ext = "opus" if is_opus else "wav"
+            filename = f"voice.{ext}"
+            
+            # 创建 Discord 文件对象
+            file = discord.File(io.BytesIO(audio_data), filename=filename)
+            
+            # 回复消息
+            await msg.reply(file=file, mention_author=False)
+            logging.info(f"已发送 Omni 音频: {filename}")
+        except Exception as e:
+            logging.error(f"发送 Omni 音频异常: {e}")
 
     # ---------- 工具 ----------
     async def _transcribe_audio(self, audio_bytes: bytes, filename: str) -> Optional[str]:
@@ -304,9 +378,12 @@ class DiscordClient(discord.Client):
                 return res.get("text") if res.get("success") else None
 
     def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
         text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"\[.*?\]\(.*?\)", "", text)
-        text = re.sub(r"https?://\S+", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
         return text.strip()
 
     def clean_markdown(self, buffer):

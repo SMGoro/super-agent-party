@@ -1,4 +1,5 @@
 # -- coding: utf-8 --
+import mimetypes
 import sys
 import traceback
 
@@ -129,7 +130,7 @@ import aiofiles
 import argparse
 from py.dify_openai_async import DifyOpenAIAsync
 
-from py.get_setting import EXT_DIR, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
+from py.get_setting import EXT_DIR, convert_to_opus_simple, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
@@ -171,6 +172,20 @@ ALLOWED_EXTENSIONS = [
 ALLOWED_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
 
 ALLOWED_VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', '3gp', 'm4v']
+
+# 1. 先清空系统可能给错的条目
+for ext in ("js", "mjs", "css", "html", "htm", "json", "xml", "map", "svg"):
+    mimetypes.add_type("", f".{ext}")          # 先删掉
+# 2. 再写死我们想要的
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("text/html", ".html")
+mimetypes.add_type("text/html", ".htm")
+mimetypes.add_type("application/json", ".json")
+mimetypes.add_type("application/xml", ".xml")
+mimetypes.add_type("application/json", ".map")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 
 def _get_target_message(message, role):
@@ -795,6 +810,7 @@ class ChatRequest(BaseModel):
     enable_web_search: bool = False
     asyncToolsID: List[str] = None
     reasoning_effort: str = None
+    is_app_bot: bool = False
 
 async def message_without_images(messages: List[Dict]) -> List[Dict]:
     if messages:
@@ -891,10 +907,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         sql_status = await sql_client.call_tool("all_table_names", {})
         sql_message = f"\n\n以下是当前数据库all_table_names工具的返回结果：{sql_status}\n\n"
         content_append(request.messages, 'system', sql_message)
-    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled']:
+    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot:
         language_message = f"\n\n当你看到被插入到对话之间的系统消息，这是自主行为系统向你发送的消息，例如用户主动或者要求你设置了一些定时任务或者延时任务，当你看到自主行为系统向你发送的消息时，说明这些任务到了需要被执行的节点，例如：用户要你三点或五分钟后提醒开会的事情，然后当你看到一个被插入的“提醒用户开会”的系统消息，你需要立刻提醒用户开会，以此类推\n\n"
         content_append(request.messages, 'system', language_message)
-    if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] == True:
+    if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
         # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
         for key in settings['ttsSettings']['newtts']:
             if settings['ttsSettings']['newtts'][key]['enabled']:
@@ -904,7 +920,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             print(f"可用音色：{newttsList}")
             newtts_messages = f"你可以使用以下音色：\n{newttsList}\n以及特殊无声音色<silence>标签（如果要使用，必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分会不会进入语音合成，当你生成回答时，你需要以XML格式组织回答，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><silence>(眼睛笑成了一条线)</silence><Narrator>说完她伸了个懒腰。</Narrator>\n\n还有注意！<音色名></音色名>之间不能嵌套，只能并列，并且<音色名>和</音色名>必须成对出现，防止出现音色混乱！\n\n如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！\n\n"
             content_prepend(request.messages, 'system', newtts_messages)
-    if settings['vision']['desktopVision']:
+    if settings['vision']['desktopVision'] and not request.is_app_bot:
         desktop_message = "\n\n用户与你对话时，会自动发给你当前的桌面截图。\n\n"
         content_append(request.messages, 'system', desktop_message)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'beforeThinking':
@@ -928,10 +944,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     if settings['text2imgSettings']['enabled']:
         text2img_messages = "\n\n当你使用画图工具后，必须将图片的URL放在markdown的图片标签中，例如：\n\n<silence>![图片名](图片URL)</silence>\n\n，图片markdown必须另起并且独占一行！请主动发给用户，工具返回的结果，用户看不到！<silence>和</silence>是控制TTS的静音标签，表示这个图片部分不会进入语音合成\n\n你必须在回复中正确使用 <silence> 标签来包裹图片的 Markdown 语法\n\n注意！！！<silence>和</silence>与图片的 Markdown 语法之间不能有空格和回车，会导致解析失败！\n\n"
         content_append(request.messages, 'system', text2img_messages)
-    if settings['VRMConfig']['enabledExpressions']:
+    if settings['VRMConfig']['enabledExpressions'] and not request.is_app_bot:
         Expression_messages = "\n\n你可以使用以下表情：<happy> <angry> <sad> <neutral> <surprised> <relaxed>\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头（如果有音色标签，就放到音色标签之后即可），才能在说这句话的时候同步做表情，例如：<angry>我真的生气了。<surprised>哇！<happy>我好开心。\n\n一定要把表情符号跟要做表情的句子放在同一行，如果表情符号和要做表情的句子中间有换行符，表情也将不会生效，例如：\n\n<happy>\n我好开心。\n\n此时，表情符号将不会生效。"
         content_append(request.messages, 'system', Expression_messages)
-    if settings['VRMConfig']['enabledMotions']:
+    if settings['VRMConfig']['enabledMotions'] and not request.is_app_bot:
         # 1. 合并动作列表
         motions = settings['VRMConfig']['defaultMotions'] + settings['VRMConfig']['userMotions']
         # 2. 给每个动作加上 <>
@@ -948,7 +964,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         )
 
         content_append(request.messages, 'system', Motion_messages)
-    if settings['tools']['a2ui']['enabled']:
+    if settings['tools']['a2ui']['enabled'] and not request.is_app_bot:
         A2UI_messages = """
 除了使用自然语言回答用户问题外，你还拥有一个特殊能力：**渲染 A2UI 界面**。
 
@@ -4233,48 +4249,49 @@ def sanitize_proxy_url(input_url: str) -> str:
 
     return safe_url
 
-# 建议 UA 包含项目地址
-USER_AGENT = "Mozilla/5.0 (compatible; OpenSourceProxyBot/1.0)"
-ROBOTS_CACHE = {}
-
-# ================= 2. 修改后的代理路由 =================
-
 @app.api_route("/extension_proxy", methods=["GET", "POST"])
 async def extension_proxy(request: Request, url: str):
     """
-    集成安全校验与 Robots 协议的代理接口
+    方便SAP插件调用的通用代理接口，让插件能够绕过 CORS 限制访问任意 URL。
     """
-    # --- 阶段 A: 安全校验 ---
+    BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    # --- 阶段 A: 安全校验 (保留，防止 SSRF 攻击内网) ---
     try:
         target_url = sanitize_proxy_url(url)
     except HTTPException as e:
         return Response(content=e.detail, status_code=e.status_code)
-
-    # --- 阶段 B: 合规性校验 (Robots.txt) ---
-    is_allowed = await check_robots_txt(target_url)
-    if not is_allowed:
-        return Response(
-            content="Access denied by robots.txt", 
-            status_code=403,
-            media_type="text/plain"
-        )
-
-    # --- 阶段 C: 执行代理请求 ---
+    
+    # --- 阶段 B: 执行代理请求 ---
     method = request.method
     body = await request.body()
     
-    # 构造 Header
-    excluded_headers = {'host', 'content-length', 'connection', 'keep-alive'}
+    # 构造 Header：只保留必要的，去除杂质，添加身份标识
+    # 排除可能导致指纹泄露或被拒绝的 Header
+    excluded_headers = {
+        'host', 'content-length', 'connection', 'keep-alive', 
+        'upgrade-insecure-requests', 'accept-encoding', 'cookie', 'user-agent'
+    }
+    
     headers = {
         k: v for k, v in request.headers.items() 
         if k.lower() not in excluded_headers
     }
-    headers["User-Agent"] = USER_AGENT
+    
+    # 【关键点 1】：使用标准浏览器 UA，声明这是用户阅读行为
+    headers["User-Agent"] = BROWSER_USER_AGENT
+    
+    # 【关键点 2】：明确告诉服务器我们接受 XML/RSS 格式，这显得更像一个良性阅读器
+    if "accept" not in headers or "*/*" in headers["accept"]:
+        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+
+    # 【关键点 3】：处理 Referer。有些防盗链机制需要 Referer，有些（如 Reddit）看到奇怪的 Referer 会拦截
+    # 最安全的做法是不发送 Referer，或者设为目标域名的根目录
+    headers.pop("Referer", None) 
     
     print(f"--- [Extension Proxy] ---")
-    print(f"Safe Target: {target_url} | Method: {method}")
+    print(f"Target: {target_url} | Method: {method} | Mode: Browser Emulation")
     
-    # 使用 trust_env=False 进一步防止被环境变量代理干扰（SSRF 防御一部分）
+    # trust_env=False: 防止你的 Python 代码意外使用了系统层的 HTTP 代理
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=30.0, trust_env=False) as client:
         try:
             resp = await client.request(
@@ -4284,12 +4301,19 @@ async def extension_proxy(request: Request, url: str):
                 content=body
             )
             
-            # 透传响应头
+            # 清洗响应头：防止将压缩编码或分块传输透传给前端导致解析错误
             resp_headers = {
                 k: v for k, v in resp.headers.items()
-                if k.lower() not in {'content-encoding', 'content-length', 'transfer-encoding', 'server'}
+                if k.lower() not in {
+                    'content-encoding', 'content-length', 'transfer-encoding', 
+                    'server', 'set-cookie' # 也不要透传 Set-Cookie，保护用户隐私
+                }
             }
             
+            # 如果 Reddit 依然返回 403，通常内容里会有错误提示，照样返回给前端便于调试
+            if resp.status_code == 403:
+                print(f"[Proxy Warning] Target returned 403. Body sample: {resp.content[:100]}")
+
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
@@ -4299,13 +4323,12 @@ async def extension_proxy(request: Request, url: str):
 
         except httpx.ConnectError as e:
             err_msg = f"Proxy Connect Error: {e}"
-            if "json" in request.headers.get("accept", "").lower():
-                 return Response(content=f'{{"error": "{err_msg}"}}', status_code=502, media_type="application/json")
-            return Response(content=f"<error>{err_msg}</error>", status_code=502, media_type="text/xml")
+            # 返回 JSON 格式错误以便前端优雅处理
+            return Response(content=f'{{"error": "{err_msg}"}}', status_code=502, media_type="application/json")
             
         except Exception as e:
             print(f"[Proxy Error] System: {repr(e)}")
-            return Response(content="Internal Server Error during proxy", status_code=500)
+            return Response(content='{"error": "Internal Proxy Error"}', status_code=500, media_type="application/json")
 
         
 # 存储活跃的ASR WebSocket连接
@@ -5189,18 +5212,24 @@ async def text_to_speech(request: Request):
                             audio_chunks.append(chunk["data"])
                     
                     full_audio = b''.join(audio_chunks)
-                    opus_audio = await convert_to_opus_simple(full_audio)
+                    
+                    # 【修复点 2】放入线程池 + 解包元组
+                    convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
+                    if isinstance(convert_result, tuple):
+                        opus_audio = convert_result[0]
+                    else:
+                        opus_audio = convert_result
                     
                     # 分块返回opus数据
                     chunk_size = 4096
                     for i in range(0, len(opus_audio), chunk_size):
                         yield opus_audio[i:i + chunk_size]
                 else:
-                    # 真流式：直接返回mp3格式，不等待完整数据
+                    # 真流式
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             yield chunk["data"]
-            
+
             # 设置正确的媒体类型和文件名
             if target_format == "opus":
                 media_type = "audio/ogg"  # opus通常包装在ogg容器中
@@ -5275,7 +5304,13 @@ async def text_to_speech(request: Request):
                                 
                                 # 转换为opus
                                 if target_format == "opus":
-                                    opus_audio = await convert_to_opus_simple(full_audio)
+                                    # 【修复点 3】放入线程池 + 解包元组
+                                    convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
+                                    if isinstance(convert_result, tuple):
+                                        opus_audio = convert_result[0]
+                                    else:
+                                        opus_audio = convert_result
+                                        
                                     chunk_size = 4096
                                     for i in range(0, len(opus_audio), chunk_size):
                                         yield opus_audio[i:i + chunk_size]
@@ -5596,8 +5631,12 @@ async def text_to_speech(request: Request):
                     # 格式转换逻辑 (WAV -> OPUS)
                     final_audio = wav_content
                     if target_format == "opus":
-                        # 确保你有 convert_to_opus_simple 函数可用
-                        final_audio = await convert_to_opus_simple(wav_content)
+                        # 【修复点 1】放入线程池 + 解包元组
+                        convert_result = await asyncio.to_thread(convert_to_opus_simple, wav_content)
+                        if isinstance(convert_result, tuple):
+                            final_audio = convert_result[0] # 取出数据部分
+                        else:
+                            final_audio = convert_result
                     
                     # 分块返回 (模拟流式)
                     chunk_size = 4096
@@ -5607,7 +5646,6 @@ async def text_to_speech(request: Request):
                         
                 except Exception as e:
                     raise HTTPException(status_code=500, detail=f"SystemTTS 处理失败: {str(e)}")
-
             # 4. 设置响应头
             if target_format == "opus":
                 media_type = "audio/ogg"
@@ -5753,8 +5791,13 @@ async def text_to_speech(request: Request):
                         file_data = f.read()
                     
                     if target_format == "opus":
-                        # 假设 convert_to_opus_simple 是可用的
-                        opus_data = await convert_to_opus_simple(file_data)
+                        # 【修复点 4】放入线程池 + 解包元组
+                        convert_result = await asyncio.to_thread(convert_to_opus_simple, file_data)
+                        if isinstance(convert_result, tuple):
+                            opus_data = convert_result[0]
+                        else:
+                            opus_data = convert_result
+                            
                         chunk_size = 4096
                         for i in range(0, len(opus_data), chunk_size):
                             yield opus_data[i:i + chunk_size]
@@ -6077,51 +6120,6 @@ async def get_system_voices():
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-async def convert_to_opus_simple(audio_data):
-    """使用pydub将音频转换为opus格式（适合飞书）"""
-    from pydub import AudioSegment
-    from imageio_ffmpeg import get_ffmpeg_exe   # ① 关键：拿到捆绑的 ffmpeg
-    # 设置 converter (利用 getattr 避免重复设置)
-    if not getattr(AudioSegment, 'converter_configured', False):
-        AudioSegment.converter = get_ffmpeg_exe()
-        AudioSegment.converter_configured = True
-    try:
-
-        try:
-            # ② 先尝试用 pydub 自动探测格式
-            audio_io = io.BytesIO(audio_data)
-            audio = AudioSegment.from_file(audio_io)          # 会自动调用捆绑的 ffmpeg
-        except Exception as e:
-            logging.warning(f"pydub 自动探测失败({e})，降级为 WAV 假设")
-            audio_io = io.BytesIO(audio_data)
-            audio = AudioSegment.from_wav(audio_io)           # 纯 WAV 场景
-
-        # ③ 统一成飞书推荐参数
-        audio = (audio
-                .set_frame_rate(16000)
-                .set_channels(1))
-
-        # ④ 导出 opus
-        out_io = io.BytesIO()
-        audio.export(
-            out_io,
-            format="opus",
-            codec="libopus",
-            parameters=["-b:a", "64k",
-                        "-application", "voip",
-                        "-compression_level", "3"]
-        )
-        opus_data = out_io.getvalue()
-        logging.info(f"Opus 转换完成：{len(audio_data)} B → {len(opus_data)} B")
-        return opus_data
-
-        
-    except ImportError:
-        logging.error("pydub未安装，无法转换为opus格式")
-        return audio_data
-    except Exception as e:
-        logging.error(f"转换opus格式失败: {e}")
-        return audio_data
 
 # 添加状态存储
 mcp_status = {}

@@ -157,23 +157,31 @@
     "CLISettings": {
       "enabled": false,
       "engine": "cc",
-      "cc_path": "",
-      "cc_permissionMode": "default",
-      "qc_permissionMode": "default"
+      "cc_path": ""
     },
     "ccSettings": {
       "enabled":true,
       "selectedProvider": null,
       "base_url":"",
       "api_key":"",
-      "model":""
+      "model":"",
+      "permissionMode": "default"
     },
     "qcSettings": {
       "enabled":true,
       "selectedProvider": null,
       "base_url":"",
       "api_key":"",
-      "model":""
+      "model":"",
+      "permissionMode": "default"
+    },
+    "ocSettings": {
+      "enabled": false,
+      "selectedProvider": null,
+      "base_url":"",
+      "api_key":"",
+      "model":"",
+      "permissionMode": "default"
     },
     "HASettings": {
       "enabled": false,

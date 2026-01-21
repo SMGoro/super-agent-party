@@ -490,26 +490,44 @@ let vue_methods = {
       this.activeMemoryTab = 'prompts';
     },
     async syncProviderConfig(targetConfig) {
-      // 当有选中供应商时执行同步
       if (targetConfig.selectedProvider) {
-        // 在供应商列表中查找匹配项
         const provider = this.modelProviders.find(
           p => p.id === targetConfig.selectedProvider && !p.disabled
         );
         if (provider) {
-          // 同步核心配置
+          let targetUrl = provider.url;
+
+          // 判断当前同步的对象是否为 ccSettings (通过引用比较)
+          // 如果是 CC 配置，则应用特殊的 vendor_list 映射逻辑
+          if (targetConfig === this.ccSettings) {
+             const vendor_list = {
+              "Anthropic": "https://api.anthropic.com/",
+              "Deepseek": "https://api.deepseek.com/anthropic/",
+              "siliconflow": "https://api.siliconflow.cn/",
+              "ZhipuAI":"https://open.bigmodel.cn/api/anthropic/",
+              "moonshot":"https://api.moonshot.cn/anthropic/",
+              "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
+              "modelscope":"https://api-inference.modelscope.cn/",
+              "302.AI":"https://api.302.ai/cc/"
+            };
+            // 使用映射的 URL，如果没有匹配则回退到默认 url
+            targetUrl = vendor_list[provider.vendor] || provider.url;
+          }
+
+          // 同步核心配置 (注意：这里比较和赋值时使用 targetUrl)
           const shouldUpdate = 
             targetConfig.model !== provider.modelId ||
-            targetConfig.base_url !== provider.url ||
+            targetConfig.base_url !== targetUrl || // 比较 targetUrl
             targetConfig.api_key !== provider.apiKey;
+            
           if (shouldUpdate) {
             targetConfig.model = provider.modelId || '';
-            targetConfig.base_url = provider.url || '';
+            targetConfig.base_url = targetUrl || ''; // 赋值 targetUrl
             targetConfig.api_key = provider.apiKey || '';
-            console.log(`已同步 ${provider.vendor} 配置`);
+            console.log(`已同步 ${provider.vendor} 配置 (CC模式: ${targetConfig === this.ccSettings})`);
           }
         } else {
-          // 清理无效的供应商选择
+          // ... (保持原本的清理逻辑不变)
           console.warn('找不到匹配的供应商，已重置配置');
           targetConfig.selectedProvider = null;
           targetConfig.model = '';
@@ -1247,6 +1265,11 @@ let vue_methods = {
           this.CLISettings = data.data.CLISettings || this.CLISettings;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
+          this.ocSettings = data.data.ocSettings || this.ocSettings;
+          this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
+          this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
+          this.LimbicSystemSettings = data.data.LimbicSystemSettings || this.LimbicSystemSettings;
+          this.ReptilianBrainSettings = data.data.ReptilianBrainSettings || this.ReptilianBrainSettings;
           this.HASettings = data.data.HASettings || this.HASettings;
           this.chromeMCPSettings = data.data.chromeMCPSettings || this.chromeMCPSettings;
           this.sqlSettings = data.data.sqlSettings || this.sqlSettings;
@@ -2078,6 +2101,7 @@ let vue_methods = {
     },
 
     async playPCMChunk(b64, currentText = '', message = null) {
+      this.isOmniPlaying = true;
       try {
         // 1. 确保 AudioContext 已启动（浏览器安全策略要求）
         if (!this.audioCtx) {
@@ -2157,6 +2181,7 @@ let vue_methods = {
               
               // 通知 VRM 播放彻底结束，重置表情
               this.sendTTSStatusToVRM('allChunksCompleted', {});
+              this.isOmniPlaying = false;
               console.log('Playback finished for message:', message.id);
             }
           }
@@ -2346,6 +2371,11 @@ let vue_methods = {
           CLISettings: this.CLISettings,
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
+          ocSettings: this.ocSettings,
+          prefrontalCortexSettings: this.prefrontalCortexSettings,
+          NeocortexSettings: this.NeocortexSettings,
+          LimbicSystemSettings: this.LimbicSystemSettings,
+          ReptilianBrainSettings: this.ReptilianBrainSettings,
           HASettings: this.HASettings,
           chromeMCPSettings: this.chromeMCPSettings,
           sqlSettings: this.sqlSettings,
@@ -2946,6 +2976,9 @@ let vue_methods = {
         'LMstudio': this.isdocker ? 'http://host.docker.internal:1234/v1' :'http://127.0.0.1:1234/v1',
         'xinference': this.isdocker ? 'http://host.docker.internal:9997/v1' :'http://127.0.0.1:9997/v1',
         'Dify': this.isdocker ? 'http://host.docker.internal/v1' :'http://127.0.0.1/v1',
+        'newapi': this.isdocker ? 'http://host.docker.internal:3000/v1' : 'http://127.0.0.1:3000/v1',
+        'LocalAI': this.isdocker ? 'http://host.docker.internal:8080/v1' : 'http://127.0.0.1:8080/v1',
+        'ttswebui': this.isdocker ? 'http://host.docker.internal:7778/v1' : 'http://127.0.0.1:7778/v1',
         'Gemini': 'https://generativelanguage.googleapis.com/v1beta/openai',
         'Anthropic': 'https://api.anthropic.com/v1',
         'Grok': 'https://api.groq.com/openai/v1',
@@ -3052,6 +3085,35 @@ let vue_methods = {
         await this.autoSaveSettings();
       }
     },
+    async selectOCProvider(providerId) {
+      const provider = this.modelProviders.find(p => p.id === providerId);
+      if (provider) {
+        this.ocSettings.model = provider.modelId;
+        this.ocSettings.base_url = provider.url;
+        this.ocSettings.api_key = provider.apiKey;
+        await this.autoSaveSettings();
+      }
+    },
+    async selectBrainProvider(providerId) {
+      // 1. 在供应商列表中查找详细信息
+      const provider = this.modelProviders.find(p => p.id === providerId);
+
+      // 2. 校验：确保找到了供应商，且当前有正在编辑的脑区配置
+      if (provider && this.currentBrainSettings) {
+        // 3. 将供应商的详细信息 (model, url, key) 同步到当前脑区的设置中
+        this.currentBrainSettings.model = provider.modelId;
+        this.currentBrainSettings.base_url = provider.url;
+        this.currentBrainSettings.api_key = provider.apiKey;
+
+        // 4. 打印日志方便调试
+        console.log(`[${this.currentEditingKey}] 切换模型为: ${provider.modelId}`);
+
+        // 5. 自动保存
+        if (typeof this.autoSaveSettings === 'function') {
+          await this.autoSaveSettings();
+        }
+      }
+    },
     // 推理模型供应商选择
     async selectReasonerProvider(providerId) {
       const provider = this.modelProviders.find(p => p.id === providerId);
@@ -3145,6 +3207,11 @@ let vue_methods = {
         this.selectQCProvider(this.qcSettings.selectedProvider);
       }
     },
+    handleOCProviderVisibleChange(visible) {
+      if (!visible) {
+        this.selectOCProvider(this.ocSettings.selectedProvider);
+      }
+    },
     handleReasonerProviderVisibleChange(visible) {
       if (!visible) {
         this.selectReasonerProvider(this.reasonerSettings.selectedProvider);
@@ -3153,6 +3220,12 @@ let vue_methods = {
     handleVisionProviderVisibleChange(visible) {
       if (!visible) {
         this.selectVisionProvider(this.visionSettings.selectedProvider);
+      }
+    },
+    handleBrainProviderVisibleChange(visible) {
+      // 当下拉框关闭 (!visible) 且当前有选中的供应商 ID 时
+      if (!visible && this.currentBrainSettings && this.currentBrainSettings.selectedProvider) {
+        this.selectBrainProvider(this.currentBrainSettings.selectedProvider);
       }
     },
     // 创建知识库
@@ -9388,7 +9461,7 @@ stopTTSActivities() {
         
         console.log('Random Topic Prompt:', finalPrompt);
         
-        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt;
+        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题，因为这是系统消息，用户看不到！";
         // 调用发送函数
         this.sendMessage('system'); 
 
@@ -9754,7 +9827,7 @@ stopTTSActivities() {
   },
   savePrompt() {
     if (!this.promptForm.name || !this.promptForm.content) {
-      ElMessage.warning(this.t('pleaseCompleteForm'))
+      showNotification(this.t('pleaseCompleteForm'), 'warning')
       return
     }
     if (!this.promptForm.id) {
@@ -10023,6 +10096,7 @@ stopTTSActivities() {
     } finally {
       this.isGenerating = false;
       this.QuickGenAbortController = null;
+      this.quickCreatePrompt = '';
     }
   },
   stopQuickGen() {
@@ -13439,4 +13513,8 @@ async togglePlugin(plugin) {
         }
     },
 
+    openBrainEdit(brainKey) {
+      this.currentEditingKey = brainKey;
+      this.showBrainEditDialog = true;
+    },
 }

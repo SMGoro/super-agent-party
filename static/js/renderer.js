@@ -955,7 +955,11 @@ const app = Vue.createApp({
       handler(newProviders) {
         const existingIds = new Set(newProviders.map(p => p.id));
         // 自动清理无效的 selectedProvider
-        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings,this.qcSettings].forEach(config => {
+        [this.settings, this.reasonerSettings,this.visionSettings,
+          this.KBSettings,this.text2imgSettings,this.ccSettings,
+          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
+          this.LimbicSystemSettings,this.ReptilianBrainSettings
+        ].forEach(config => {
           if (config.selectedProvider && !existingIds.has(config.selectedProvider)) {
             config.selectedProvider = null;
             // 可选项：同时重置相关字段
@@ -967,7 +971,11 @@ const app = Vue.createApp({
             config.selectedProvider = newProviders[0].id;
           }
         });
-        [this.settings, this.reasonerSettings,this.visionSettings,this.KBSettings,this.text2imgSettings,this.ccSettings].forEach(config => {
+        [this.settings, this.reasonerSettings,this.visionSettings,
+          this.KBSettings,this.text2imgSettings,this.ccSettings,
+          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
+          this.LimbicSystemSettings,this.ReptilianBrainSettings
+        ].forEach(config => {
           if (config.selectedProvider) this.syncProviderConfig(config);
         });
       }
@@ -1032,6 +1040,29 @@ const app = Vue.createApp({
     },
   },
   computed: {
+    // 动态获取当前正在编辑的配置对象
+    currentBrainSettings() {
+      if (!this.currentEditingKey) return null;
+      // 根据 key 拼接字符串来访问 data 中的数据
+      // 例如：'prefrontalCortex' -> this.prefrontalCortexSettings
+      return this[`${this.currentEditingKey}Settings`];
+    },
+
+    // 动态获取模态框标题
+    currentBrainTitle() {
+      if (!this.currentEditingKey) return '';
+      // 这里复用你已有的翻译 key
+      return this.t(this.currentEditingKey); // 结果如: "前额叶 设置"
+    },
+    isAllBrainsActive() {
+      // 注意：使用 this. 且不需要 .value
+      return (
+        this.prefrontalCortexSettings.enabled &&
+        this.NeocortexSettings.enabled &&
+        this.LimbicSystemSettings.enabled &&
+        this.ReptilianBrainSettings.enabled
+      );
+    },
     dynamicUserAgent() {
       // 1. 定义一个较新的 Chrome 版本号 (定期更新这个版本号可以保持最佳兼容性)
       // 目前 Chrome 124+ 是比较通用的
@@ -1125,7 +1156,8 @@ const app = Vue.createApp({
       return !this.TTSrunning &&
              !this.ASRrunning &&
              !this.isInputting &&
-             !this.isTyping
+             !this.isTyping &&
+             !this.isOmniPlaying
     },
     // 计算处理百分比
     processingPercentage() {
@@ -1208,7 +1240,7 @@ const app = Vue.createApp({
       return [...this.defaultSeparators, ...custom];
     },
     filteredClaudeModelProviders() {
-      let vendors = ["Anthropic", "Deepseek", "siliconflow", "ZhipuAI", "moonshot", "aliyun", "modelscope","302.AI"];
+      let vendors = ["Anthropic", "Deepseek", "siliconflow", "ZhipuAI", "moonshot", "aliyun", "modelscope","302.AI","newapi"];
       // this.modelProviders中，vendor在vendors中的，添加到filteredClaudeModelProviders
       return this.modelProviders.filter((item) => vendors.includes(item.vendor));
     },
@@ -1492,27 +1524,62 @@ const app = Vue.createApp({
   },
 });
 
-function showNotification(message, type = 'success') {
-  const notification = document.createElement('div');
-  notification.className = `notification ${type}`;
-  notification.textContent = message;
-  document.body.appendChild(notification);
-  
-  // 强制重绘确保动画生效
-  void notification.offsetWidth;
-  
-  notification.classList.add('show');
+// FontAwesome 图标映射
+const NOTIFICATION_ICONS = {
+    success: 'fa-solid fa-circle-check',
+    error: 'fa-solid fa-circle-xmark',
+    warning: 'fa-solid fa-triangle-exclamation',
+    info: 'fa-solid fa-circle-info'
+};
 
-  // 设置显示时间：错误提示显示5秒，其他提示显示2秒
-  const duration = type === 'error' ? 5000 : 2000;
+let notificationTimeout;
 
-  setTimeout(() => {
-    notification.classList.remove('show');
-    notification.classList.add('hide');
-    setTimeout(() => notification.remove(), 400);
-  }, duration);
+function showNotification(message, type = 'success', title = '') {
+    // 移除旧通知 (单例模式，避免右上角堆叠过多)
+    const existingNotification = document.querySelector('.notification');
+    if (existingNotification) {
+        existingNotification.remove();
+        clearTimeout(notificationTimeout);
+    }
+
+    const iconClass = NOTIFICATION_ICONS[type] || NOTIFICATION_ICONS.info;
+    const duration = type === 'error' ? 5000 : 3000;
+
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    
+    notification.innerHTML = `
+        <div class="notif-icon-box">
+            <i class="${iconClass}"></i>
+        </div>
+        <div class="notif-content">
+            ${title ? `<div class="notif-title">${title}</div>` : ''}
+            <div class="notif-desc" style="${!title ? 'color: var(--el-text-color-primary);' : ''}">${message}</div>
+        </div>
+        <div class="notif-progress" style="transition-duration: ${duration}ms"></div>
+    `;
+
+    document.body.appendChild(notification);
+    
+    // 强制重绘
+    void notification.offsetWidth;
+
+    requestAnimationFrame(() => {
+        notification.classList.add('show');
+    });
+
+    notificationTimeout = setTimeout(() => {
+        notification.classList.remove('show');
+        notification.classList.add('hide');
+        setTimeout(() => {
+            if (notification.parentNode) notification.remove();
+        }, 400); 
+    }, duration);
 }
 
+// 兼容旧代码调用方式 (如果你的代码里只传了 message)
+// showNotification("保存成功"); -> 默认为 success
+// showNotification("保存失败", "error");
 function removeNonAsciiTags(html) {
   // 匹配所有标签（包括开始标签和结束标签）
   // 例如：<旁白> 和 </旁白>
