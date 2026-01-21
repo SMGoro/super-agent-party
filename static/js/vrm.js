@@ -281,9 +281,8 @@ loader.crossOrigin = 'anonymous';
 
 loader.register( ( parser ) => {
 
-    return new VRMLoaderPlugin(parser,{
-        lookAt: { type: 'bone' }
-    });
+    return new VRMLoaderPlugin(parser); 
+
 
 } );
 
@@ -1556,6 +1555,12 @@ loader.load(
         } );
 
         vrm.lookAt.target = camera;
+
+        if (vrm.lookAt.applier) {
+            vrm.lookAt.applier.yawLimit = 60.0;   // 左右转头最大 60 度
+            vrm.lookAt.applier.pitchLimit = 30.0; // 上下抬头最大 30 度
+        }
+
         currentVrm = vrm;
         console.log( vrm );
         scene.add( vrm.scene );
@@ -1880,74 +1885,138 @@ const vmcToVrmBone = {
 // animate
 const clock = new THREE.Clock();
 clock.start();
-
-// 在animate函数中替换原来的眨眼动画代码
+let currentLookYaw = 0;   // 左右偏航角 (Y轴)
+let currentLookPitch = 0; // 上下俯仰角 (X轴)
 function animate() {
     requestAnimationFrame(animate);
     
     const deltaTime = clock.getDelta();
     updatePointerLockMovement(deltaTime);
+
     if (currentVrm) {
+        // 1. Mixer 更新
+        if (currentMixer) {
+            currentMixer.update(deltaTime);
+        }
+
+        // 2. VMC 更新 (屏蔽)
         if (vmcReceiveEnabled) {
             for (const [vmcName, data] of vmcBoneBuffer) {
-                // 2.1 转官方名
                 let boneName = vmcToVrmBone[vmcName] ??
                             vmcName.charAt(0).toLowerCase() + vmcName.slice(1);
+                
+                if (boneName === 'neck' || boneName === 'head') continue;
 
-                // 2.2 拿节点
                 const node = currentVrm.humanoid.getNormalizedBoneNode(boneName);
-                if (!node) {
-                // 调试用：看哪些名字还没对齐（正式版可删掉）
-                // console.warn('⚠️ 未映射骨骼:', vmcName, '->', boneName);
-                continue;
-                }
-
-                // 2.3 真正写数据
-                // 针对 VRM 0.x 修复骨骼方向相反的问题
+                if (!node) continue;
                 if (isVRM1) {
                     node.position.copy(data.position);
                     node.quaternion.copy(data.rotation);
                 } else {
                     node.position.copy(data.position);
-                    
-                    // 关键修复：只反转 Y 和 Z 轴的分量，保持 X 和 W 不变
-                    // 这样解决了“向前变向后”(Y轴) 和 “向上变向下”(Z轴) 的问题
-                    node.quaternion.set(
-                        -data.rotation.x,
-                        data.rotation.y, 
-                        -data.rotation.z,
-                        data.rotation.w
-                    );
+                    node.quaternion.set(-data.rotation.x, data.rotation.y, -data.rotation.z, data.rotation.w);
                 }
             }
+        } 
 
-            /* ===== 3. 让 SpringBone / LookAt 等生效 ===== */
-            currentVrm.update(deltaTime);
-              if (currentMixer) {
-                  currentMixer.update(deltaTime);
-              }
-            }else {
-                // 只需要更新 VRM 和 Mixer
-                currentVrm.update(deltaTime);
-                if (currentVrm.lookAt) {
-                    currentVrm.lookAt.update(deltaTime);
-                }
-                if (currentMixer) {
-                    currentMixer.update(deltaTime);
-                }
+        // 3. 仿生视线追踪 (彻底修复 VRM 0.x 坐标系朝向问题)
+        const neck = currentVrm.humanoid.getNormalizedBoneNode('neck');
+        const head = currentVrm.humanoid.getNormalizedBoneNode('head');
+
+        if (neck && neck.parent) {
+            const parent = neck.parent;
+            const targetWorldPos = camera.position.clone();
+            
+            // 坐标转换
+            const localCameraPos = parent.worldToLocal(targetWorldPos.clone());
+            const neckLocalPos = neck.position.clone();
+            const viewVector = localCameraPos.sub(neckLocalPos);
+
+            // 🔥【核心修复】VRM 0.x 坐标系修正
+            // VRM 0.x 模型根节点被旋转了 180 度，所以它的"前方"是 -Z
+            // 如果不修正，算法会认为摄像机一直在"身后"，导致强制归零不动
+            if (!isVRM1) {
+                viewVector.z = -viewVector.z; // 反转 Z 轴
+                viewVector.x = -viewVector.x; // 反转 X 轴 (让左右逻辑也回归正常)
+            }
+
+            // 计算原始角度
+            const rawTargetYaw = Math.atan2(viewVector.x, viewVector.z);
+            const horizontalDist = Math.sqrt(viewVector.x**2 + viewVector.z**2);
+            const rawTargetPitch = Math.atan2(viewVector.y, horizontalDist);
+
+            // 权重分配 (0.6)
+            let targetYaw = rawTargetYaw * 0.6;
+            let targetPitch = rawTargetPitch * 0.6;
+
+            // 限制范围
+            const yawLimit = THREE.MathUtils.degToRad(45);  
+            const pitchUpLimit = THREE.MathUtils.degToRad(40);
+            const pitchDownLimit = THREE.MathUtils.degToRad(20);
+            const behindLimit = THREE.MathUtils.degToRad(110);
+
+            // 身后回正
+            if (Math.abs(rawTargetYaw) > behindLimit) {
+                targetYaw = 0;
+                targetPitch = 0;
+            } else {
+                targetYaw = THREE.MathUtils.clamp(targetYaw, -yawLimit, yawLimit);
+                targetPitch = THREE.MathUtils.clamp(targetPitch, -pitchDownLimit, pitchUpLimit);
+            }
+
+            // 平滑插值
+            const lerpSpeed = 2.0 * deltaTime;
+            currentLookYaw = THREE.MathUtils.lerp(currentLookYaw, targetYaw, lerpSpeed);
+            currentLookPitch = THREE.MathUtils.lerp(currentLookPitch, targetPitch, lerpSpeed);
+
+            // --- 最终赋值 ---
+            
+            let applyYaw = currentLookYaw;
+            let applyPitch = -currentLookPitch; // 默认 VRM1.0 (-X 抬头)
+
+            if (!isVRM1) {
+                // VRM 0.x 特殊处理
+                // 因为我们在上面反转了向量(viewVector)，所以算出来的角度数值是"正向"的
+                // 此时只需要应用到骨骼即可
+                applyYaw = currentLookYaw; 
+                
+                // VRM 0.x 通常 +X 是抬头，而我们上面用的是 standard pitch (+Y up)
+                // 如果发现抬头低头反了，把这里的正号改成负号
+                applyPitch = currentLookPitch; 
+            }
+
+            // 创建 Yaw 旋转 (绕 Y 轴)
+            const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw);
+            
+            // 创建 Pitch 旋转 (绕 X 轴)
+            const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch);
+
+            // 组合: Yaw * Pitch
+            qYaw.multiply(qPitch);
+
+            neck.quaternion.copy(qYaw);
+
+            // 头部联动
+            if (head) {
+                const qHeadYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw * 0.5);
+                const qHeadPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch * 0.5);
+                qHeadYaw.multiply(qHeadPitch);
+                
+                head.quaternion.copy(qHeadYaw);
+            }
         }
+
+        // 4. VRM 最终更新
+        currentVrm.update(deltaTime);
     }
     
-
     sendVMCBones();
-    sendVMCBlends();  // 表情
+    sendVMCBlends();
     renderer.render(scene, camera);
     
-    // 处理窗口大小变化时字幕位置
+    // UI
     if (subtitleElement && !isDraggingSubtitle) {
         const rect = subtitleElement.getBoundingClientRect();
-        
-        // 如果字幕在窗口外，重置到默认位置
         if (rect.bottom > window.innerHeight || rect.right > window.innerWidth) {
             subtitleElement.style.left = '50%';
             subtitleElement.style.bottom = '30%';
@@ -3826,6 +3895,12 @@ async function switchToModel(index,isRefresh = false) {
                 });
                 
                 vrm.lookAt.target = camera;
+
+                if (vrm.lookAt.applier) {
+                    vrm.lookAt.applier.yawLimit = 60.0;   // 左右转头最大 60 度
+                    vrm.lookAt.applier.pitchLimit = 30.0; // 上下抬头最大 30 度
+                }
+
                 currentVrm = vrm;
                 console.log('New VRM loaded:', vrm);
                 scene.add(vrm.scene);
