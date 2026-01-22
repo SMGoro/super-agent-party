@@ -184,7 +184,34 @@ light.shadow.camera.far    = 20;
 scene.add( light );
 
 const transformControl = new TransformControls( camera, renderer.domElement );
+transformControl.addEventListener('change', () => {
+    const obj = transformControl.object;
+    if (transformControl.getMode() === 'scale' && obj) {
+        
+        // 获取当前用户正在拖动的轴 (X, Y, Z)
+        const axis = transformControl.axis; 
+        
+        // 如果用户点击的是中心点或平面，axis 可能是 'XYZ' 或 'XY' 等
+        // 我们只处理单轴拖动的情况来实现强制等比例
+        let s = obj.scale.x; // 默认取值
 
+        if (axis === 'X') {
+            s = obj.scale.x;
+        } else if (axis === 'Y') {
+            s = obj.scale.y;
+        } else if (axis === 'Z') {
+            s = obj.scale.z;
+        } else {
+            // 如果是中心缩放 (XYZ)，原本就是等比例的，不需要处理
+            return;
+        }
+
+        // 检查是否已经相等，避免多余的赋值操作
+        if (obj.scale.y !== s || obj.scale.z !== s || obj.scale.x !== s) {
+            obj.scale.set(s, s, s);
+        }
+    }
+});
 // 当用户拖拽模型时，禁用轨道控制器（OrbitControls），防止相机乱转
 transformControl.addEventListener( 'dragging-changed', function ( event ) {
     controls.enabled = ! event.value;
@@ -288,6 +315,8 @@ scene.add( ambientLight );
 
 // gltf and vrm
 let currentVrm = undefined;
+let currentVrmWrapper = new THREE.Group(); // 新增：用于包裹 VRM 的组
+scene.add(currentVrmWrapper);              // 新增：一开始就加入场景
 const loader = new GLTFLoader();
 loader.crossOrigin = 'anonymous';
 
@@ -1575,7 +1604,7 @@ loader.load(
 
         currentVrm = vrm;
         console.log( vrm );
-        scene.add( vrm.scene );
+        currentVrmWrapper.add(vrm.scene); 
         
         // 让模型投射阴影
         vrm.scene.traverse((obj) => {
@@ -2218,9 +2247,12 @@ function addcontrolPanel() {
 
         const moveModeBtn = document.createElement('div');
         moveModeBtn.id = 'move-mode-handle';
-        let isMoveMode = false; // 状态标记
-
-        moveModeBtn.innerHTML = '<i class="fas fa-box"></i>'; // 使用移动图标
+        
+        // 状态：0=关闭, 1=移动, 2=旋转, 3=缩放
+        let transformState = 0; 
+        moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+        // 默认图标
+        moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>'; 
         moveModeBtn.style.cssText = `
             width: ${btn_width}px; height: ${btn_height}px; 
             background: rgba(255,255,255,0.95);
@@ -2240,63 +2272,88 @@ function addcontrolPanel() {
             backdrop-filter: blur(10px);
         `;
 
-        // 点击事件：切换附着状态
+        // 点击事件循环
         moveModeBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-
             if (!currentVrm) return;
-
-            isMoveMode = !isMoveMode;
-
-            if (isMoveMode) {
-                // 开启：将控制器附着到当前 VRM 的场景根节点
-                transformControl.attach( currentVrm.scene );
-                moveModeBtn.style.color = '#ff6b35'; // 激活状态颜色
-                moveModeBtn.style.background = 'rgba(255,255,255,1)';
-            } else {
-                // 关闭：分离控制器
-                transformControl.detach();
-                moveModeBtn.style.color = '#333'; // 恢复默认颜色
-                moveModeBtn.style.background = 'rgba(255,255,255,0.95)';
-            }
-            
-            // 更新提示文字
-            updateMoveButtonTooltip();
+            transformState = (transformState + 1) % 4;
+            updateTransformState();
         });
+
+        async function updateTransformState() {
+            if (typeof transformControl === 'undefined') return;
+
+            // 每次切换先附着
+            if (transformState !== 0 && currentVrmWrapper) {
+                transformControl.attach(currentVrmWrapper);
+            }
+
+            switch (transformState) {
+                case 0: // 关闭
+                    transformControl.detach();
+                    moveModeBtn.style.color = '#333';
+                    moveModeBtn.style.background = 'rgba(255,255,255,0.95)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+                    break;
+
+                case 1: // 移动 (World 坐标)
+                    transformControl.setMode('translate');
+                    transformControl.setSpace('world'); 
+                    moveModeBtn.style.color = '#ff6b35'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeMove') || 'Move Mode';
+                    break;
+
+                case 2: // 旋转 (Local 坐标)
+                    transformControl.setMode('rotate');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#007bff'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+                    moveModeBtn.title = await t('ModeRotate') || 'Rotate Mode';
+                    break;
+
+                case 3: // 缩放 (Local 坐标)
+                    transformControl.setMode('scale');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#e83e8c'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
+                    // 提示用户拖拽中心
+                    moveModeBtn.title = await t('ModeScale') || 'Scale Mode (Drag CENTER box for uniform)';
+                    break;
+            }
+        }
 
         // 悬停效果
         moveModeBtn.addEventListener('mouseenter', () => {
             moveModeBtn.style.transform = 'scale(1.1)';
             moveModeBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+            showTooltip(moveModeBtn, moveModeBtn.title);
         });
         moveModeBtn.addEventListener('mouseleave', () => {
             moveModeBtn.style.transform = 'scale(1)';
             moveModeBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            hideTooltip();
         });
 
-        // 提示文字逻辑
-        async function updateMoveButtonTooltip() {
-            const text = isMoveMode 
-                ? (await t('ExitObjectMode') || 'Exit Object Mode')
-                : (await t('EnterObjectMode') || 'Enter Object Mode');
-            // 复用你代码里现有的 tooltip 逻辑
-            // 假设 addHoverEffect 是你代码里定义的通用函数
-            // 由于状态变化，我们这里手动触发一次 tooltip 的更新（如果有必要）
-             moveModeBtn.title = text; // 简单的 fallback
-        }
-        
-        // 初始化 Tooltip
-        updateMoveButtonTooltip();
-        
-        // 注册到 Tooltip 系统 (复用你现有的 addHoverEffect)
-        // 注意：这里传入的是动态获取的 title，可能需要稍微改写 addHoverEffect 支持动态内容，
-        // 或者简单地在此处监听 mouseenter 时重新获取文本。
-        moveModeBtn.addEventListener('mouseenter', async () => {
-             const text = isMoveMode 
-                ? (await t('ExitObjectMode') || 'Exit Object Mode')
-                : (await t('EnterObjectMode') || 'Enter Object Mode');
-             showTooltip(moveModeBtn, text);
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (!currentVrm || typeof transformControl === 'undefined') return;
+            
+            if (e.code === 'Escape') { transformState = 0; updateTransformState(); return; }
+
+            if (transformState !== 0) {
+                switch(e.code) {
+                    case 'KeyT': transformState = 1; updateTransformState(); break;
+                    case 'KeyR': transformState = 2; updateTransformState(); break;
+                    case 'KeyS': transformState = 3; updateTransformState(); break;
+                }
+            }
         });
 
         // 拖拽按钮
@@ -3932,12 +3989,6 @@ async function switchToModel(index,isRefresh = false) {
             idleAnimationManager.stopAllAnimations();
         }
         
-        // 移除当前VRM模型
-        if (currentVrm) {
-            scene.remove(currentVrm.scene);
-            currentVrm = undefined;
-        }
-        
         // 🔥 添加：重置闲置动画管理器
         idleAnimationManager = null;
 
@@ -3946,7 +3997,8 @@ async function switchToModel(index,isRefresh = false) {
             if (typeof transformControl !== 'undefined') {
                 transformControl.detach();
             }
-            scene.remove(currentVrm.scene);
+            // scene.remove(currentVrm.scene); <-- 删除这行
+            currentVrmWrapper.remove(currentVrm.scene); // 从 Wrapper 移除
             currentVrm = undefined;
         }
         
@@ -4003,7 +4055,7 @@ async function switchToModel(index,isRefresh = false) {
 
                 currentVrm = vrm;
                 console.log('New VRM loaded:', vrm);
-                scene.add(vrm.scene);
+                currentVrmWrapper.add(vrm.scene);
                 // 让模型投射阴影
                 vrm.scene.traverse((obj) => {
                     if (obj.isMesh) {
@@ -4038,6 +4090,10 @@ async function switchToModel(index,isRefresh = false) {
                 // 隐藏加载提示
                 hideModelSwitchingIndicator();
                 
+                if (typeof transformControl !== 'undefined' && transformControl.object) {
+                    transformControl.attach(currentVrmWrapper);
+                }
+
                 console.log(`Successfully switched to model: ${selectedModel.name}`);
             },
             (progress) => {
