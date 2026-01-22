@@ -1797,49 +1797,63 @@ const VMC_BONES = [                           // VMC 标准骨骼列表
   'rightLittleProximal','rightLittleIntermediate','rightLittleDistal'
 ];
 
-/**
- * 把当前 VRM 骨骼打成 VMC-OSC 消息发出去
- * 自动 30 fps 节流，仅 Electron 有效
- */
-function sendVMCBones() {
-  if (!window.vmcAPI || !currentVrm?.humanoid) return;
+function getVMCBoneData() {
+  if (!currentVrm?.humanoid) return [];
 
-  const now = performance.now();
-  if (now - vmcLastSent < VMC_SEND_INTERVAL) return;
-  vmcLastSent = now;
+  const boneData = [];
+  
+  // VMC 接收端通常期望 Hips 的位置是相对于地面的绝对高度
+  // 我们需要获取 Hips 的世界坐标
+  const hipsNode = currentVrm.humanoid.getNormalizedBoneNode('hips');
+  let rootY = 0;
+  if (hipsNode) {
+      const worldPos = new THREE.Vector3();
+      hipsNode.getWorldPosition(worldPos);
+      // 如果模型被缩放过，或者场景有位移，这里要用世界坐标
+  }
 
   for (const name of VMC_BONES) {
     const node = currentVrm.humanoid.getNormalizedBoneNode(name);
-    if (!node || !node.position || !node.quaternion) continue;
+    if (!node) continue;
 
-    let vmcRot = { x: 0, y: 0, z: 0, w: 1 };
+    // 获取相对于父级的旋转（局部旋转），因为 VMC 传输的是 Local Rotation
+    // 注意：Hips 需要特殊处理，它通常传输世界位置
+    
+    // 1. 位置处理 (Position)
+    // 只有 Hips 需要传位置，其他骨骼位置通常由骨骼长度决定（VMC接收端会忽略非Hips的位置，或者用来缩放）
+    // 为了兼容性，我们只对 Hips 传真实位置，其他传 0 (或者传 node.position 也行，但要注意转换)
+    
+    let x = node.position.x;
+    let y = node.position.y;
+    let z = node.position.z;
 
-    if (isVRM1) {
-        // VRM 1.0 标准转换 (Three.js -> Unity/VMC)
-        // 通常是 X不变, Y反转, Z反转
-        vmcRot.x = node.quaternion.x;
-        vmcRot.y = -node.quaternion.y;
-        vmcRot.z = -node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    } else {
-        // VRM 0.x 转换 (基于你的接收端逻辑逆推)
-        // 接收是 (-x, y, -z)，所以发送也是 (-x, y, -z)
-        vmcRot.x = -node.quaternion.x;
-        vmcRot.y = -node.quaternion.y; // 保持 Y 原样 (对应接收端的 y)
-        vmcRot.z = node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    }
+    // ★ 关键坐标系转换：ThreeJS(右手) -> Unity(左手)
+    // Position: X 取反
+    const vmcPos = { x: -x, y: y, z: z };
 
-    window.vmcAPI.sendVMCBone({
-      boneName: name,
-      position: {
-        x: node.position.x,
-        y: node.position.y,
-        z: node.position.z
-      },
-      rotation: vmcRot
+    // 2. 旋转处理 (Rotation)
+    // ThreeJS: x, y, z, w
+    // Unity:   x, -y, -z, w (通常转换公式)
+    
+    let qx = node.quaternion.x;
+    let qy = node.quaternion.y;
+    let qz = node.quaternion.z;
+    let qw = node.quaternion.w;
+
+    const vmcRot = { 
+        x: qx, 
+        y: -qy, 
+        z: -qz, 
+        w: qw 
+    };
+
+    boneData.push({
+        name: name,
+        pos: vmcPos,
+        rot: vmcRot
     });
   }
+  return boneData;
 }
 
 // VRM1 → VRM0（VMC 事实标准）
@@ -1877,26 +1891,27 @@ let lastBlendWeights = {}; // 节流：变化了才发
 
 
 
-function sendVMCBlends() {
-  if (!window.vmcAPI || !currentVrm?.expressionManager) return;
-
+function getVMCBlendData() {
+  if (!currentVrm?.expressionManager) return [];
+  
+  const blendData = [];
   const mgr = currentVrm.expressionManager;
+
   for (const vrmName of VMC_BLEND_SHAPES) {
     const weight = mgr.getValue(vrmName);
     if (weight === undefined) continue;
 
-    // 转换名字
     const vmcName = VRM1_TO_VMC0[vrmName];
-    if (!vmcName) continue;          // 没有对应就跳过
-    // 节流
-    if (Math.abs(weight - (lastBlendWeights[vmcName] ?? 0)) < 0.01) continue;
-    lastBlendWeights[vmcName] = weight;
-    window.vmcAPI.sendVMCBlend({
-      blendName: vmcName,
-      weight
+    if (!vmcName) continue;
+    
+    // 这里为了保证数据完整，Warudo 建议每帧都发，或者至少变化时发
+    // 如果为了带宽可以做节流，但最好打包发送
+    blendData.push({
+        name: vmcName,
+        weight: weight
     });
   }
-  window.vmcAPI.sendVMCBlendApply(); // 应用
+  return blendData;
 }
 const vmcToVrmBone = {
   LeftIndexIntermediate: 'leftIndexIntermediate',
@@ -2050,11 +2065,27 @@ function animate() {
         // 4. VRM 最终更新
         currentVrm.update(deltaTime);
     }
-    
-    sendVMCBones();
-    sendVMCBlends();
+
     renderer.render(scene, camera);
     
+    const now = performance.now();
+    if (window.vmcAPI && (now - vmcLastSent >= VMC_SEND_INTERVAL)) {
+        vmcLastSent = now;
+        
+        // 只有当开启 VMC 发送时才计算
+        // 假设你在 electronAPI.getVMCConfig 里获取了状态，或者通过 window 变量判断
+        // 这里简单判断
+        const bones = getVMCBoneData();
+        const blends = getVMCBlendData();
+
+        if (bones.length > 0) {
+            window.vmcAPI.sendVMCFrame({
+                bones: bones,
+                blends: blends
+            });
+        }
+    }
+
     // UI
     if (subtitleElement && !isDraggingSubtitle) {
         const rect = subtitleElement.getBoundingClientRect();
@@ -2891,9 +2922,6 @@ function addcontrolPanel() {
 
           if (currentVrm) currentVrm.update(delta);
           if (currentMixer) currentMixer.update(delta);
-
-          // sendVMCBones();
-          // sendVMCBlends();
 
           // 关键：必须调用 renderer.render，否则 XR 不提交画面
           renderer.render(scene, camera);

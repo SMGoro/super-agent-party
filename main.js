@@ -1202,20 +1202,80 @@ app.whenReady().then(async () => {
       return { success: true };
     });
 
-    ['send-vmc-bone','send-vmc-blend','send-vmc-blend-apply'].forEach(method => {
-      ipcMain.removeHandler(method);          // 清掉旧注册
-      ipcMain.handle(method, (e, data) => {
-        if (!global.vmcCfg?.send.enable) return;   // 总开关
-        // 下面就是原来的实现（直接写，或抽成函数调用都可）
-        switch (method) {
-          case 'send-vmc-bone':
-            return sendVMCBoneMain(data);      // 你自己已有的实现
-          case 'send-vmc-blend':
-            return sendVMCBlendMain(data);
-          case 'send-vmc-blend-apply':
-            return sendVMCBlendApplyMain();
-        }
+    ipcMain.handle('send-vmc-frame', (event, frameData) => {
+      if (!global.vmcCfg?.send.enable) return;
+
+      const { host, port } = global.vmcCfg.send;
+      const { bones, blends } = frameData;
+      const packets = [];
+
+      // 1. 发送 Root (保持之前修正后的归零逻辑)
+      packets.push({
+        address: '/VMC/Ext/Root/Pos',
+        args: [
+          { type: 's', value: 'root' },
+          { type: 'f', value: 0 }, { type: 'f', value: 0 }, { type: 'f', value: 0 },
+          { type: 'f', value: 0 }, { type: 'f', value: 0 }, { type: 'f', value: 0 }, { type: 'f', value: 1 }
+        ]
       });
+
+      // 2. 发送骨骼 (★ 核心修复在这里)
+      bones.forEach(b => {
+        if (b.name === 'root') return;
+
+        // ★ Warudo 强制要求 PascalCase (大驼峰)
+        // Three.js 是 "hips", Warudo 要 "Hips"
+        // Three.js 是 "leftUpperArm", Warudo 要 "LeftUpperArm"
+        const vmcName = b.name.charAt(0).toUpperCase() + b.name.slice(1);
+
+        packets.push({
+          address: '/VMC/Ext/Bone/Pos',
+          args: [
+            { type: 's', value: vmcName },  // <--- 这里用转换后的大写名字
+            { type: 'f', value: b.pos.x },
+            { type: 'f', value: b.pos.y },
+            { type: 'f', value: b.pos.z },
+            { type: 'f', value: b.rot.x },
+            { type: 'f', value: b.rot.y },
+            { type: 'f', value: b.rot.z },
+            { type: 'f', value: b.rot.w }
+          ]
+        });
+      });
+
+      // 3. 发送表情 (BlendShape 名字通常也需要对应)
+      blends.forEach(blend => {
+        // 表情名字我们在 vrm.js 里已经通过映射表转过了(Joy, A, I...), 这里直接用
+        packets.push({
+          address: '/VMC/Ext/Blend/Val',
+          args: [
+            { type: 's', value: blend.name },
+            { type: 'f', value: blend.weight }
+          ]
+        });
+      });
+
+      // 4. Apply
+      if (blends.length > 0) {
+        packets.push({ address: '/VMC/Ext/Blend/Apply', args: [] });
+      }
+
+      // 5. OK (Warudo 必须)
+      packets.push({ 
+        address: '/VMC/Ext/OK', 
+        args: [{ type: 'i', value: 1 }] 
+      });
+
+      // ... 发送逻辑保持不变 ...
+      try {
+        const bundleBuffer = osc.writePacket({
+          timeTag: osc.timeTag(0),
+          packets: packets
+        });
+        vmcSendSocket.send(bundleBuffer, port, host, (err) => {
+            if (err) console.error(err);
+        });
+      } catch (e) { console.error(e); }
     });
 
     // 窗口控制事件
