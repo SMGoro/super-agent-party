@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { createVRMAnimationClip, VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import { SplatMesh } from '@sparkjsdev/spark';
@@ -10,7 +11,6 @@ let currentMixer = null;
 let idleAction = null;
 let breathAction = null;
 let blinkAction = null;
-
 // renderer
 // 检测运行环境
 const isElectron = typeof require !== 'undefined' || navigator.userAgent.includes('Electron');
@@ -182,6 +182,18 @@ light.shadow.camera.bottom = -camSize;
 light.shadow.camera.near   = 0.1;
 light.shadow.camera.far    = 20;
 scene.add( light );
+
+const transformControl = new TransformControls( camera, renderer.domElement );
+
+// 当用户拖拽模型时，禁用轨道控制器（OrbitControls），防止相机乱转
+transformControl.addEventListener( 'dragging-changed', function ( event ) {
+    controls.enabled = ! event.value;
+});
+
+// 默认设为 'translate' (移动模式)，也可以是 'rotate' 或 'scale'
+transformControl.setMode('translate'); 
+
+scene.add( transformControl.getHelper() ); // 添加辅助线
 
 let currentSceneGroup = null;          // 当前场景根节点，方便整体卸载
 
@@ -2204,6 +2216,89 @@ function addcontrolPanel() {
             });
         };
 
+        const moveModeBtn = document.createElement('div');
+        moveModeBtn.id = 'move-mode-handle';
+        let isMoveMode = false; // 状态标记
+
+        moveModeBtn.innerHTML = '<i class="fas fa-box"></i>'; // 使用移动图标
+        moveModeBtn.style.cssText = `
+            width: ${btn_width}px; height: ${btn_height}px; 
+            background: rgba(255,255,255,0.95);
+            border: 2px solid rgba(0,0,0,0.1); 
+            border-radius: 50%; 
+            color: #333;
+            cursor: pointer; 
+            -webkit-app-region: no-drag; 
+            display: flex;
+            align-items: center; 
+            justify-content: center; 
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            transition: all 0.2s ease;
+            user-select: none; 
+            pointer-events: auto; 
+            backdrop-filter: blur(10px);
+        `;
+
+        // 点击事件：切换附着状态
+        moveModeBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (!currentVrm) return;
+
+            isMoveMode = !isMoveMode;
+
+            if (isMoveMode) {
+                // 开启：将控制器附着到当前 VRM 的场景根节点
+                transformControl.attach( currentVrm.scene );
+                moveModeBtn.style.color = '#ff6b35'; // 激活状态颜色
+                moveModeBtn.style.background = 'rgba(255,255,255,1)';
+            } else {
+                // 关闭：分离控制器
+                transformControl.detach();
+                moveModeBtn.style.color = '#333'; // 恢复默认颜色
+                moveModeBtn.style.background = 'rgba(255,255,255,0.95)';
+            }
+            
+            // 更新提示文字
+            updateMoveButtonTooltip();
+        });
+
+        // 悬停效果
+        moveModeBtn.addEventListener('mouseenter', () => {
+            moveModeBtn.style.transform = 'scale(1.1)';
+            moveModeBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+        });
+        moveModeBtn.addEventListener('mouseleave', () => {
+            moveModeBtn.style.transform = 'scale(1)';
+            moveModeBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        });
+
+        // 提示文字逻辑
+        async function updateMoveButtonTooltip() {
+            const text = isMoveMode 
+                ? (await t('ExitObjectMode') || 'Exit Object Mode')
+                : (await t('EnterObjectMode') || 'Enter Object Mode');
+            // 复用你代码里现有的 tooltip 逻辑
+            // 假设 addHoverEffect 是你代码里定义的通用函数
+            // 由于状态变化，我们这里手动触发一次 tooltip 的更新（如果有必要）
+             moveModeBtn.title = text; // 简单的 fallback
+        }
+        
+        // 初始化 Tooltip
+        updateMoveButtonTooltip();
+        
+        // 注册到 Tooltip 系统 (复用你现有的 addHoverEffect)
+        // 注意：这里传入的是动态获取的 title，可能需要稍微改写 addHoverEffect 支持动态内容，
+        // 或者简单地在此处监听 mouseenter 时重新获取文本。
+        moveModeBtn.addEventListener('mouseenter', async () => {
+             const text = isMoveMode 
+                ? (await t('ExitObjectMode') || 'Exit Object Mode')
+                : (await t('EnterObjectMode') || 'Enter Object Mode');
+             showTooltip(moveModeBtn, text);
+        });
+
         // 拖拽按钮
         const dragButton = document.createElement('div');
         dragButton.id = 'drag-handle';
@@ -3136,6 +3231,7 @@ function addcontrolPanel() {
             controlPanel.appendChild(vmcButton);
         }
         controlPanel.appendChild(xrAutoBtn); // 新增：XR 自动按钮
+        controlPanel.appendChild(moveModeBtn); 
         controlPanel.appendChild(switchCtrlBtn);
         controlPanel.appendChild(refreshButton);
         controlPanel.appendChild(closeButton);
@@ -3149,6 +3245,7 @@ function addcontrolPanel() {
             idleAnimationButton, 
             prevModelButton, 
             nextModelButton, 
+            moveModeBtn,
             refreshButton, 
             closeButton,
             xrAutoBtn,
@@ -3846,6 +3943,9 @@ async function switchToModel(index,isRefresh = false) {
 
         // 移除当前VRM模型
         if (currentVrm) {
+            if (typeof transformControl !== 'undefined') {
+                transformControl.detach();
+            }
             scene.remove(currentVrm.scene);
             currentVrm = undefined;
         }
