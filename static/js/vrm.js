@@ -11,6 +11,35 @@ let currentMixer = null;
 let idleAction = null;
 let breathAction = null;
 let blinkAction = null;
+
+// 鼠标悬停自动隐藏模型相关变量
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let isAutoHideEnabled = false;           // 自动隐藏功能开关
+let isModelHiddenByHover = false;        // 模型当前是否因悬停而隐藏
+let hoverCheckTimeout = null;            // 防抖定时器
+let mixerTimeScaleBeforeHide = 1;        // 隐藏前的动画速度
+let animationsPausedForHide = false;     // 标记是否因隐藏暂停动画
+const HOVER_CHECK_INTERVAL = 33;         // 检测间隔（毫秒），约30fps
+const FADE_DURATION = 120;               // 渐变动画时长（毫秒），缩短以降低残留
+let hideTransitionTimer = null;          // 记录隐藏计时器，避免交叉覆盖
+
+// 在隐藏期间暂停/恢复动画播放，避免隐藏时继续消耗资源
+function pauseModelAnimationsForHide() {
+    if (!animationsPausedForHide && currentMixer) {
+        mixerTimeScaleBeforeHide = currentMixer.timeScale ?? 1;
+        currentMixer.timeScale = 0;
+        animationsPausedForHide = true;
+    }
+}
+
+function resumeModelAnimationsAfterHide() {
+    if (animationsPausedForHide && currentMixer) {
+        currentMixer.timeScale = mixerTimeScaleBeforeHide || 1;
+    }
+    animationsPausedForHide = false;
+}
+
 // renderer
 // 检测运行环境
 const isElectron = typeof require !== 'undefined' || navigator.userAgent.includes('Electron');
@@ -160,6 +189,7 @@ camera.far = 1000; // 根据场景需要调整（例如 1000 或更大）
 camera.updateProjectionMatrix(); // 必须调用以生效
 // camera controls
 const controls = new OrbitControls( camera, renderer.domElement );
+let controlsEnabledBeforeAutoHide = true;   // 记录自动隐藏前控制器状态
 controls.screenSpacePanning = true;
 controls.target.set( 0.0, 1.0, 0.0 );
 controls.update();
@@ -1943,13 +1973,14 @@ const clock = new THREE.Clock();
 clock.start();
 let currentLookYaw = 0;   // 左右偏航角 (Y轴)
 let currentLookPitch = 0; // 上下俯仰角 (X轴)
+
 function animate() {
     requestAnimationFrame(animate);
     
     const deltaTime = clock.getDelta();
     updatePointerLockMovement(deltaTime);
-
-    if (currentVrm) {
+    const shouldSkipModelUpdate = isModelHiddenByHover && isAutoHideEnabled;
+    if (currentVrm && !shouldSkipModelUpdate) {
         // 1. Mixer 更新
         if (currentMixer) {
             currentMixer.update(deltaTime);
@@ -2097,7 +2128,7 @@ function animate() {
         }
     }
 }
-     
+
 async function setVMCReceive (enable, syncExpr = false) {
   if (vmcReceiveEnabled!= enable){
     if (enable) {
@@ -3168,6 +3199,168 @@ function addcontrolPanel() {
             
         }
 
+        /**
+         * 处理鼠标悬停检测 - 使用Raycaster检测鼠标是否在模型上
+         * 灵敏度调整说明：
+         * 1. 修改 HOVER_CHECK_INTERVAL 可调整检测频率（值越小越敏感，但消耗更多性能）
+         * 2. 修改 raycaster.params.Points.threshold 可调整射线检测距离
+         * 3. 在 intersects.length > 0 判断处可添加距离过滤，如 intersects[0].distance < 某个值
+         */
+        function handleModelHoverDetection(event) {
+            if (!currentVrm || !isAutoHideEnabled || pointerLocked) return;
+            
+            // 清除之前的防抖定时器
+            if (hoverCheckTimeout) {
+                clearTimeout(hoverCheckTimeout);
+            }
+            
+            // 使用防抖避免频繁计算
+            hoverCheckTimeout = setTimeout(() => {
+                // 计算鼠标位置的标准化设备坐标 (-1 到 +1)
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                // 通过摄像机和鼠标位置更新射线
+                raycaster.setFromCamera(mouse, camera);
+                
+                // 检测射线与模型的交点
+                const intersects = raycaster.intersectObject(currentVrm.scene, true);
+                
+                // 判断是否悬停在模型上
+                const nowHovered = intersects.length > 0;
+                
+                // 状态改变时执行隐藏/显示动画
+                if (nowHovered !== isModelHiddenByHover) {
+                    isModelHiddenByHover = nowHovered;
+                    
+                    if (nowHovered) {
+                        hideModelWithTransition();
+                    } else {
+                        showModelWithTransition();
+                    }
+                }
+            }, HOVER_CHECK_INTERVAL);
+        }
+
+        // 鼠标离开窗口时重置自动隐藏状态
+        function handleMouseLeaveWindow(event) {
+            // 仅在完全离开文档（relatedTarget 为空）时处理
+            if (!event.relatedTarget && isAutoHideEnabled) {
+                isModelHiddenByHover = false;
+                showModelWithTransition();
+            }
+        }
+        
+        /**
+         * 使用渐变效果隐藏模型窗口：淡出 WebGL 画布并让后面的界面可点击
+         */
+        function hideModelWithTransition() {
+            if (!renderer || !renderer.domElement) return;
+
+            const canvas = renderer.domElement;
+            canvas.style.transition = `opacity ${FADE_DURATION}ms ease`;
+            pauseModelAnimationsForHide();
+
+            // 清理未完成的隐藏定时器，避免后置覆盖
+            if (hideTransitionTimer) {
+                clearTimeout(hideTransitionTimer);
+                hideTransitionTimer = null;
+            }
+
+            // 开始淡出
+            requestAnimationFrame(() => {
+                canvas.style.opacity = '0';
+            });
+
+            // 淡出完成后关闭交互，允许点击穿透
+            hideTransitionTimer = setTimeout(() => {
+                canvas.style.pointerEvents = 'none';
+                if (currentVrm) currentVrm.scene.visible = false;
+                // 让整个窗口鼠标穿透，转发到底层（仅 Electron 生效）
+                if (isElectron && !isMouseLocked && window.electronAPI?.setIgnoreMouseEvents) {
+                    window.electronAPI.setIgnoreMouseEvents(true, { forward: true });
+                }
+                hideTransitionTimer = null;
+            }, FADE_DURATION + 10);
+        }
+
+        /**
+         * 使用渐变效果显示模型窗口：淡入 WebGL 画布并恢复交互
+         */
+        function showModelWithTransition() {
+            if (!renderer || !renderer.domElement) return;
+
+            const canvas = renderer.domElement;
+            canvas.style.transition = `opacity ${FADE_DURATION}ms ease`;
+            canvas.style.pointerEvents = 'auto';
+            canvas.style.opacity = '0'; // 确保从 0 开始
+            if (currentVrm) currentVrm.scene.visible = true;
+            resumeModelAnimationsAfterHide();
+
+            // 若有待执行的隐藏计时器，先清掉以防后续覆盖
+            if (hideTransitionTimer) {
+                clearTimeout(hideTransitionTimer);
+                hideTransitionTimer = null;
+            }
+
+            requestAnimationFrame(() => {
+                canvas.style.opacity = '1';
+            });
+
+            // 恢复结束后保持正常交互
+            setTimeout(() => {
+                canvas.style.pointerEvents = 'auto';
+                // 只有在未锁定窗口时，恢复正常鼠标事件（Electron）
+                if (isElectron && !isMouseLocked && window.electronAPI?.setIgnoreMouseEvents) {
+                    window.electronAPI.setIgnoreMouseEvents(false);
+                }
+            }, FADE_DURATION + 10);
+        }
+        
+        /**
+         * 启用自动隐藏功能
+         */
+        function enableAutoHide() {
+            if (isAutoHideEnabled) return;
+            
+            isAutoHideEnabled = true;
+            isModelHiddenByHover = false;
+            controlsEnabledBeforeAutoHide = controls.enabled;
+            controls.enabled = false; // 禁止拖动模型以避免与自动隐藏冲突
+            
+            // 添加鼠标移动事件监听
+            document.addEventListener('mousemove', handleModelHoverDetection);
+            document.addEventListener('mouseleave', handleMouseLeaveWindow);
+            
+            console.log('自动隐藏功能已启用');
+        }
+        
+        /**
+         * 禁用自动隐藏功能
+         */
+        function disableAutoHide() {
+            if (!isAutoHideEnabled) return;
+            
+            isAutoHideEnabled = false;
+            isModelHiddenByHover = false;
+            controls.enabled = controlsEnabledBeforeAutoHide;
+            
+            // 移除鼠标移动事件监听
+            document.removeEventListener('mousemove', handleModelHoverDetection);
+            document.removeEventListener('mouseleave', handleMouseLeaveWindow);
+            
+            // 清除防抖定时器
+            if (hoverCheckTimeout) {
+                clearTimeout(hoverCheckTimeout);
+                hoverCheckTimeout = null;
+            }
+            
+            // 恢复模型完全可见
+            showModelWithTransition();
+            
+            console.log('自动隐藏功能已禁用');
+        }
+        
         // 切换锁定状态
         async function toggleMouseLock() {
             isMouseLocked = !isMouseLocked;
@@ -3229,6 +3422,99 @@ function addcontrolPanel() {
         // 在组装控制面板时添加锁定按钮
         await initLockButton();
 
+        // 自动隐藏按钮
+        const hideButton = document.createElement('div');
+        hideButton.id = 'hide-handle';
+        let isAutoHideActive = false; // 自动隐藏功能状态
+        let autoHideDisabledByPointerLock = false; // 记录是否因第一人称暂时关闭
+
+        // 初始化自动隐藏按钮
+        async function initHideButton() {
+            hideButton.innerHTML = '<i class="fas fa-eye"></i>';
+            hideButton.style.cssText = `
+                width: ${btn_width}px; 
+                height: ${btn_height}px;
+                background: rgba(255,255,255,0.95);
+                border: 2px solid rgba(0,0,0,0.1);
+                border-radius: 50%;
+                color: #6c757d;
+                cursor: pointer;
+                -webkit-app-region: no-drag;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                transition: all 0.2s ease;
+                user-select: none;
+                pointer-events: auto;
+                backdrop-filter: blur(10px);
+            `;
+            
+            const hideDesc = await t('AutoHideDescription');
+            hideButton.title = hideDesc || '鼠标悬停自动隐藏';
+            updateHideButtonState();
+        }
+
+        // 更新自动隐藏按钮状态
+        async function updateHideButtonState() {
+            if (isAutoHideActive) {
+                hideButton.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                hideButton.style.color = '#ffc107';
+                const enabledText = await t('AutoHideEnabled');
+                hideButton.title = enabledText || '自动隐藏已启用，点击关闭';
+            } else {
+                hideButton.innerHTML = '<i class="fas fa-eye"></i>';
+                hideButton.style.color = '#6c757d';
+                const disabledText = await t('AutoHideDescription');
+                hideButton.title = disabledText || '鼠标悬停自动隐藏，点击启用';
+            }
+        }
+
+        // 切换自动隐藏功能
+        async function toggleAutoHide() {
+            if (pointerLocked && !isAutoHideActive) {
+                console.warn('Auto hide is disabled in first-person mode');
+                return;
+            }
+            isAutoHideActive = !isAutoHideActive;
+            
+            if (isAutoHideActive) {
+                enableAutoHide();
+            } else {
+                disableAutoHide();
+            }
+            
+            updateHideButtonState();
+            
+            // 发送状态更新到主窗口
+            sendToMain('autoHideStatus', { enabled: isAutoHideActive });
+            
+            console.log(`自动隐藏功能${isAutoHideActive ? '已启用' : '已禁用'}`);
+        }
+
+        // 添加事件监听
+        hideButton.addEventListener('mouseenter', () => {
+            hideButton.style.background = 'rgba(255,255,255,1)';
+            hideButton.style.transform = 'scale(1.1)';
+            hideButton.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+        });
+
+        hideButton.addEventListener('mouseleave', () => {
+            hideButton.style.background = 'rgba(255,255,255,0.95)';
+            hideButton.style.transform = 'scale(1)';
+            hideButton.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        });
+
+        hideButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleAutoHide();
+        });
+
+        // 初始化自动隐藏按钮
+        await initHideButton();
+
         const switchCtrlBtn = document.createElement('div');
         switchCtrlBtn.id = 'switch-controls-handle';
         switchCtrlBtn.innerHTML = '<i class="fas fa-gamepad"></i>';
@@ -3261,12 +3547,24 @@ function addcontrolPanel() {
                 pointerLockControls.lock();              // 锁定鼠标
                 enablePointerLockMovement();
                 pointerLocked = true;
+                if (isAutoHideActive) {
+                    disableAutoHide();
+                    isAutoHideActive = false;
+                    autoHideDisabledByPointerLock = true;
+                    updateHideButtonState();
+                }
                 switchCtrlBtn.style.color = '#ffc73bff';
             } else {
                 // 回到 OrbitControls
                 pointerLockControls.unlock();
                 disablePointerLockMovement(); 
                 pointerLocked = false;
+                if (autoHideDisabledByPointerLock) {
+                    enableAutoHide();
+                    isAutoHideActive = true;
+                    autoHideDisabledByPointerLock = false;
+                    updateHideButtonState();
+                }
                 switchCtrlBtn.style.color = '#333';
                 if (orbitControlsSaved) {
                     orbitControlsSaved.enabled = true;
@@ -3307,6 +3605,7 @@ function addcontrolPanel() {
         // 组装控制面板
         controlPanel.appendChild(dragButton);
         controlPanel.appendChild(lockButton);
+        controlPanel.appendChild(hideButton);
         controlPanel.appendChild(subtitleButton);
         controlPanel.appendChild(idleAnimationButton);
         controlPanel.appendChild(prevModelButton);
@@ -3325,7 +3624,8 @@ function addcontrolPanel() {
         controlButtons.push(
             dragButton, 
             vmcButton,
-            wsStatusButton, 
+            wsStatusButton,
+            hideButton,
             subtitleButton, 
             idleAnimationButton, 
             prevModelButton, 
@@ -3344,6 +3644,7 @@ function addcontrolPanel() {
         addHoverEffect(vmcButton, await t('vmcSettings') || 'VMC Settings');
         addHoverEffect(dragButton, await t('dragWindow'));
         addHoverEffect(lockButton, isMouseLocked ? await t('UnlockWindow') : await t('LockWindow'));
+        addHoverEffect(hideButton, isAutoHideActive ? await t('AutoHideEnabled') : await t('AutoHideDescription'));
         addHoverEffect(wsStatusButton, wsConnected ? await t('WebSocketConnected') : await t('WebSocketDisconnected'));
         addHoverEffect(subtitleButton, isSubtitleEnabled ? await t('SubtitleEnabled') : await t('SubtitleDisabled'));
         addHoverEffect(idleAnimationButton, useVRMAIdleAnimations ? 
@@ -3363,6 +3664,9 @@ function addcontrolPanel() {
         async function updateButtonTooltips() {
             // 更新锁定按钮提示
             addHoverEffect(lockButton, isMouseLocked ? await t('UnlockWindow') : await t('LockWindow'));
+            
+            // 更新自动隐藏按钮提示
+            addHoverEffect(hideButton, isAutoHideActive ? await t('AutoHideEnabled') : await t('AutoHideDescription'));
             
             // 更新WebSocket状态提示
             addHoverEffect(wsStatusButton, wsConnected ? await t('WebSocketConnected') : await t('WebSocketDisconnected'));
@@ -4008,6 +4312,16 @@ async function switchToModel(index,isRefresh = false) {
     userModelURL.host = window.location.host;
     selectedModel.path = userModelURL.href;
     console.log(`Switching to model: ${selectedModel.name} (${selectedModel.id}) - Index: ${currentModelIndex}`);
+    // 切换模型前确保画布和交互恢复为可见状态
+    isModelHiddenByHover = false;
+    resumeModelAnimationsAfterHide();
+    if (renderer?.domElement) {
+        const canvas = renderer.domElement;
+        canvas.style.opacity = '1';
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.transition = '';
+        if (currentVrm) currentVrm.scene.visible = true;
+    }
     
     try {
         // 显示加载提示（可选）

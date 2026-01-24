@@ -192,3 +192,9 @@ vrm/asr/
 
 /build/
 /dist/
+runtime/
+
+一键启动(start).sh
+一键更新(update).sh
+
+nodejs/
