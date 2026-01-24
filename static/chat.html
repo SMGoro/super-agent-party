@@ -1144,8 +1144,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                 ></el-switch>
               </el-form-item>
 
-              <!-- 2. 选择群聊成员 (仅在开启时显示) -->
-              <div v-if="isGroupMode" class="group-settings-area" style="margin-top: 20px;">
+              <!-- 2. 选择群聊成员 -->
+              <div class="group-settings-area" style="margin-top: 20px;">
                 <div style="margin-bottom: 10px; font-weight: bold;">{{ t('selectGroupAgents') }}</div>
                 
                 <el-select 
