@@ -135,7 +135,8 @@ contextBridge.exposeInMainWorld('vmcAPI', {
   sendVMCBlendApply: () => {
     if (!vmcCfg.send.enable) return;
     return ipcRenderer.invoke('send-vmc-blend-apply');
-  }
+  },
+  sendVMCFrame: (data) => ipcRenderer.invoke('send-vmc-frame', data),
 });
 
 contextBridge.exposeInMainWorld('downloadAPI', {
