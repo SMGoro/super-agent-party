@@ -750,7 +750,8 @@ let vue_data = {
       {"name": "httpButton", "enabled": false},
       {"name": "comfyuiButton", "enabled": false},
       {"name": "vrmButton", "enabled": true},
-      {"name": "behaviorBotton", "enabled": false}
+      {"name": "behaviorBotton", "enabled": false},
+      {"name": "groupChatBotton", "enabled": true},
     ],
     largeMoreButtonDict:[
       {"name": "brieflyButton", "enabled": true},
@@ -782,7 +783,8 @@ let vue_data = {
       {"name": "httpButton", "enabled": false},
       {"name": "comfyuiButton", "enabled": false},
       {"name": "vrmButton", "enabled": true},
-      {"name": "behaviorBotton", "enabled": false}
+      {"name": "behaviorBotton", "enabled": false},
+      {"name": "groupChatBotton", "enabled": true},
     ],
     smallMoreButtonDict:[
       {"name": "brieflyButton", "enabled": false},
@@ -814,7 +816,8 @@ let vue_data = {
       {"name": "httpButton", "enabled": false},
       {"name": "comfyuiButton", "enabled": false},
       {"name": "vrmButton", "enabled": true},
-      {"name": "behaviorBotton", "enabled": false}
+      {"name": "behaviorBotton", "enabled": false},
+      {"name": "groupChatBotton", "enabled": false},
     ],
     showVrmModelDialog: false,
     vrmOnline: false,   // 新增
@@ -1908,4 +1911,7 @@ main();`,
     showFavorites: true, // 控制欢迎页收藏夹的显示/隐藏状态
     searchEngineplaceholder:'',
     webviewPreloadPath: '', 
+    isGroupMode: false,           // 是否开启群聊模式
+    selectedGroupAgents: [], 
+    showGroupSettingsDialog: false,
 };

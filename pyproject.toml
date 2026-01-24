@@ -68,4 +68,5 @@ dependencies = [
     "pyttsx3>=2.99",
     "xlrd>=2.0.2",
     "tetos>=0.4.2",
+    "langchain-classic>=1.0.1",
 ]

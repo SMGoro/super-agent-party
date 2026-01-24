@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS

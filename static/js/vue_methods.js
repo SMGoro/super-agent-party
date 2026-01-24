@@ -1314,6 +1314,8 @@ let vue_methods = {
           this.comfyuiAPIkey = data.data.comfyuiAPIkey || this.comfyuiAPIkey;
           this.workflows = data.data.workflows || this.workflows;
           this.customHttpTools = data.data.custom_http || this.customHttpTools;
+          this.isGroupMode = data.data.isGroupMode || this.isGroupMode;
+          this.selectedGroupAgents = data.data.selectedGroupAgents || this.selectedGroupAgents;
           this.loadConversation(this.conversationId);
           // 初始化时确保数据一致性
           this.edgettsLanguage = this.ttsSettings.edgettsLanguage;
@@ -1520,584 +1522,503 @@ let vue_methods = {
       console.log('Added system message:', this.messages[0]);
       await this.autoSaveSettings();
     },
-    // 发送消息
+    // ==========================================
+    // 1. 用户动作入口与调度函数
+    // ==========================================
     async sendMessage(role = 'user') { 
-      if (!this.userInput.trim() || this.isTyping) return;
-      if (this.readState.isPlaying && this.ttsSettings.enabled) { 
-        if (this.isReadRunning){
-          this.pauseRead();
-        }else{
-          this.stopSegmentTTS(isEnd=false);
-        }
-        this.isReadInterruption = true;
-      }
-      this.isTyping = true;
-      // 开始计时
-      this.startTimer();
-      if (this.ttsSettings.enabledInterruption) {
-        // 关闭正在播放的音频
-        if (this.currentAudio){
-          this.currentAudio.pause();
-          this.currentAudio = null;
-          this.stopGenerate();
-          this.stopAllAudioPlayback();
-        }
-        this.TTSrunning = false;
-      }
-      // 👈 桌面截图：仅在 Electron 且 desktopVision 开启时
-      if (isElectron && this.visionSettings?.desktopVision) {
-        if (this.visionSettings.enableWakeWord && this.visionSettings.wakeWord) {
-          // this.visionSettings.wakeWord以换行符分割成数组
-          const wakeWords = this.visionSettings.wakeWord.split('\n');
-          // this.userInput中不包含wakeWords中的元素，就不启用
-          if (wakeWords.some(word => this.userInput.includes(word))) {
-            try {
-              const pngBuffer = await window.electronAPI.captureDesktop() // Buffer
-              const blob = new Blob([pngBuffer], { type: 'image/png' })
-              const file = new File([blob], `desktop_${Date.now()}.png`, { type: 'image/png' })
-              // 直接塞进本次要上传的 images 数组，复用原有上传逻辑
-              this.images.push({ file, name: file.name, path: '' })
-            } catch (e) {
-              console.error('桌面截图失败:', e)
-              showNotification(this.t('desktop_capture_failed'), 'error')
+        // 基础校验
+        if (!this.userInput.trim() && (!this.files || this.files.length === 0) && (!this.images || this.images.length === 0)) return;
+        if (this.isTyping) return;
+
+        // 处理 TTS/Read 中断
+        if (this.readState.isPlaying && this.ttsSettings.enabled) { 
+            if (this.isReadRunning){
+                this.pauseRead();
+            } else {
+                this.stopSegmentTTS(isEnd=false);
             }
-          }
+            this.isReadInterruption = true;
         }
-        else {
-          try {
-            const pngBuffer = await window.electronAPI.captureDesktop() // Buffer
-            const blob = new Blob([pngBuffer], { type: 'image/png' })
-            const file = new File([blob], `desktop_${Date.now()}.png`, { type: 'image/png' })
-            // 直接塞进本次要上传的 images 数组，复用原有上传逻辑
-            this.images.push({ file, name: file.name, path: '' })
-          } catch (e) {
-            console.error('桌面截图失败:', e)
-            showNotification(this.t('desktop_capture_failed'), 'error')
-          }
+
+        this.isTyping = true;
+        this.startTimer(); // 记录用户点击发送的时间（第一条消息以此为准，后续消息会在内部重置）
+
+        // 如果开启了打断，停止当前播放
+        if (this.ttsSettings.enabledInterruption) {
+            if (this.currentAudio){
+                this.currentAudio.pause();
+                this.currentAudio = null;
+                this.stopGenerate();
+                this.stopAllAudioPlayback();
+            }
+            this.TTSrunning = false;
         }
-      }
-      // 声明变量并初始化为 null
-      let ttsProcess = null;
-      let audioProcess = null;
-      const userInput = this.userInput.trim();
-      let fileLinks = this.files || [];
-      if (fileLinks.length > 0){
-        const formData = new FormData();
+
+        // --- 桌面截图逻辑 (Electron) ---
+        if (vue_data.isElectron && this.visionSettings?.desktopVision) {
+            if (this.visionSettings.enableWakeWord && this.visionSettings.wakeWord) {
+                const wakeWords = this.visionSettings.wakeWord.split('\n');
+                if (wakeWords.some(word => this.userInput.includes(word))) {
+                    try {
+                    const pngBuffer = await window.electronAPI.captureDesktop()
+                    const blob = new Blob([pngBuffer], { type: 'image/png' })
+                    const file = new File([blob], `desktop_${Date.now()}.png`, { type: 'image/png' })
+                    this.images.push({ file, name: file.name, path: '' })
+                    } catch (e) {
+                    console.error('桌面截图失败:', e)
+                    showNotification(this.t('desktop_capture_failed'), 'error')
+                    }
+                }
+            }
+            else {
+                try {
+                    const pngBuffer = await window.electronAPI.captureDesktop()
+                    const blob = new Blob([pngBuffer], { type: 'image/png' })
+                    const file = new File([blob], `desktop_${Date.now()}.png`, { type: 'image/png' })
+                    this.images.push({ file, name: file.name, path: '' })
+                } catch (e) {
+                    console.error('桌面截图失败:', e)
+                    showNotification(this.t('desktop_capture_failed'), 'error')
+                }
+            }
+        }
+
+        // --- 文件上传处理 ---
+        const userInput = this.userInput.trim();
+        let fileLinks = this.files || [];
         
-        // 使用 'files' 作为键名，而不是 'file'
-        for (const file of fileLinks) {
-            if (file.file instanceof Blob) { // 确保 file.file 是一个有效的文件对象
-                formData.append('files', file.file, file.name); // 添加第三个参数为文件名
-            } else {
-                console.error("Invalid file object:", file);
-                showNotification(this.t('invalid_file'), 'error');
-                return;
+        if (fileLinks.length > 0){
+            const formData = new FormData();
+            for (const file of fileLinks) {
+                if (file.file instanceof Blob) { 
+                    formData.append('files', file.file, file.name);
+                }
             }
+            try {
+                const response = await fetch(`/load_file`, { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    fileLinks = data.fileLinks;
+                    this.textFiles = [...this.textFiles, ...data.textFiles];
+                }
+            } catch (error) { console.error(error); }
         }
-    
-        try {
-            console.log('Uploading files...');
-            const response = await fetch(`/load_file`, {
-                method: 'POST',
-                body: formData
-            });
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Server responded with an error:', errorText);
-                showNotification(this.t('file_upload_failed'), 'error');
-                return;
-            }
-            const data = await response.json();
-            if (data.success) {
-                fileLinks = data.fileLinks;
-                // data.textFiles 添加到 this.textFiles
-                this.textFiles = [...this.textFiles, ...data.textFiles];
-            } else {
-                showNotification(this.t('file_upload_failed'), 'error');
-            }
-          } catch (error) {
-              console.error('Error during file upload:', error);
-              showNotification(this.t('file_upload_failed'), 'error');
-          }
-        }
+
         let imageLinks = this.images || [];
         if (imageLinks.length > 0){
-          const formData = new FormData();
-          
-          // 使用 'files' 作为键名，而不是 'file'
-          for (const file of imageLinks) {
-              if (file.file instanceof Blob) { // 确保 file.file 是一个有效的文件对象
-                  formData.append('files', file.file, file.name); // 添加第三个参数为文件名
-              } else {
-                  console.error("Invalid file object:", file);
-                  showNotification(this.t('invalid_file'), 'error');
-                  return;
+            const formData = new FormData();
+              for (const file of imageLinks) {
+                  if (file.file instanceof Blob) { 
+                      formData.append('files', file.file, file.name); 
+                  } 
               }
-          }
-      
-          try {
-              console.log('Uploading images...');
-              const response = await fetch(`/load_file`, {
-                  method: 'POST',
-                  body: formData
-              });
-              if (!response.ok) {
-                  const errorText = await response.text();
-                  console.error('Server responded with an error:', errorText);
-                  showNotification(this.t('file_upload_failed'), 'error');
-                  return;
-              }
-              const data = await response.json();
-              if (data.success) {
-                imageLinks = data.fileLinks;
-                // data.imageFiles 添加到 this.imageFiles
-                this.imageFiles = [...this.imageFiles, ...data.imageFiles];
-              } else {
-                showNotification(this.t('file_upload_failed'), 'error');
-              }
-          } catch (error) {
-              console.error('Error during file upload:', error);
-              showNotification(this.t('file_upload_failed'), 'error');
-          }
-        }
-      const fileLinks_content = fileLinks.map(fileLink => `\n[文件名：${fileLink.name}\n文件链接: ${fileLink.path}]`).join('\n') || '';
-      const fileLinks_list = Array.isArray(fileLinks) ? fileLinks.map(fileLink => fileLink.path).flat() : []
-      // fileLinks_list添加到self.filelinks
-      this.fileLinks = this.fileLinks.concat(fileLinks_list)
-      // const escapedContent = this.escapeHtml(userInput.trim());
-      // 添加用户消息
-      this.messages.push({
-        id: Date.now() + Math.random(), // 添加唯一ID
-        role: role,
-        content: userInput.trim(),
-        fileLinks: fileLinks,
-        fileLinks_content: fileLinks_content,
-        imageLinks: imageLinks || []
-      });
-      this.sendMessagesToExtension();
-      this.files = [];
-      this.images = [];
-      let max_rounds = this.settings.max_rounds || 0;
-      let messages;
-      // 把窗口滚动到底部
-      this.$nextTick(() => {
-        const container = this.$refs.messagesContainer;
-        container.scrollTop = container.scrollHeight;
-      });
-      if (max_rounds === 0) {
-        // 如果 max_rounds 是 0, 映射所有消息
-        messages = this.messages.map(msg => {
-          // 提取HTTP/HTTPS图片链接
-          const httpImageLinks = msg.imageLinks?.filter(imageLink => 
-            imageLink.path.startsWith('http')
-          ) || [];
-          
-          // 构建图片URL文本信息
-          const imageUrlsText = httpImageLinks.length > 0 
-            ? '\n\n图片链接:\n' + httpImageLinks.map(link => link.path).join('\n')
-            : '';
-          
-          return {
-            role: msg.role,
-            content: (msg.imageLinks && msg.imageLinks.length > 0)
-              ? [
-                  {
-                    type: "text",
-                    text: msg.pure_content??msg.content + (msg.fileLinks_content ?? '') + imageUrlsText
-                  },
-                  ...msg.imageLinks.map(imageLink => ({
-                    type: "image_url",
-                    image_url: { url: imageLink.path }
-                  }))
-                ]
-              : msg.pure_content??msg.content + (msg.fileLinks_content ?? '') + imageUrlsText
-          };
-        });
-      } else {
-        // 准备发送的消息历史（保留最近 max_rounds 条消息）
-        messages = this.messages
-          .slice(-max_rounds)
-          .map(msg => {
-          // 提取HTTP/HTTPS图片链接
-          const httpImageLinks = msg.imageLinks?.filter(imageLink => 
-            imageLink.path.startsWith('http')
-          ) || [];
-          
-          // 构建图片URL文本信息
-          const imageUrlsText = httpImageLinks.length > 0 
-            ? '\n\n图片链接:\n' + httpImageLinks.map(link => link.path).join('\n')
-            : '';
-          
-          return {
-            role: msg.role,
-            content: (msg.imageLinks && msg.imageLinks.length > 0)
-              ? [
-                  {
-                    type: "text",
-                    text: msg.pure_content??msg.content + (msg.fileLinks_content ?? '') + imageUrlsText
-                  },
-                  ...msg.imageLinks.map(imageLink => ({
-                    type: "image_url",
-                    image_url: { url: imageLink.path }
-                  }))
-                ]
-              : msg.pure_content??msg.content + (msg.fileLinks_content ?? '') + imageUrlsText
-          };
-        });
-      }
-      
-      this.userInput = '';
-      this.isSending = true;
-      this.abortController = new AbortController(); 
-      // 如果conversationId为null
-      if (this.conversationId === null) {
-        //创建一个新的对话
-        this.conversationId = uuid.v4();
-        const newConv = {
-          id: this.conversationId,
-          title: this.generateConversationTitle(messages),
-          mainAgent: this.mainAgent,
-          timestamp: Date.now(),
-          messages: this.messages,
-          fileLinks: this.fileLinks,
-          system_prompt: this.system_prompt,
-        };
-        this.conversations.unshift(newConv);
-      }
-      // 如果conversationId不为null
-      else {
-        // 更新现有对话
-        const conv = this.conversations.find(conv => conv.id === this.conversationId);
-        if (conv) {
-          conv.messages = this.messages;
-          conv.mainAgent = this.mainAgent;
-          conv.timestamp = Date.now();
-          conv.title = this.generateConversationTitle(messages);
-          conv.fileLinks = this.fileLinks;
-          conv.system_prompt = this.system_prompt;
-        }
-      }
-      await this.saveConversations();
-      // 插入this.extensionsSystemPromptsDict到系统消息中
-      if(this.extensionsSystemPromptsDict){
-        // 去重并拼接所有的提示词
-        const combinedPrompt = Object.values(this.extensionsSystemPromptsDict).filter(Boolean).join('\n\n');
-        console.log(combinedPrompt);
-        // 如果第一个消息时system
-        if (messages[0].role === 'system') {
-          // 将combinedPrompt添加到第一个消息的内容中
-          messages[0].content += '\n\n' + combinedPrompt;
-        } else {
-          // 否则，将combinedPrompt添加到消息列表的开头
-          messages.unshift({ role: 'system', content: combinedPrompt });
-        }
-      }
-      try {
-        console.log('Sending message...');
-        // 请求参数需要与后端接口一致
-        const response = await fetch(`/v1/chat/completions`, {  // 修改端点路径
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // 添加API密钥验证（如果配置了api_key）
-            // 'Authorization': `Bearer ${YOUR_API_KEY}`  
-          },
-          body: JSON.stringify({
-            model: this.mainAgent,
-            messages: messages,
-            stream: true,
-            fileLinks: this.fileLinks,
-            asyncToolsID: this.asyncToolsID,
-            reasoning_effort: this.reasoning_effort,
-          }),
-          signal: this.abortController.signal
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          // throw new Error(errorData.error?.message || this.t('error_unknown'));
-          showNotification(errorData.error?.message || this.t('error_unknown'), 'error');
-          throw new Error(errorData.error?.message || this.t('error_unknown')); // 抛出错误以停止执行
-        }
-
-        this.messages.push({
-          id: Date.now() + Math.random(), // 添加唯一ID
-          role: 'assistant',
-          content: '',
-          pure_content: '',
-          currentChunk: 0,
-          isOmni: this.settings.enableOmniTTS, 
-          omniAudioChunks: [],
-          omniDuration: 0,      // 必须是 0
-          omniCurrentTime: 0,   // 必须是 0
-          ttsChunks: [],
-          chunks_voice:[],
-          audioChunks: [],
-          isPlaying:false,
-          total_tokens: 0,
-          first_token_latency: 0,
-          elapsedTime: 0,
-          first_sentence_latency: 0,
-          TTSelapsedTime: 0,
-        });
-        if (this.allBriefly){
-          this.messages[this.messages.length - 1].briefly = true;
-        }
-        if (this.ttsSettings.enabled) {
-          // 启动TTS和音频播放进程
-          this.startTTSProcess();
-          this.startAudioPlayProcess();
-        }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let tts_buffer = '';
-        let isCodeBlock = false;
-        this.cur_voice = 'default';   // 全局变量
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          
-          // 处理可能包含多个事件的情况
-          while (buffer.includes('\n\n')) {
-            const eventEndIndex = buffer.indexOf('\n\n');
-            const eventData = buffer.slice(0, eventEndIndex);
-            buffer = buffer.slice(eventEndIndex + 2);
-            
-            if (eventData.startsWith('data: ')) {
-              const jsonStr = eventData.slice(6).trim();
-              if (jsonStr === '[DONE]') {
-                this.isTyping = false;
-                break;
-              }
-              
               try {
-                const parsed = JSON.parse(jsonStr);
-                const lastMessage = this.messages[this.messages.length - 1];
-                
-                if (lastMessage.content == '') {
-                  // 结束计时并打印时间
-                  this.stopTimer();
-                  console.log(`first token processed in ${this.elapsedTime}ms`);
-                  lastMessage.first_token_latency = this.elapsedTime;
-                }
-                // --- ✨ 核心修改：处理 content 并过滤代码块 ---
-                if (parsed.choices?.[0]?.delta?.content) {
-                  const contentChunk = parsed.choices[0].delta.content;
+                  const response = await fetch(`/load_file`, { method: 'POST', body: formData });
+                  const data = await response.json();
+                  if (data.success) {
+                    imageLinks = data.fileLinks;
+                    this.imageFiles = [...this.imageFiles, ...data.imageFiles];
+                  }
+              } catch (error) { console.error(error); }
+        }
 
-                  // 1. 始终将完整内容添加到消息显示（界面上需要显示代码）
-                  // 注意：这一步原本是在下面做的，但为了逻辑清晰，流式数据进来先处理 TTS 过滤
-                  // (下方的 content 拼接逻辑保留，这里仅处理 tts_buffer)
+        // 构造文件链接字符串
+        const fileLinks_content = fileLinks.map(fileLink => `\n[文件名：${fileLink.name}\n文件链接: ${fileLink.path}]`).join('\n') || '';
+        const fileLinks_list = Array.isArray(fileLinks) ? fileLinks.map(fileLink => fileLink.path).flat() : []
+        this.fileLinks = this.fileLinks.concat(fileLinks_list)
 
-                  // 2. 处理 TTS 过滤逻辑：按 ``` 切割
-                  const parts = contentChunk.split('```');
-                  
-                  for (let i = 0; i < parts.length; i++) {
-                    // 只有不在代码块内时，才累加到 TTS 缓冲
-                    if (!isCodeBlock) {
-                      tts_buffer += parts[i];
-                    }
+        // --- 推送用户消息到界面 ---
+        this.messages.push({
+            id: Date.now() + Math.random(),
+            role: role,
+            content: userInput,
+            fileLinks: fileLinks,
+            fileLinks_content: fileLinks_content,
+            imageLinks: imageLinks || [],
+            agentName: this.memorySettings.userName || 'User' 
+        });
+
+        this.sendMessagesToExtension();
+        this.files = [];
+        this.images = [];
+        this.userInput = '';
+        
+        this.$nextTick(() => { this.scrollToBottom(); });
+
+        // --- 调度逻辑：群聊 vs 单聊 ---
+        this.isSending = true; 
+        this.abortController = new AbortController(); 
+
+        try {
+                if (this.isGroupMode && this.selectedGroupAgents && this.selectedGroupAgents.length > 0) {
+                    // == 群聊模式：随机串行调用 ==
                     
-                    // 如果 i 不是最后一个元素，说明遇到了 ``` 分隔符，切换状态
-                    if (i < parts.length - 1) {
-                      isCodeBlock = !isCodeBlock;
-                    }
-                  }
-
-                  // 3. 处理 TTS 分割与生成
-                  if (this.ttsSettings.enabled) {
-                    const {
-                      chunks,
-                      chunks_voice,
-                      remaining,
-                      remaining_voice
-                    } = this.splitTTSBuffer(tts_buffer);
-                    
-                    // 将完整的句子添加到 ttsChunks
-                    if (chunks.length > 0) {
-                      lastMessage.chunks_voice.push(...chunks_voice);
-                      lastMessage.ttsChunks.push(...chunks);
-                    }
-                    
-                    // 更新 tts_buffer 为剩余部分
-                    tts_buffer = remaining;
-                    this.cur_voice = remaining_voice;
-                  }
-                }
-                // --- ✨ 核心修改结束 ---
-
-                // 处理 reasoning_content 逻辑
-                if (parsed.choices?.[0]?.delta?.reasoning_content) {
-                  let newContent = parsed.choices[0].delta.reasoning_content;
-                  // const lastMessage = this.messages[this.messages.length - 1]; // 已在上面定义
-                  
-                  // 初始化高亮块
-                  if (!this.isThinkOpen) {
-                    lastMessage.content += '<div class="highlight-block-reasoning">';
-                    this.isThinkOpen = true;
-                  }
-                  
-                  // 处理换行（保留原始换行，通过 CSS 控制显示）
-                  newContent = newContent.replace(/\n/g, '<br>'); // 可选：如果需要 HTML 换行
-                  
-                  // 追加内容到高亮块
-                  lastMessage.content += newContent;
-                  
-                  this.scrollToBottom();
-                }
-
-                // 处理 tool_content 逻辑
-                if (parsed.choices?.[0]?.delta?.tool_content) {
-                  // const lastMessage = this.messages[this.messages.length - 1];
-                  if (this.isThinkOpen) {
-                    lastMessage.content += '</div>\n\n';
-                    this.isThinkOpen = false; // 重置状态
-                  }
-                  if (parsed.choices?.[0]?.delta?.tool_link && this.toolsSettings.toolMemorandum.enabled) {
-                    this.fileLinks.push(parsed.choices[0].delta.tool_link);
-                  }
-                  lastMessage.content += parsed.choices[0].delta.tool_content + '\n\n';
-                  this.scrollToBottom();
-                }
-
-                // 处理 content 逻辑 (界面显示)
-                if (parsed.choices?.[0]?.delta?.content) {
-                  // const lastMessage = this.messages[this.messages.length - 1];
-                  if (this.isThinkOpen) {
-                    lastMessage.content += '</div>\n\n';
-                    this.isThinkOpen = false; // 重置状态
-                  }
-                  lastMessage.content += parsed.choices[0].delta.content;
-                  lastMessage.pure_content += parsed.choices[0].delta.content;
-                  this.scrollToBottom();
-                }
-
-                // 在流式读取循环中
-                if (parsed.choices?.[0]?.delta?.audio?.data) {
-                    const b64 = parsed.choices[0].delta.audio.data;
-                    const lastMessage = this.messages[this.messages.length - 1];
-
-                    // 初始化 Omni 存储
-                    if (!lastMessage.omniAudioChunks) {
-                        lastMessage.omniAudioChunks = [];
-                        lastMessage.omniDuration = 0;
-                        lastMessage.omniCurrentTime = 0;
-                        lastMessage.isOmni = true; // 标记这是 Omni 消息
+                    // ✨ 1. 创建副本并随机打乱 (Fisher-Yates Shuffle)
+                    let executionList = [...this.selectedGroupAgents];
+                    for (let i = executionList.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [executionList[i], executionList[j]] = [executionList[j], executionList[i]];
                     }
 
-                    // 存储数据块
-                    lastMessage.omniAudioChunks.push(b64);
-                    
-                    // 计算该块时长 (PCM 16bit, 24000Hz, 单声道)
-                    const chunkDuration = (atob(b64).length / 2) / 24000;
-                    lastMessage.omniDuration += chunkDuration;
+                    // ✨ 2. 遍历打乱后的列表
+                    for (const targetId of executionList) {
+                        if (this.abortController.signal.aborted) break;
 
-                    // 实时播放
-                    this.playPCMChunk(b64, lastMessage.pure_content, lastMessage);
-                }
-                if (parsed.usage && parsed.usage?.total_tokens) {
-                  // const lastMessage = this.messages[this.messages.length - 1];
-                  lastMessage.total_tokens  = parsed.usage.total_tokens;
-                }
-                
-                this.stopTimer(); // 结束计时并打印时间
-                lastMessage.elapsedTime = this.elapsedTime / 1000;
+                        let agentDisplayName = "Unknown";
+                        
+                        // 解析显示名称
+                        if (targetId.startsWith('memory/')) {
+                            const memId = targetId.split('/')[1];
+                            const memRecord = this.memories.find(m => String(m.id) === String(memId));
+                            agentDisplayName = memRecord ? memRecord.name : "Role";
+                        } else if (targetId === 'super-model') {
+                            agentDisplayName = this.t('defaultAgent');
+                        } else if (this.agents[targetId]) {
+                            agentDisplayName = this.agents[targetId].name;
+                        }
 
-                if (parsed.choices?.[0]?.delta?.async_tool_id) {
-                    // 判断parsed.choices[0].delta.async_tool_id是否在this.asyncToolsID中
-                    if (this.asyncToolsID.includes(parsed.choices[0].delta.async_tool_id)) {
-                      // 如果在，则删除
-                      this.asyncToolsID = this.asyncToolsID.filter(id => id !== parsed.choices[0].delta.async_tool_id);
-                    } else {
-                      // 如果不在，则添加
-                      this.asyncToolsID.push(parsed.choices[0].delta.async_tool_id);
+                        // 调用生成函数
+                        await this.generateAIResponse(targetId, agentDisplayName);
                     }
-                }
-                this.sendMessagesToExtension(); // 发送消息到插件
-              } catch (e) {
-                console.error(e);
-                showNotification(e, 'error');
-              }
+                } else {
+                // == 单聊模式 ==
+                let currentName = 'Assistant';
+                if (this.mainAgent === 'super-model') currentName = this.t('defaultAgent');
+                else if (this.agents[this.mainAgent]) currentName = this.agents[this.mainAgent].name;
+
+                await this.generateAIResponse(this.mainAgent, currentName);
             }
-          }
+        } catch (e) {
+            console.error("Chat dispatch error:", e);
+        } finally {
+            this.isTyping = false;
+            this.isSending = false;
+            this.abortController = null;
+            await this.autoSaveSettings();
+            await this.saveConversations();
         }
-        const lastMessage = this.messages[this.messages.length - 1];
-        // 循环结束后，处理 tts_buffer 中的剩余内容
-        if (tts_buffer.trim() && this.ttsSettings.enabled) {
-          // 这里不需要再次调用 splitTTSBuffer，因为 remaining 已经是清理后的文本
-          lastMessage.chunks_voice.push(this.cur_voice);
-          lastMessage.ttsChunks.push(tts_buffer);
+    },
+
+
+    // ==========================================
+    // 2. AI 生成与流式处理函数
+    // ==========================================
+    async generateAIResponse(targetAgentId, agentDisplayName = null) {
+        // ✨✨✨ 修复核心：每次生成开始时重置计时器 ✨✨✨
+        // 这样每个角色的 First Token Latency 都是相对于它自己开始生成的时间
+        this.startTimer(); 
+
+        let max_rounds = this.settings.max_rounds || 0;
+        
+        // --- 准备消息 Payload ---
+        const prepareMessages = (msgs) => {
+            const humanName = this.memorySettings.userName || 'User';
+            return msgs.map(msg => {
+                let senderName = "";
+                if (msg.role === 'system') senderName = "System";
+                else if (msg.role === 'user') senderName = humanName;
+                else senderName = msg.agentName || "Assistant";
+
+                let apiRole = 'user';
+                if (msg.role === 'system') apiRole = 'system';
+                else if (msg.role === 'assistant' && msg.agentName === agentDisplayName) apiRole = 'assistant';
+                else apiRole = 'user';
+
+                const httpImageLinks = msg.imageLinks?.filter(link => link.path.startsWith('http')) || [];
+                const imageUrlsText = httpImageLinks.length > 0 
+                    ? '\n\n图片链接:\n' + httpImageLinks.map(link => link.path).join('\n') : '';
+                
+                let baseContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '') + imageUrlsText;
+                let finalContentText = "";
+
+                if (apiRole === 'system') finalContentText = baseContent;
+                else if (apiRole === 'assistant') finalContentText = baseContent;
+                else finalContentText = `${senderName}: ${baseContent}`;
+
+                if (msg.imageLinks && msg.imageLinks.length > 0) {
+                    return {
+                        role: apiRole,
+                        content: [
+                            { type: "text", text: finalContentText },
+                            ...msg.imageLinks.map(link => ({ type: "image_url", image_url: { url: link.path } }))
+                        ]
+                    };
+                } else {
+                    return { role: apiRole, content: finalContentText };
+                }
+            });
+        };
+
+        let messagesPayload;
+        if (max_rounds === 0) messagesPayload = prepareMessages(this.messages);
+        else messagesPayload = prepareMessages(this.messages.slice(-max_rounds));
+
+        if(this.extensionsSystemPromptsDict){
+            const combinedPrompt = Object.values(this.extensionsSystemPromptsDict).filter(Boolean).join('\n\n');
+            if (messagesPayload[0].role === 'system') messagesPayload[0].content += '\n\n' + combinedPrompt;
+            else messagesPayload.unshift({ role: 'system', content: combinedPrompt });
         }
-        // 如果是 Omni 模型播放
-        if (this.audioStartTime > this.audioCtx.currentTime) {
-            // 计算音频播放还需要多久结束 (秒转毫秒)
-            const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
+
+        // --- 创建当前消息对象 ---
+        const newMsgData = {
+            id: Date.now() + Math.random(),
+            role: 'assistant',
+            agentName: agentDisplayName, 
+            content: '',
+            pure_content: '',
+            currentChunk: 0,
+            isOmni: this.settings.enableOmniTTS, 
+            omniAudioChunks: [],
+            omniDuration: 0,
+            omniCurrentTime: 0,
+            ttsChunks: [],
+            chunks_voice:[],
+            audioChunks: [],
+            isPlaying:false,
+            total_tokens: 0,
+            first_token_latency: 0,
+            elapsedTime: 0,
+            first_sentence_latency: 0,
+            TTSelapsedTime: 0,
+            generationFinished: false, 
+        };
+
+        this.messages.push(newMsgData);
+        // 获取响应式对象
+        const currentMsg = this.messages[this.messages.length - 1]; 
+        
+        if (this.allBriefly) currentMsg.briefly = true;
+
+        this.$nextTick(() => { this.scrollToBottom(); });
+
+        // --- 音频同步控制 ---
+        let ttsProcess = null;
+        let audioProcess = null;
+        let audioResolve = null;
+        const audioPromise = new Promise((resolve) => { audioResolve = resolve; });
+
+        if (this.ttsSettings.enabled) {
+            this.startTTSProcess(currentMsg);
+            this.startAudioPlayProcess(currentMsg, audioResolve);
+            audioProcess = audioPromise; 
+        }
+
+        try {
+            console.log(`Sending message to agent: ${targetAgentId} (${agentDisplayName})`);
+            
+            const response = await fetch(`/v1/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: targetAgentId,
+                    messages: messagesPayload,
+                    stream: true,
+                    fileLinks: this.fileLinks,
+                    asyncToolsID: this.asyncToolsID,
+                    reasoning_effort: this.reasoning_effort,
+                }),
+                signal: this.abortController.signal 
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                showNotification(errorData.error?.message || this.t('error_unknown'), 'error');
+                throw new Error(errorData.error?.message || this.t('error_unknown')); 
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let tts_buffer = '';
+            let isCodeBlock = false;
+            this.cur_voice = 'default';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                
+                while (buffer.includes('\n\n')) {
+                    const eventEndIndex = buffer.indexOf('\n\n');
+                    const eventData = buffer.slice(0, eventEndIndex);
+                    buffer = buffer.slice(eventEndIndex + 2);
+                    
+                    if (eventData.startsWith('data: ')) {
+                        const jsonStr = eventData.slice(6).trim();
+                        if (jsonStr === '[DONE]') break;
+                        
+                        try {
+                            const parsed = JSON.parse(jsonStr);
+                            
+                            // 首字延迟统计
+                            if (currentMsg.content == '') {
+                                this.stopTimer(); 
+                                currentMsg.first_token_latency = this.elapsedTime;
+                            }
+
+                            if (parsed.choices?.[0]?.delta?.content) {
+                                const contentChunk = parsed.choices[0].delta.content;
+
+                                const parts = contentChunk.split('```');
+                                for (let i = 0; i < parts.length; i++) {
+                                    if (!isCodeBlock) { tts_buffer += parts[i]; }
+                                    if (i < parts.length - 1) { isCodeBlock = !isCodeBlock; }
+                                }
+
+                                if (this.ttsSettings.enabled) {
+                                    const { chunks, chunks_voice, remaining, remaining_voice } = this.splitTTSBuffer(tts_buffer);
+                                    if (chunks.length > 0) {
+                                        currentMsg.chunks_voice.push(...chunks_voice);
+                                        currentMsg.ttsChunks.push(...chunks);
+                                    }
+                                    tts_buffer = remaining;
+                                    this.cur_voice = remaining_voice;
+                                }
+                            }
+
+                            if (parsed.choices?.[0]?.delta?.reasoning_content) {
+                                let newContent = parsed.choices[0].delta.reasoning_content;
+                                if (!this.isThinkOpen) {
+                                    currentMsg.content += '<div class="highlight-block-reasoning">';
+                                    this.isThinkOpen = true;
+                                }
+                                newContent = newContent.replace(/\n/g, '<br>');
+                                currentMsg.content += newContent;
+                                this.scrollToBottom();
+                            }
+
+                            if (parsed.choices?.[0]?.delta?.tool_content) {
+                                if (this.isThinkOpen) {
+                                    currentMsg.content += '</div>\n\n';
+                                    this.isThinkOpen = false;
+                                }
+                                if (parsed.choices?.[0]?.delta?.tool_link && this.toolsSettings.toolMemorandum.enabled) {
+                                    this.fileLinks.push(parsed.choices[0].delta.tool_link);
+                                }
+                                currentMsg.content += parsed.choices[0].delta.tool_content + '\n\n';
+                                this.scrollToBottom();
+                            }
+
+                            if (parsed.choices?.[0]?.delta?.content) {
+                                if (this.isThinkOpen) {
+                                    currentMsg.content += '</div>\n\n';
+                                    this.isThinkOpen = false;
+                                }
+                                currentMsg.content += parsed.choices[0].delta.content;
+                                currentMsg.pure_content += parsed.choices[0].delta.content;
+                                this.scrollToBottom();
+                            }
+
+                            if (parsed.choices?.[0]?.delta?.audio?.data) {
+                                const b64 = parsed.choices[0].delta.audio.data;
+                                if (!currentMsg.omniAudioChunks) {
+                                    currentMsg.omniAudioChunks = [];
+                                    currentMsg.omniDuration = 0;
+                                    currentMsg.omniCurrentTime = 0;
+                                    currentMsg.isOmni = true;
+                                }
+                                currentMsg.omniAudioChunks.push(b64);
+                                const chunkDuration = (atob(b64).length / 2) / 24000;
+                                currentMsg.omniDuration += chunkDuration;
+                                this.playPCMChunk(b64, currentMsg.pure_content, currentMsg);
+                            }
+
+                            if (parsed.usage && parsed.usage?.total_tokens) {
+                                currentMsg.total_tokens  = parsed.usage.total_tokens;
+                            }
+                            
+                            this.stopTimer(); 
+                            currentMsg.elapsedTime = this.elapsedTime / 1000;
+
+                            if (parsed.choices?.[0]?.delta?.async_tool_id) {
+                                const aid = parsed.choices[0].delta.async_tool_id;
+                                if (this.asyncToolsID.includes(aid)) {
+                                    this.asyncToolsID = this.asyncToolsID.filter(id => id !== aid);
+                                } else {
+                                    this.asyncToolsID.push(aid);
+                                }
+                            }
+                            
+                            this.sendMessagesToExtension();
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }
+                }
+            }
+            
+            if (tts_buffer.trim() && this.ttsSettings.enabled) {
+                currentMsg.chunks_voice.push(this.cur_voice);
+                currentMsg.ttsChunks.push(tts_buffer);
+            }
+            
+            currentMsg.generationFinished = true;
+
+            if (this.audioStartTime > this.audioCtx.currentTime) {
+                const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
+                setTimeout(() => {
+                    this.sendTTSStatusToVRM('allChunksCompleted', {});
+                }, remainingTime);
+            } else {
+                this.sendTTSStatusToVRM('allChunksCompleted', {});
+            }
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                showNotification(this.t('message.stopGenerate'), 'info');
+            } else {
+                showNotification(error.message, 'error');
+            }
+            if (audioResolve) audioResolve();
+            throw error;
+        } finally {
+            if (this.allBriefly) currentMsg.briefly = true;
+            
+            if (this.conversationId === null) {
+                this.conversationId = uuid.v4();
+                const newConv = {
+                    id: this.conversationId,
+                    title: this.generateConversationTitle(messagesPayload),
+                    mainAgent: this.mainAgent,
+                    timestamp: Date.now(),
+                    messages: this.messages,
+                    fileLinks: this.fileLinks,
+                    system_prompt: this.system_prompt,
+                };
+                this.conversations.unshift(newConv);
+            } else {
+                const conv = this.conversations.find(conv => conv.id === this.conversationId);
+                if (conv) {
+                    conv.messages = this.messages;
+                    conv.timestamp = Date.now();
+                    conv.fileLinks = this.fileLinks;
+                }
+            }
+
+            if (this.ttsSettings.enabled && audioProcess) {
+                await audioProcess;
+            }
+
+            this.isThinkOpen = false;
             
             setTimeout(() => {
-                this.sendTTSStatusToVRM('allChunksCompleted', {});
-                console.log('Omni audio finished, sent allChunksCompleted');
-            }, remainingTime);
-        } else {
-            // 如果没有音频在排队，直接发
-            this.sendTTSStatusToVRM('allChunksCompleted', {});
+                if (!this.isSending && this.audioStartTime <= this.audioCtx.currentTime) {
+                    this.sendTTSStatusToVRM('allChunksCompleted', {});
+                }
+            }, 1000);
         }
+    },
 
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          showNotification(this.t('message.stopGenerate'), 'info');
-        } else {
-          showNotification(error.message, 'error');
-        }
-      } finally {
-        if (this.allBriefly){
-          this.messages[this.messages.length - 1].briefly = true;
-        }
-        // 如果conversationId为null
-        if (this.conversationId === null) {
-          //创建一个新的对话
-          this.conversationId = uuid.v4();
-          const newConv = {
-            id: this.conversationId,
-            title: this.generateConversationTitle(messages),
-            mainAgent: this.mainAgent,
-            timestamp: Date.now(),
-            messages: this.messages,
-            fileLinks: this.fileLinks,
-            system_prompt: this.system_prompt,
-          };
-          this.conversations.unshift(newConv);
-        }
-        // 如果conversationId不为null
-        else {
-          // 更新现有对话
-          const conv = this.conversations.find(conv => conv.id === this.conversationId);
-          if (conv) {
-            conv.messages = this.messages;
-            conv.mainAgent = this.mainAgent;
-            conv.timestamp = Date.now();
-            conv.title = this.generateConversationTitle(messages);
-            conv.fileLinks = this.fileLinks;
-            conv.system_prompt = this.system_prompt;
-          }
-        }
-        if (this.ttsSettings.enabled) {
-          // 等待TTS和音频播放进程完成
-          await Promise.all([ttsProcess, audioProcess]);
-        }
-        this.isThinkOpen = false;
-        this.isSending = false;
-        this.isTyping = false;
-        this.abortController = null;
-        setTimeout(() => {
-            if (!this.isSending && this.audioStartTime <= this.audioCtx.currentTime) {
-                this.sendTTSStatusToVRM('allChunksCompleted', {});
-            }
-        }, 1000);
-        await this.autoSaveSettings();
-        await this.saveConversations();
-      }
+    getRoleAvatar(name) {
+        // 尝试从记忆列表查找
+        const mem = this.memories.find(m => m.name === name);
+        if (mem && mem.avatar) return mem.avatar;
+        // 如果需要，也可以尝试从 agents 列表查找 (如果 agent 对象里存了 avatar)
+        // const agentKey = Object.keys(this.agents).find(key => this.agents[key].name === name);
+        // if (agentKey && this.agents[agentKey].avatar) return this.agents[agentKey].avatar;
+        
+        return 'source/Avatar.png';
     },
 
     async playPCMChunk(b64, currentText = '', message = null) {
@@ -2405,6 +2326,8 @@ let vue_methods = {
           custom_http: this.customHttpTools,
           showBrowserChat: this.showBrowserChat,
           searchEngine: this.searchEngine,
+          isGroupMode: this.isGroupMode,
+          selectedGroupAgents: this.selectedGroupAgents,
         };
         const correlationId = uuid.v4();
         // 发送保存请求
@@ -5658,6 +5581,54 @@ handleCreateDiscordSeparator(val) {
     },
 
 
+    // 触发文件选择框
+    triggerAvatarUpload() {
+      this.$refs.avatarInput.click();
+    },
+
+    // 处理文件上传
+    async handleAvatarUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      // 重置 input value，防止选择相同文件时不触发 change 事件
+      event.target.value = '';
+
+      const formData = new FormData();
+      // 注意：这里的 'files' 字段名必须与后端 @app.post("/load_file") 中定义的一致
+      formData.append('files', file, file.name);
+
+      try {
+        // 可选：在这里显示加载动画
+        // const loading = this.$loading({ lock: true, text: 'Uploading...' });
+
+        const response = await fetch('/load_file', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+        
+        // loading.close(); // 关闭加载动画
+
+        if (data.success && data.fileLinks && data.fileLinks.length > 0) {
+          // 获取后端返回的完整 URL
+          const uploadedUrl = data.fileLinks[0].path;
+          
+          // 赋值给 newMemory.avatar
+          this.newMemory.avatar = uploadedUrl;
+          
+          // 如果您有全局通知组件
+          showNotification(this.t('uploadSuccess') || 'Upload successful', 'success');
+        } else {
+          showNotification(this.t('uploadFailed') || 'Upload failed', 'error');
+        }
+      } catch (error) {
+        console.error('Avatar upload error:', error);
+        showNotification(error.message || 'Upload error', 'error');
+      }
+    },
+
     handleFileUpload(file) {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -6464,17 +6435,18 @@ handleCreateDiscordSeparator(val) {
 
     // TTS处理进程 - 使用流式响应
     // 修改 TTS 处理开始时的通知
-    async startTTSProcess() {
+    async startTTSProcess(message) {
       if (!this.ttsSettings.enabled) return;
       this.TTSrunning = true;
       this.cur_audioDatas = [];
-      // 通知VRM准备开始TTS
+      
+      // 使用传入的消息对象
+      const lastMessage = message; 
+
       this.sendTTSStatusToVRM('ttsStarted', {
-        totalChunks: this.messages[this.messages.length - 1].ttsChunks.length
+        totalChunks: lastMessage.ttsChunks.length
       });
       
-      // 现有的 TTS 处理逻辑...
-      const lastMessage = this.messages[this.messages.length - 1];
       lastMessage.audioChunks = lastMessage.audioChunks || [];
       lastMessage.ttsQueue = lastMessage.ttsQueue || new Set();
       
@@ -6483,7 +6455,6 @@ handleCreateDiscordSeparator(val) {
       while (this.TTSrunning) {
         if (nextIndex == 0){
           let remainingText = lastMessage.ttsChunks?.[0] || '';
-          // 遍历this.ttsSettings.newtts，获取所有包含enabled: true的key,放到newttsList中
           let newttsList = [];
           if (remainingText && this.ttsSettings.newtts){
             for (const key in this.ttsSettings.newtts) {
@@ -6497,19 +6468,15 @@ handleCreateDiscordSeparator(val) {
             for (const exp of this.expressionMap) {
               const regex = new RegExp(exp, 'g');
               if (remainingText.includes(exp)) {
-                remainingText = remainingText.replace(regex, '').trim(); // 移除表情标签
+                remainingText = remainingText.replace(regex, '').trim(); 
               }
             }
-            // 移除HTML标签
             remainingText = remainingText.replace(/<[^>]+>/g, '');
-            // 检查remainingText是否包含中文字符
             const hasChinese = /[\u4e00-\u9fa5]/.test(remainingText);
 
             if ((hasChinese && remainingText?.length > 5) || 
                 (!hasChinese && remainingText?.length > 10)) {
-                // 在lastMessage.ttsChunks开头第一个元素前插入内容
                 if (this.ttsSettings.bufferWordList.length > 0) {
-                    // 随机选择this.ttsSettings.bufferWordList中的一个单词
                     const bufferWord = this.ttsSettings.bufferWordList[
                         Math.floor(Math.random() * this.ttsSettings.bufferWordList.length)
                     ];
@@ -6519,7 +6486,7 @@ handleCreateDiscordSeparator(val) {
           }
         }
 
-        max_concurrency = this.ttsSettings.maxConcurrency || 1; // 最大并发数
+        max_concurrency = this.ttsSettings.maxConcurrency || 1; 
         while (lastMessage.ttsQueue.size < max_concurrency && 
               nextIndex < lastMessage.ttsChunks.length) {
           if (!this.TTSrunning) break;
@@ -6530,10 +6497,8 @@ handleCreateDiscordSeparator(val) {
             lastMessage.ttsQueue.delete(index);
           });
           if (index == 0){
-            // 结束计时并打印时间
             this.stopTimer();
             console.log(`TTS chunk 0 start in ${this.elapsedTime}ms`);
-            // 延迟0.8秒，让TTS首包更快
             await new Promise(resolve => setTimeout(resolve, 800));
           }
         }
@@ -6627,45 +6592,86 @@ handleCreateDiscordSeparator(val) {
     },
 
     // 音频播放进程
-    async startAudioPlayProcess() {
-      if (!this.ttsSettings.enabled) return;
+    async startAudioPlayProcess(message, resolve) {
+      if (!this.ttsSettings.enabled) {
+          if(resolve) resolve();
+          return;
+      }
       
-      const lastMessage = this.messages[this.messages.length - 1];
+      const lastMessage = message;
       lastMessage.currentChunk = lastMessage.currentChunk || 0;
       lastMessage.isPlaying = false;
       
-      // 只需初始化一次
       this.audioPlayQueue = [];
+      console.log('Audio playback monitor started for:', message.agentName);
       
-      console.log('Audio playback monitor started');
+      // 启动递归检查
+      this.checkAudioPlayback(message, resolve);
     },
 
     // 修改现有的音频播放方法
-    async checkAudioPlayback() {
-      const lastMessage = this.messages[this.messages.length - 1];
-      if (!lastMessage || lastMessage.isPlaying) return;
-      if ((!lastMessage || (lastMessage?.currentChunk ?? 0) >= (lastMessage?.ttsChunks?.length ?? 0)) && !this.isTyping) {
-        console.log('All audio chunks played');
+    async checkAudioPlayback(message, resolve) {
+      // 1. 安全检查
+      if (!message) { 
+          if(resolve) resolve(); 
+          return; 
+      }
+      
+      const lastMessage = message;
+
+      // 2. 如果正在播放，稍后重试
+      if (lastMessage.isPlaying) {
+          setTimeout(() => this.checkAudioPlayback(message, resolve), 50);
+          return;
+      }
+
+      // 3. 检查是否播放完成
+      // 结束条件：所有 chunk 播放完毕，且文本生成已经结束 (generationFinished)
+      const hasMoreChunks = (lastMessage.currentChunk ?? 0) < (lastMessage.ttsChunks?.length ?? 0);
+      
+      if (!hasMoreChunks && lastMessage.generationFinished) {
+          console.log(`All audio chunks played for ${lastMessage.agentName}`);
           this.stopTimer();
           lastMessage.TTSelapsedTime = this.elapsedTime/1000;
-        lastMessage.currentChunk = 0;
-        this.TTSrunning = false;
-        this.cur_audioDatas = [];
-        if(this.isReadInterruption){
-          setTimeout(() => {
-            if (this.isReadPaused){
-              this.resumeRead();
-            }else{
-              this.toggleContinuousPlay();
-            }
-          }, this.readSettings.delay);
-        }
-        // 通知VRM所有音频播放完成
-        this.sendTTSStatusToVRM('allChunksCompleted', {});
-        return;
+          lastMessage.currentChunk = 0;
+          
+          // 停止 fetch 循环
+          this.TTSrunning = false; 
+          this.cur_audioDatas = [];
+          
+          if(this.isReadInterruption){
+            setTimeout(() => {
+              if (this.isReadPaused){
+                this.resumeRead();
+              }else{
+                this.toggleContinuousPlay();
+              }
+            }, this.readSettings.delay);
+          }
+          
+          this.sendTTSStatusToVRM('allChunksCompleted', {});
+          
+          // 关键：解除 generateAIResponse 的阻塞
+          if (resolve) resolve();
+          return;
       }
+
+      // 4. 获取当前音频块
       const currentIndex = lastMessage.currentChunk;
       const audioChunk = lastMessage.audioChunks[currentIndex];
+
+      // 如果没有更多 chunk 但生成还没结束，或者当前 chunk 还没下载好 -> 等待
+      if (!audioChunk) {
+        if (!this.ttsSettings.enabled) {
+             // 异常退出保护
+             if(resolve) resolve();
+             return;
+        }
+        setTimeout(() => this.checkAudioPlayback(message, resolve), 50);
+        return;
+      }
+      
+      // 5. 播放逻辑
       if (!this.ttsSettings.enabled) {
         lastMessage.isPlaying = false;
         lastMessage.currentChunk = 0;
@@ -6673,12 +6679,12 @@ handleCreateDiscordSeparator(val) {
           this.currentAudio.pause();
           this.currentAudio = null;
         }
-        // 通知VRM停止说话动画
         this.sendTTSStatusToVRM('stopSpeaking', {});
+        if(resolve) resolve();
         return;
       }
       
-      if (audioChunk && !lastMessage.isPlaying) {
+      if (!lastMessage.isPlaying) {
         lastMessage.isPlaying = true;
         console.log(`Playing audio chunk ${currentIndex}`);
         if (currentIndex == 0){
@@ -6689,7 +6695,7 @@ handleCreateDiscordSeparator(val) {
         try {
           this.currentAudio = new Audio(audioChunk.url);
           this.currentAudio.volume = this.vrmOnline ? 0.0000001 : 1;
-          // 发送 Base64 数据到 VRM
+          
           this.sendTTSStatusToVRM('startSpeaking', {
             audioDataUrl: this.cur_audioDatas[currentIndex],
             chunkIndex: currentIndex,
@@ -6698,16 +6704,15 @@ handleCreateDiscordSeparator(val) {
             expressions: audioChunk.expressions,
             voice: lastMessage.chunks_voice[currentIndex]
           });
-          console.log(audioChunk.expressions);
-          await new Promise((resolve) => {
+          
+          await new Promise((r) => {
             this.currentAudio.onended = () => {
-              // 通知VRM当前chunk播放结束
               this.sendTTSStatusToVRM('chunkEnded', { 
                 chunkIndex: currentIndex 
               });
-              resolve();
+              r();
             };
-            this.currentAudio.onerror = resolve;
+            this.currentAudio.onerror = r;
             this.currentAudio.play().catch(e => console.error('Play error:', e));
           });
           
@@ -6718,10 +6723,13 @@ handleCreateDiscordSeparator(val) {
           lastMessage.currentChunk++;
           lastMessage.isPlaying = false;
           this.stopTimer();
-          lastMessage.TTSelapsedTime = this.elapsedTime / 1000; // 更新TTSelapsedTime
+          lastMessage.TTSelapsedTime = this.elapsedTime / 1000;
+          
+          // 递归检查下一个
           setTimeout(() => {
-            this.checkAudioPlayback();
+            this.checkAudioPlayback(message, resolve);
           }, 0);
+          
           this.autoSaveSettings();
         }
       }

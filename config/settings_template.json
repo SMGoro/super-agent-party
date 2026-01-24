@@ -343,7 +343,8 @@
       {"name": "httpButton", "enabled": false},
       {"name": "comfyuiButton", "enabled": false},
       {"name": "vrmButton", "enabled": true},
-      {"name": "behaviorBotton", "enabled": false}
+      {"name": "behaviorBotton", "enabled": false},
+      {"name": "groupChatBotton", "enabled": true}
     ],
     "smallMoreButtonDict":[
       {"name": "brieflyButton", "enabled": false},
@@ -375,7 +376,8 @@
       {"name": "httpButton", "enabled": false},
       {"name": "comfyuiButton", "enabled": false},
       {"name": "vrmButton", "enabled": true},
-      {"name": "behaviorBotton", "enabled": false}
+      {"name": "behaviorBotton", "enabled": false},
+      {"name": "groupChatBotton", "enabled": false}
     ],
     "liveConfig": {
       "onlyDanmaku": true,
@@ -477,5 +479,7 @@
     "isBtnCollapse": true,
     "is_sandbox": false,
     "showBrowserChat": false,
-    "searchEngine": "party"
+    "searchEngine": "party",
+    "isGroupMode": false,
+    "selectedGroupAgents": []
 }

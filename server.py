@@ -4048,13 +4048,27 @@ async def chat_endpoint(request: ChatRequest,fastapi_request: Request):
     """
     fastapi_base_url = str(fastapi_request.base_url)
     global client, settings,reasoner_client,mcp_client_list
-    model = request.model or 'super-model' # 默认使用 'super-model'
+    raw_model = request.model or 'super-model'
+    override_memory_id = None
+    
+    if raw_model.startswith("memory/"):
+        parts = raw_model.split('/', 2) # 分解为 ['memory', 'id', 'rest']
+        if len(parts) >= 2:
+            override_memory_id = parts[1]
+            # 如果有第三部分，则是实际的模型/Agent名；否则默认为 super-model
+            request.model = parts[2] if len(parts) > 2 else 'super-model'
+            print(f"检测到动态 Memory ID: {override_memory_id}, 目标模型更新为: {request.model}")
+    
+    model = request.model or 'super-model'
     enable_thinking = request.enable_thinking or False
     enable_deep_research = request.enable_deep_research or False
     enable_web_search = request.enable_web_search or False
     async_tools_id = request.asyncToolsID or None
     if model == 'super-model':
         current_settings = await load_settings()
+        if override_memory_id:
+            current_settings["memorySettings"]["is_memory"] = True
+            current_settings["memorySettings"]["selectedMemory"] = override_memory_id
         if len(current_settings['modelProviders']) <= 0:
             return JSONResponse(
                 status_code=500,
