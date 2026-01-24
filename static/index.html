@@ -4350,7 +4350,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           </el-form-item>
           <template #footer>
             <el-button @click="cancelGsvAudioUpload">{{ t('cancel') }}</el-button>
-            <el-button type="primary" @click="uploadGsvAudio" :disabled="!newGsvAudio.name">
+            <el-button type="primary" @click="uploadGsvAudio" :disabled="!newGsvAudio.name||!newGsvAudio.text">
               {{ t('createImmediately') }}
             </el-button>
           </template>

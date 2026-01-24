@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { createVRMAnimationClip, VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import { SplatMesh } from '@sparkjsdev/spark';
@@ -10,7 +11,6 @@ let currentMixer = null;
 let idleAction = null;
 let breathAction = null;
 let blinkAction = null;
-
 // renderer
 // 检测运行环境
 const isElectron = typeof require !== 'undefined' || navigator.userAgent.includes('Electron');
@@ -183,6 +183,45 @@ light.shadow.camera.near   = 0.1;
 light.shadow.camera.far    = 20;
 scene.add( light );
 
+const transformControl = new TransformControls( camera, renderer.domElement );
+transformControl.addEventListener('change', () => {
+    const obj = transformControl.object;
+    if (transformControl.getMode() === 'scale' && obj) {
+        
+        // 获取当前用户正在拖动的轴 (X, Y, Z)
+        const axis = transformControl.axis; 
+        
+        // 如果用户点击的是中心点或平面，axis 可能是 'XYZ' 或 'XY' 等
+        // 我们只处理单轴拖动的情况来实现强制等比例
+        let s = obj.scale.x; // 默认取值
+
+        if (axis === 'X') {
+            s = obj.scale.x;
+        } else if (axis === 'Y') {
+            s = obj.scale.y;
+        } else if (axis === 'Z') {
+            s = obj.scale.z;
+        } else {
+            // 如果是中心缩放 (XYZ)，原本就是等比例的，不需要处理
+            return;
+        }
+
+        // 检查是否已经相等，避免多余的赋值操作
+        if (obj.scale.y !== s || obj.scale.z !== s || obj.scale.x !== s) {
+            obj.scale.set(s, s, s);
+        }
+    }
+});
+// 当用户拖拽模型时，禁用轨道控制器（OrbitControls），防止相机乱转
+transformControl.addEventListener( 'dragging-changed', function ( event ) {
+    controls.enabled = ! event.value;
+});
+
+// 默认设为 'translate' (移动模式)，也可以是 'rotate' 或 'scale'
+transformControl.setMode('translate'); 
+
+scene.add( transformControl.getHelper() ); // 添加辅助线
+
 let currentSceneGroup = null;          // 当前场景根节点，方便整体卸载
 
 /* 拉一次配置即可，外面已经 await fetchVRMConfig() 了，直接复用 */
@@ -276,6 +315,8 @@ scene.add( ambientLight );
 
 // gltf and vrm
 let currentVrm = undefined;
+let currentVrmWrapper = new THREE.Group(); // 新增：用于包裹 VRM 的组
+scene.add(currentVrmWrapper);              // 新增：一开始就加入场景
 const loader = new GLTFLoader();
 loader.crossOrigin = 'anonymous';
 
@@ -1563,7 +1604,7 @@ loader.load(
 
         currentVrm = vrm;
         console.log( vrm );
-        scene.add( vrm.scene );
+        currentVrmWrapper.add(vrm.scene); 
         
         // 让模型投射阴影
         vrm.scene.traverse((obj) => {
@@ -1756,49 +1797,63 @@ const VMC_BONES = [                           // VMC 标准骨骼列表
   'rightLittleProximal','rightLittleIntermediate','rightLittleDistal'
 ];
 
-/**
- * 把当前 VRM 骨骼打成 VMC-OSC 消息发出去
- * 自动 30 fps 节流，仅 Electron 有效
- */
-function sendVMCBones() {
-  if (!window.vmcAPI || !currentVrm?.humanoid) return;
+function getVMCBoneData() {
+  if (!currentVrm?.humanoid) return [];
 
-  const now = performance.now();
-  if (now - vmcLastSent < VMC_SEND_INTERVAL) return;
-  vmcLastSent = now;
+  const boneData = [];
+  
+  // VMC 接收端通常期望 Hips 的位置是相对于地面的绝对高度
+  // 我们需要获取 Hips 的世界坐标
+  const hipsNode = currentVrm.humanoid.getNormalizedBoneNode('hips');
+  let rootY = 0;
+  if (hipsNode) {
+      const worldPos = new THREE.Vector3();
+      hipsNode.getWorldPosition(worldPos);
+      // 如果模型被缩放过，或者场景有位移，这里要用世界坐标
+  }
 
   for (const name of VMC_BONES) {
     const node = currentVrm.humanoid.getNormalizedBoneNode(name);
-    if (!node || !node.position || !node.quaternion) continue;
+    if (!node) continue;
 
-    let vmcRot = { x: 0, y: 0, z: 0, w: 1 };
+    // 获取相对于父级的旋转（局部旋转），因为 VMC 传输的是 Local Rotation
+    // 注意：Hips 需要特殊处理，它通常传输世界位置
+    
+    // 1. 位置处理 (Position)
+    // 只有 Hips 需要传位置，其他骨骼位置通常由骨骼长度决定（VMC接收端会忽略非Hips的位置，或者用来缩放）
+    // 为了兼容性，我们只对 Hips 传真实位置，其他传 0 (或者传 node.position 也行，但要注意转换)
+    
+    let x = node.position.x;
+    let y = node.position.y;
+    let z = node.position.z;
 
-    if (isVRM1) {
-        // VRM 1.0 标准转换 (Three.js -> Unity/VMC)
-        // 通常是 X不变, Y反转, Z反转
-        vmcRot.x = node.quaternion.x;
-        vmcRot.y = -node.quaternion.y;
-        vmcRot.z = -node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    } else {
-        // VRM 0.x 转换 (基于你的接收端逻辑逆推)
-        // 接收是 (-x, y, -z)，所以发送也是 (-x, y, -z)
-        vmcRot.x = -node.quaternion.x;
-        vmcRot.y = -node.quaternion.y; // 保持 Y 原样 (对应接收端的 y)
-        vmcRot.z = node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    }
+    // ★ 关键坐标系转换：ThreeJS(右手) -> Unity(左手)
+    // Position: X 取反
+    const vmcPos = { x: -x, y: y, z: z };
 
-    window.vmcAPI.sendVMCBone({
-      boneName: name,
-      position: {
-        x: node.position.x,
-        y: node.position.y,
-        z: node.position.z
-      },
-      rotation: vmcRot
+    // 2. 旋转处理 (Rotation)
+    // ThreeJS: x, y, z, w
+    // Unity:   x, -y, -z, w (通常转换公式)
+    
+    let qx = node.quaternion.x;
+    let qy = node.quaternion.y;
+    let qz = node.quaternion.z;
+    let qw = node.quaternion.w;
+
+    const vmcRot = { 
+        x: qx, 
+        y: -qy, 
+        z: -qz, 
+        w: qw 
+    };
+
+    boneData.push({
+        name: name,
+        pos: vmcPos,
+        rot: vmcRot
     });
   }
+  return boneData;
 }
 
 // VRM1 → VRM0（VMC 事实标准）
@@ -1836,26 +1891,27 @@ let lastBlendWeights = {}; // 节流：变化了才发
 
 
 
-function sendVMCBlends() {
-  if (!window.vmcAPI || !currentVrm?.expressionManager) return;
-
+function getVMCBlendData() {
+  if (!currentVrm?.expressionManager) return [];
+  
+  const blendData = [];
   const mgr = currentVrm.expressionManager;
+
   for (const vrmName of VMC_BLEND_SHAPES) {
     const weight = mgr.getValue(vrmName);
     if (weight === undefined) continue;
 
-    // 转换名字
     const vmcName = VRM1_TO_VMC0[vrmName];
-    if (!vmcName) continue;          // 没有对应就跳过
-    // 节流
-    if (Math.abs(weight - (lastBlendWeights[vmcName] ?? 0)) < 0.01) continue;
-    lastBlendWeights[vmcName] = weight;
-    window.vmcAPI.sendVMCBlend({
-      blendName: vmcName,
-      weight
+    if (!vmcName) continue;
+    
+    // 这里为了保证数据完整，Warudo 建议每帧都发，或者至少变化时发
+    // 如果为了带宽可以做节流，但最好打包发送
+    blendData.push({
+        name: vmcName,
+        weight: weight
     });
   }
-  window.vmcAPI.sendVMCBlendApply(); // 应用
+  return blendData;
 }
 const vmcToVrmBone = {
   LeftIndexIntermediate: 'leftIndexIntermediate',
@@ -2009,11 +2065,27 @@ function animate() {
         // 4. VRM 最终更新
         currentVrm.update(deltaTime);
     }
-    
-    sendVMCBones();
-    sendVMCBlends();
+
     renderer.render(scene, camera);
     
+    const now = performance.now();
+    if (window.vmcAPI && (now - vmcLastSent >= VMC_SEND_INTERVAL)) {
+        vmcLastSent = now;
+        
+        // 只有当开启 VMC 发送时才计算
+        // 假设你在 electronAPI.getVMCConfig 里获取了状态，或者通过 window 变量判断
+        // 这里简单判断
+        const bones = getVMCBoneData();
+        const blends = getVMCBlendData();
+
+        if (bones.length > 0) {
+            window.vmcAPI.sendVMCFrame({
+                bones: bones,
+                blends: blends
+            });
+        }
+    }
+
     // UI
     if (subtitleElement && !isDraggingSubtitle) {
         const rect = subtitleElement.getBoundingClientRect();
@@ -2203,6 +2275,117 @@ function addcontrolPanel() {
                 hideTooltip();
             });
         };
+
+        const moveModeBtn = document.createElement('div');
+        moveModeBtn.id = 'move-mode-handle';
+        
+        // 状态：0=关闭, 1=移动, 2=旋转, 3=缩放
+        let transformState = 0; 
+        moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+        // 默认图标
+        moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>'; 
+        moveModeBtn.style.cssText = `
+            width: ${btn_width}px; height: ${btn_height}px; 
+            background: rgba(255,255,255,0.95);
+            border: 2px solid rgba(0,0,0,0.1); 
+            border-radius: 50%; 
+            color: #333;
+            cursor: pointer; 
+            -webkit-app-region: no-drag; 
+            display: flex;
+            align-items: center; 
+            justify-content: center; 
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            transition: all 0.2s ease;
+            user-select: none; 
+            pointer-events: auto; 
+            backdrop-filter: blur(10px);
+        `;
+
+        // 点击事件循环
+        moveModeBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!currentVrm) return;
+            transformState = (transformState + 1) % 4;
+            updateTransformState();
+        });
+
+        async function updateTransformState() {
+            if (typeof transformControl === 'undefined') return;
+
+            // 每次切换先附着
+            if (transformState !== 0 && currentVrmWrapper) {
+                transformControl.attach(currentVrmWrapper);
+            }
+
+            switch (transformState) {
+                case 0: // 关闭
+                    transformControl.detach();
+                    moveModeBtn.style.color = '#333';
+                    moveModeBtn.style.background = 'rgba(255,255,255,0.95)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+                    break;
+
+                case 1: // 移动 (World 坐标)
+                    transformControl.setMode('translate');
+                    transformControl.setSpace('world'); 
+                    moveModeBtn.style.color = '#ff6b35'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeMove') || 'Move Mode';
+                    break;
+
+                case 2: // 旋转 (Local 坐标)
+                    transformControl.setMode('rotate');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#007bff'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+                    moveModeBtn.title = await t('ModeRotate') || 'Rotate Mode';
+                    break;
+
+                case 3: // 缩放 (Local 坐标)
+                    transformControl.setMode('scale');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#e83e8c'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
+                    // 提示用户拖拽中心
+                    moveModeBtn.title = await t('ModeScale') || 'Scale Mode (Drag CENTER box for uniform)';
+                    break;
+            }
+        }
+
+        // 悬停效果
+        moveModeBtn.addEventListener('mouseenter', () => {
+            moveModeBtn.style.transform = 'scale(1.1)';
+            moveModeBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+            showTooltip(moveModeBtn, moveModeBtn.title);
+        });
+        moveModeBtn.addEventListener('mouseleave', () => {
+            moveModeBtn.style.transform = 'scale(1)';
+            moveModeBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            hideTooltip();
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (!currentVrm || typeof transformControl === 'undefined') return;
+            
+            if (e.code === 'Escape') { transformState = 0; updateTransformState(); return; }
+
+            if (transformState !== 0) {
+                switch(e.code) {
+                    case 'KeyT': transformState = 1; updateTransformState(); break;
+                    case 'KeyR': transformState = 2; updateTransformState(); break;
+                    case 'KeyS': transformState = 3; updateTransformState(); break;
+                }
+            }
+        });
 
         // 拖拽按钮
         const dragButton = document.createElement('div');
@@ -2740,9 +2923,6 @@ function addcontrolPanel() {
           if (currentVrm) currentVrm.update(delta);
           if (currentMixer) currentMixer.update(delta);
 
-          // sendVMCBones();
-          // sendVMCBlends();
-
           // 关键：必须调用 renderer.render，否则 XR 不提交画面
           renderer.render(scene, camera);
         }
@@ -3136,6 +3316,7 @@ function addcontrolPanel() {
             controlPanel.appendChild(vmcButton);
         }
         controlPanel.appendChild(xrAutoBtn); // 新增：XR 自动按钮
+        controlPanel.appendChild(moveModeBtn); 
         controlPanel.appendChild(switchCtrlBtn);
         controlPanel.appendChild(refreshButton);
         controlPanel.appendChild(closeButton);
@@ -3149,6 +3330,7 @@ function addcontrolPanel() {
             idleAnimationButton, 
             prevModelButton, 
             nextModelButton, 
+            moveModeBtn,
             refreshButton, 
             closeButton,
             xrAutoBtn,
@@ -3835,18 +4017,16 @@ async function switchToModel(index,isRefresh = false) {
             idleAnimationManager.stopAllAnimations();
         }
         
-        // 移除当前VRM模型
-        if (currentVrm) {
-            scene.remove(currentVrm.scene);
-            currentVrm = undefined;
-        }
-        
         // 🔥 添加：重置闲置动画管理器
         idleAnimationManager = null;
 
         // 移除当前VRM模型
         if (currentVrm) {
-            scene.remove(currentVrm.scene);
+            if (typeof transformControl !== 'undefined') {
+                transformControl.detach();
+            }
+            // scene.remove(currentVrm.scene); <-- 删除这行
+            currentVrmWrapper.remove(currentVrm.scene); // 从 Wrapper 移除
             currentVrm = undefined;
         }
         
@@ -3903,7 +4083,7 @@ async function switchToModel(index,isRefresh = false) {
 
                 currentVrm = vrm;
                 console.log('New VRM loaded:', vrm);
-                scene.add(vrm.scene);
+                currentVrmWrapper.add(vrm.scene);
                 // 让模型投射阴影
                 vrm.scene.traverse((obj) => {
                     if (obj.isMesh) {
@@ -3938,6 +4118,10 @@ async function switchToModel(index,isRefresh = false) {
                 // 隐藏加载提示
                 hideModelSwitchingIndicator();
                 
+                if (typeof transformControl !== 'undefined' && transformControl.object) {
+                    transformControl.attach(currentVrmWrapper);
+                }
+
                 console.log(`Successfully switched to model: ${selectedModel.name}`);
             },
             (progress) => {
