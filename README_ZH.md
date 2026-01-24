@@ -12,6 +12,8 @@
 ####
 
 <div align="center">
+  <a href="https://www.agentparty.top/"><img src="https://img.shields.io/badge/官网-AgentParty-blueviolet?style=for-the-badge"/></a>
+  <a href="https://www.agentparty.top/blog.html"><img src="https://img.shields.io/badge/官网博客-Blog-orange?style=for-the-badge&logo=rss&logoColor=white"/></a>
   <a href="https://space.bilibili.com/26978344"><img src="https://img.shields.io/badge/B站-观看教程-red?style=for-the-badge&logo=bilibili"/></a>
   <a href="https://www.youtube.com/@LLM-party"><img src="https://img.shields.io/badge/YouTube-订阅频道-FF0000?style=for-the-badge&logo=youtube"/></a>
   <a href="https://gcnij7egmcww.feishu.cn/wiki/DPRKwdetCiYBhPkPpXWcugujnRc"><img src="https://img.shields.io/badge/中文使用指南-飞书文档-00CDCD?style=for-the-badge&logo=docsdotrs"/></a>

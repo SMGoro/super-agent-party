@@ -1,7 +1,7 @@
 import asyncio, aiohttp, io, base64, json, logging, re, time
 from typing import Dict, List, Any, Optional
 from openai import AsyncOpenAI
-from py.get_setting import get_port, load_settings
+from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 class TelegramClient:
     def __init__(self):
@@ -164,94 +164,204 @@ class TelegramClient:
         settings = await load_settings()
         client = AsyncOpenAI(api_key="super-secret-key", base_url=f"http://127.0.0.1:{get_port()}/v1")
 
-        state = {"text_buffer": "", "image_cache": []}
+        # 初始化状态，新增 audio_buffer
+        state = {
+            "text_buffer": "", 
+            "image_cache": [],
+            "audio_buffer": [] # <--- 新增
+        }
         full_response = []
 
-        stream = await client.chat.completions.create(
-            model=self.TelegramAgent,
-            messages=self.memoryList[chat_id],
-            stream=True,
-            extra_body={
-                "asyncToolsID": self.asyncToolsID[chat_id],
-                "fileLinks": self.fileLinks[chat_id],
-            },
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta
-            content = getattr(delta, 'content', '') or ""
-            reasoning = getattr(delta, 'reasoning_content', '') or ""
-            tool_link = getattr(delta, 'tool_link', '') or ""
-            async_tool_id = getattr(delta, 'async_tool_id', '') or ""
+        try:
+            stream = await client.chat.completions.create(
+                model=self.TelegramAgent,
+                messages=self.memoryList[chat_id],
+                stream=True,
+                extra_body={
+                    "asyncToolsID": self.asyncToolsID[chat_id],
+                    "fileLinks": self.fileLinks[chat_id],
+                    "is_app_bot": True,
+                    # 后端根据这个标志决定是否返回音频流
+                },
+            )
+            
+            async for chunk in stream:
+                if not chunk.choices: continue
+                
+                delta = chunk.choices[0].delta
+                content = getattr(delta, 'content', '') or ""
+                reasoning = getattr(delta, 'reasoning_content', '') or ""
+                tool_link = getattr(delta, 'tool_link', '') or ""
+                async_tool_id = getattr(delta, 'async_tool_id', '') or ""
 
-            if tool_link and settings["tools"]["toolMemorandum"]["enabled"]:
-                self.fileLinks[chat_id].append(tool_link)
-            if async_tool_id:
-                lst = self.asyncToolsID[chat_id]
-                if async_tool_id not in lst:
-                    lst.append(async_tool_id)
-                else:
-                    lst.remove(async_tool_id)
+                # --- [新增] 捕获音频流 ---
+                if hasattr(delta, "audio") and delta.audio:
+                    if "data" in delta.audio:
+                        state["audio_buffer"].append(delta.audio["data"])
+                # -----------------------
 
-            seg = reasoning if self.reasoningVisible and reasoning else content
-            state["text_buffer"] += seg
-            full_response.append(content)
+                if tool_link and settings["tools"]["toolMemorandum"]["enabled"]:
+                    self.fileLinks[chat_id].append(tool_link)
+                if async_tool_id:
+                    lst = self.asyncToolsID[chat_id]
+                    if async_tool_id not in lst:
+                        lst.append(async_tool_id)
+                    else:
+                        lst.remove(async_tool_id)
 
-            # 分段发送
-            if self.separators:
-                while True:
-                    buf = state["text_buffer"]
-                    split_pos = -1
-                    for i, ch in enumerate(buf):
-                        if ch in self.separators:
-                            split_pos = i + 1
-                            break
-                    if split_pos <= 0:
-                        break
-                    send_chunk = buf[:split_pos]
-                    state["text_buffer"] = buf[split_pos:]
-                    clean = self._clean_text(send_chunk)
-                    if clean:
-                        if self.enableTTS:
-                            pass
+                seg = reasoning if self.reasoningVisible and reasoning else content
+                state["text_buffer"] += seg
+                full_response.append(content)
+
+                # 文本分段发送逻辑 (保持不变)
+                if state["text_buffer"]:
+                    force_split = len(state["text_buffer"]) > 3500
+                    while True:
+                        buffer = state["text_buffer"]
+                        split_pos = -1
+                        in_code_block = False
+                        
+                        if force_split:
+                            min_idx = len(buffer) + 1
+                            found_sep_len = 0
+                            for sep in self.separators:
+                                idx = buffer.find(sep)
+                                if idx != -1 and idx < min_idx:
+                                    min_idx = idx
+                                    found_sep_len = len(sep)
+                            if min_idx <= len(buffer): split_pos = min_idx + found_sep_len
                         else:
+                            i = 0
+                            while i < len(buffer):
+                                if buffer[i:].startswith("```"):
+                                    in_code_block = not in_code_block
+                                    i += 3
+                                    continue
+                                if not in_code_block:
+                                    found_sep = False
+                                    for sep in self.separators:
+                                        if buffer[i:].startswith(sep):
+                                            split_pos = i + len(sep)
+                                            found_sep = True
+                                            break
+                                    if found_sep: break
+                                i += 1
+                        
+                        if split_pos == -1: break
+                        
+                        send_chunk = buffer[:split_pos]
+                        state["text_buffer"] = buffer[split_pos:]
+                        
+                        clean = self._clean_text(send_chunk)
+                        if clean and not self.enableTTS:
                             await self._send_text(chat_id, clean)
+                                
+                        if force_split: break
 
-        # 剩余文本
-        if state["text_buffer"]:
-            clean = self._clean_text(state["text_buffer"])
-            if clean:
-                if self.enableTTS:
-                    pass
-                else:
+            # 发送剩余文本
+            if state["text_buffer"]:
+                clean = self._clean_text(state["text_buffer"])
+                if clean and not self.enableTTS:
                     await self._send_text(chat_id, clean)
 
-        # 提取并发送图片
-        self._extract_images("".join(full_response), state)
-        for img_url in state["image_cache"]:
-            await self._send_photo(chat_id, img_url)
+            # 提取并发送图片
+            self._extract_images("".join(full_response), state)
+            for img_url in state["image_cache"]:
+                await self._send_photo(chat_id, img_url)
 
-        # 记忆
-        assistant_text = "".join(full_response)
-        self.memoryList[chat_id].append({"role": "assistant", "content": assistant_text})
+            # --- [新增] 处理 Omni 音频 ---
+            has_omni_audio = False
+            if state["audio_buffer"]:
+                try:
+                    logging.info(f"处理 Telegram Omni 音频，分片数: {len(state['audio_buffer'])}")
+                    full_audio_b64 = "".join(state["audio_buffer"])
+                    raw_audio_bytes = base64.b64decode(full_audio_b64)
+                    
+                    # 异步转码
+                    final_audio, is_opus = await asyncio.to_thread(
+                        convert_to_opus_simple, 
+                        raw_audio_bytes
+                    )
+                    
+                    # 发送
+                    await self._send_omni_voice(chat_id, final_audio, is_opus)
+                    has_omni_audio = True
+                except Exception as e:
+                    logging.error(f"Omni 音频处理失败: {e}")
+            # ---------------------------
 
-        # 记忆长度限制
-        if self.memoryLimit > 0:
-            while len(self.memoryList[chat_id]) > self.memoryLimit * 2:
-                self.memoryList[chat_id].pop(0)
-                if self.memoryList[chat_id]:
+            # 记忆
+            assistant_text = "".join(full_response)
+            self.memoryList[chat_id].append({"role": "assistant", "content": assistant_text})
+
+            # 记忆限制
+            if self.memoryLimit > 0:
+                while len(self.memoryList[chat_id]) > self.memoryLimit * 2:
                     self.memoryList[chat_id].pop(0)
+                    if self.memoryList[chat_id]:
+                        self.memoryList[chat_id].pop(0)
 
-        # TTS
-        if self.enableTTS and assistant_text:
-            await self._send_voice(chat_id, assistant_text)
+            # 传统 TTS (如果没有 Omni 音频且开启了 TTS)
+            if self.enableTTS and assistant_text and not has_omni_audio:
+                await self._send_voice(chat_id, assistant_text)
+                
+        except Exception as e:
+            logging.error(f"LLM 处理异常: {e}")
+            await self._send_text(chat_id, f"处理出错: {e}")
+
+    async def _send_omni_voice(self, chat_id: int, audio_data: bytes, is_opus: bool):
+        """发送 Omni 语音消息"""
+        try:
+            data = aiohttp.FormData()
+            data.add_field("chat_id", str(chat_id))
+            
+            # 如果是 Opus 格式，可以使用 sendVoice 发送语音气泡
+            if is_opus:
+                url = f"https://api.telegram.org/bot{self.bot_token}/sendVoice"
+                # Telegram 对 filename 没那么严格，但 mime-type 最好正确
+                data.add_field("voice", io.BytesIO(audio_data), filename="voice.ogg", content_type="audio/ogg")
+                logging.info("发送 Omni 语音气泡 (sendVoice)")
+            else:
+                # 如果转换失败（例如 Raw PCM 或 WAV），sendVoice 可能会失败或不显示波形
+                # 降级使用 sendDocument 发送文件
+                url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
+                data.add_field("document", io.BytesIO(audio_data), filename="reply.wav")
+                logging.info("发送 Omni 音频文件 (sendDocument)")
+
+            async with self.session.post(url, data=data) as resp:
+                if resp.status != 200:
+                    err_text = await resp.text()
+                    logging.error(f"发送 Omni 音频失败: {resp.status} - {err_text}")
+        except Exception as e:
+            logging.error(f"发送 Omni 音频异常: {e}")
+
 
     # -------------------- 发送 API 封装 --------------------
     async def _send_text(self, chat_id: int, text: str, reply_to_msg_id: Optional[int] = None):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
+        
+        # 1. 尝试使用 Markdown (Legacy) 模式
+        # 相比 MarkdownV2，Legacy 模式容错率更高，虽然不支持下划线和删除线，但支持粗体、斜体、代码块和链接
+        payload = {
+            "chat_id": chat_id, 
+            "text": text, 
+            "parse_mode": "Markdown" 
+        }
         if reply_to_msg_id:
             payload["reply_to_message_id"] = reply_to_msg_id
-        await self.session.post(url, json=payload)
+            
+        async with self.session.post(url, json=payload) as resp:
+            if resp.status == 200:
+                return # 发送成功
+            
+            # 2. 如果发送失败（通常是因为 Markdown 语法未闭合导致的 400 错误）
+            # 读取错误信息（可选，用于调试）
+            # err_text = await resp.text() 
+            # logging.warning(f"Markdown 发送失败，尝试纯文本重发: {err_text}")
+
+            # 3. 回退策略：移除 parse_mode，发送纯文本
+            payload.pop("parse_mode")
+            await self.session.post(url, json=payload)
 
     async def _send_photo(self, chat_id: int, image_url: str):
         # 先下载
@@ -352,15 +462,14 @@ class TelegramClient:
             res = await resp.json()
             return res.get("text") if res.get("success") else None
 
-    def _clean_text(self, text):
-        """清理文本中的特殊标记"""
-        # 移除图片标记
-        clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-        # 移除超链接
-        clean = re.sub(r'\[.*?\]\(.*?\)', '', clean)
-        # 移除纯URL
-        clean = re.sub(r'https?://\S+', '', clean)
-        return clean.strip()
+    def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
+        return text.strip()
 
     def _extract_images(self, full_text: str, state: dict):
         for m in re.finditer(r"!\[.*?\]\((https?://[^\s)]+)", full_text):

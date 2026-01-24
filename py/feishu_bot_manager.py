@@ -21,7 +21,7 @@ from lark_oapi.api.im.v1 import *
 from lark_oapi.api.im.v1 import GetMessageResourceRequest as ResReq
 from lark_oapi.api.im.v1 import GetMessageResourceResponse as ResResp
 
-from py.get_setting import get_port, load_settings
+from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 
 # 飞书机器人配置模型
@@ -411,302 +411,159 @@ class FeishuClient:
                 logging.error(f"处理消息时发生异常: {e}")
 
     async def handle_message(self, data: P2ImMessageReceiveV1) -> None:
-        """处理飞书消息的主函数"""
-        # 多重检查停止状态
-        if self._shutdown_requested:
-            return
-        
+        """处理飞书消息的主函数 (修复版：确保先添加用户消息再调用API)"""
+        # 1. 基础检查
+        if self._shutdown_requested: return
         if self._manager_ref:
             manager = self._manager_ref()
-            if manager and (manager._stop_requested or not manager.is_running):
-                return
+            if manager and (manager._stop_requested or not manager.is_running): return
         
-        # 标记为就绪状态
+        # 标记就绪
         if not self._is_ready:
             self._is_ready = True
-            if self._ready_callback:
-                self._ready_callback()
+            if self._ready_callback: self._ready_callback()
         
         msg = data.event.message
         msg_type = msg.message_type
-        chat_type = msg.chat_type
-        logging.info(f"收到 {chat_type} 消息，类型：{msg_type}")
+        chat_id = msg.chat_id
+        logging.info(f"收到 {msg.chat_type} 消息，类型：{msg_type}")
         
-        # 准备OpenAI客户端
+        # 2. 初始化 API 客户端
+        from py.get_setting import load_settings
         settings = await load_settings()
         client = AsyncOpenAI(
             api_key="super-secret-key",
             base_url=f"http://127.0.0.1:{self.port}/v1"
         )
         
-        # 处理消息内容
-        user_content = []  # 这是一个列表，用于多模态内容
-        user_text = ""     # 这是一个字符串，用于纯文本内容
-        has_image = False  # 标记是否包含图片
-        
-        # 获取聊天ID并初始化记忆
-        chat_id = msg.chat_id
+        # 3. 初始化记忆列表
         if chat_id not in self.memoryList:
             self.memoryList[chat_id] = []
+            
+        # =========================================================
+        # 第一阶段：解析用户消息 (这一步绝对不能少！)
+        # =========================================================
+        user_content = []  # 多模态内容
+        user_text = ""     # 纯文本内容
+        has_image = False  # 标记
         
-        # 文本消息处理
+        # --- (A) 文本消息 ---
         if msg_type == "text":
             try:
                 text = json.loads(msg.content).get("text", "")
-                
-                # 处理快速重启命令
-                if self.quickRestart and text:
-                    if "/重启" in text:
-                        self.memoryList[chat_id] = []
-                        await self._send_text(msg, "对话记录已重置。")
-                        return
-                    if "/restart" in text:
-                        self.memoryList[chat_id] = []
-                        await self._send_text(msg, "The conversation record has been reset.")
-                        return
-                
-                # 记录文本内容
+                # 处理重启命令
+                if self.quickRestart and text and ("/重启" in text or "/restart" in text):
+                    self.memoryList[chat_id] = []
+                    await self._send_text(msg, "对话记录已重置。")
+                    return
                 user_text = text
-                if self.wakeWord:
-                    if self.wakeWord not in user_text:
-                        logging.info(f"未检测到唤醒词: {self.wakeWord}")
-                        return
-
+                if self.wakeWord and self.wakeWord not in user_text:
+                    logging.info(f"未检测到唤醒词: {self.wakeWord}")
+                    return
             except Exception as e:
                 logging.error(f"文本解析失败：{e}")
-                await self._send_text(msg, f"文本解析失败：{e}")
                 return
-        
-        # 图片消息处理
+
+        # --- (B) 图片消息 ---
         elif msg_type == "image":
             try:
                 image_key = json.loads(msg.content).get("image_key", "")
-                if not image_key:
-                    await self._send_text(msg, "无效的图片消息")
-                    return
-                
-                # 下载图片
-                res_req = ResReq.builder()\
-                    .message_id(msg.message_id)\
-                    .file_key(image_key)\
-                    .type("image")\
-                    .build()
-                
-                res_resp = self.lark_client.im.v1.message_resource.get(res_req)
-                if not res_resp.success():
-                    await self._send_text(msg, f"下载图片失败：{res_resp.msg}")
-                    return
-                
-                # 获取图片二进制数据
-                img_bin = res_resp.file.read()
-                
-                # 转换为Base64以传给模型
-                content_type = "image/jpeg"  # 假设为JPEG格式，可根据实际情况修改
-                base64_data = base64.b64encode(img_bin).decode("utf-8")
-                data_uri = f"data:{content_type};base64,{base64_data}"
-                
-                # 标记包含图片
-                has_image = True
-                
-                # 添加图片内容
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": data_uri
-                    }
-                })
-                
-                # 如果用户还有文本，也一并处理
-                if "text" in json.loads(msg.content):
-                    text = json.loads(msg.content).get("text", "")
-                    user_text = text
-                    
+                if image_key:
+                    # 下载图片逻辑
+                    res_req = ResReq.builder().message_id(msg.message_id).file_key(image_key).type("image").build()
+                    res_resp = self.lark_client.im.v1.message_resource.get(res_req)
+                    if res_resp.success():
+                        img_bin = res_resp.file.read()
+                        base64_data = base64.b64encode(img_bin).decode("utf-8")
+                        has_image = True
+                        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}})
+                        # 如果有附带文本
+                        if "text" in json.loads(msg.content):
+                            user_text = json.loads(msg.content).get("text", "")
             except Exception as e:
                 logging.error(f"图片处理失败：{e}")
-                await self._send_text(msg, f"图片处理失败：{e}")
-                return
-                
-        # 富文本消息处理（包含图片）
+
+        # --- (C) 富文本消息 (Post) ---
         elif msg_type == "post":
             try:
-                # 解析富文本内容
                 content_json = json.loads(msg.content)
-                logging.info(f"收到富文本消息: {content_json}")
-                
-                # 获取post内容
-                post_content = content_json
-                
-                # 提取文本内容
-                extracted_text = self._extract_text_from_post(post_content)
-                if extracted_text:
-                    user_text = extracted_text
-                    logging.info(f"成功提取文本: {user_text}")
-                
-                # 提取图片内容
-                image_keys = self._extract_images_from_post(post_content)
-                
+                user_text = self._extract_text_from_post(content_json)
+                image_keys = self._extract_images_from_post(content_json)
                 for image_key in image_keys:
-                    try:
-                        logging.info(f"处理富文本图片: {image_key}")
-                        # 下载图片
-                        res_req = ResReq.builder()\
-                            .message_id(msg.message_id)\
-                            .file_key(image_key)\
-                            .type("image")\
-                            .build()
-                        
-                        res_resp = self.lark_client.im.v1.message_resource.get(res_req)
-                        if not res_resp.success():
-                            logging.warning(f"下载富文本图片失败: {res_resp.msg}")
-                            continue
-                        
-                        # 获取图片二进制数据
+                    res_req = ResReq.builder().message_id(msg.message_id).file_key(image_key).type("image").build()
+                    res_resp = self.lark_client.im.v1.message_resource.get(res_req)
+                    if res_resp.success():
                         img_bin = res_resp.file.read()
-                        logging.info(f"下载图片成功: {len(img_bin)} 字节")
-                        
-                        # 转换为Base64
-                        content_type = "image/jpeg"
                         base64_data = base64.b64encode(img_bin).decode("utf-8")
-                        data_uri = f"data:{content_type};base64,{base64_data}"
-                        
-                        # 标记包含图片
                         has_image = True
-                        
-                        # 添加图片内容
-                        user_content.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": data_uri
-                            }
-                        })
-                        logging.info("图片处理成功并添加到用户内容")
-                    except Exception as e:
-                        logging.warning(f"处理富文本中的图片失败: {e}")
-                        import traceback
-                        logging.debug(traceback.format_exc())
-                
+                        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}})
             except Exception as e:
                 logging.error(f"富文本处理失败: {e}")
-                import traceback
-                logging.debug(traceback.format_exc())
-                await self._send_text(msg, f"富文本处理失败: {e}")
-                return
-        
-        # 音频消息处理
+
+        # --- (D) 音频消息 (Audio) ---
         elif msg_type == "audio":
             try:
-                # 解析音频消息内容
                 content_json = json.loads(msg.content)
                 file_key = content_json.get("file_key", "")
-                duration = content_json.get("duration", 0)
-                
-                if not file_key:
-                    await self._send_text(msg, "无效的音频消息")
-                    return
-                
-                logging.info(f"收到音频消息，file_key: {file_key}, duration: {duration}ms")
-                
-                # 下载音频文件
-                res_req = ResReq.builder()\
-                    .message_id(msg.message_id)\
-                    .file_key(file_key)\
-                    .type("file")\
-                    .build()
-                
-                res_resp = self.lark_client.im.v1.message_resource.get(res_req)
-                if not res_resp.success():
-                    await self._send_text(msg, f"下载音频失败：{res_resp.msg}")
-                    return
-                
-                # 获取音频二进制数据
-                audio_data = res_resp.file.read()
-                logging.info(f"音频下载成功，大小: {len(audio_data)} 字节")
-                
-                # 调用本地ASR接口转换为文字
-                transcribed_text = await self._transcribe_audio(audio_data, file_key)
-                
-                if not transcribed_text:
-                    await self._send_text(msg, "语音转文字失败，请重试")
-                    return
-                
-                logging.info(f"语音识别结果: {transcribed_text}")
-                
-                # 将识别结果作为文本消息处理
-                user_text = transcribed_text
-                
-                if self.wakeWord and user_text:
-                    if self.wakeWord not in user_text:
-                        logging.info(f"未检测到唤醒词: {self.wakeWord}")
-                        return
-                
+                if file_key:
+                    res_req = ResReq.builder().message_id(msg.message_id).file_key(file_key).type("file").build()
+                    res_resp = self.lark_client.im.v1.message_resource.get(res_req)
+                    if res_resp.success():
+                        audio_data = res_resp.file.read()
+                        # 语音转文字 (ASR)
+                        transcribed_text = await self._transcribe_audio(audio_data, file_key)
+                        if transcribed_text:
+                            user_text = transcribed_text
+                            if self.wakeWord and self.wakeWord not in user_text:
+                                return
+                        else:
+                            await self._send_text(msg, "语音转文字失败")
+                            return
             except Exception as e:
                 logging.error(f"音频处理失败：{e}")
-                import traceback
-                logging.debug(traceback.format_exc())
-                await self._send_text(msg, f"音频处理失败：{e}")
-                return
-
-        # 不支持的消息类型
+        
         else:
             await self._send_text(msg, f"暂不支持的消息类型：{msg_type}")
             return
-        
-        # 构建最终的用户消息
-        logging.info(f"处理结果 - has_image: {has_image}, user_text长度: {len(user_text) if user_text else 0}, user_content长度: {len(user_content)}")
 
-        if has_image:
-            # 如果有文本，添加到多模态内容中
-            if user_text:
-                user_content.append({
-                    "type": "text",
-                    "text": user_text
-                })
-            
-            # 检查是否有有效内容
-            if user_content:
-                self.memoryList[chat_id].append({
-                    "role": "user", 
-                    "content": user_content
-                })
-                logging.info(f"已添加多模态内容到对话记忆，总数: {len(user_content)}")
-            else:
-                await self._send_text(msg, "未能提取有效内容，请重试")
-                return
-        else:
-            # 纯文本消息
-            if user_text:
-                self.memoryList[chat_id].append({
-                    "role": "user", 
-                    "content": user_text
-                })
-                logging.info(f"已添加纯文本内容到对话记忆: {user_text[:50]}...")
-            else:
-                await self._send_text(msg, "未检测到有效的消息内容")
-                return
-                
-            self.memoryList[chat_id].append({
-                "role": "user", 
-                "content": user_text
-            })
+        # =========================================================
+        # 第二阶段：将解析后的内容添加到记忆 (修复的核心点)
+        # =========================================================
         
-        # 初始化消息状态
+        # 必须把内容加进去，否则 API 报错 "The input messages do not contain elements with the role of user"
+        if has_image:
+            if user_text:
+                user_content.append({"type": "text", "text": user_text})
+            if user_content:
+                self.memoryList[chat_id].append({"role": "user", "content": user_content})
+            else:
+                return # 无有效内容
+        else:
+            if user_text:
+                self.memoryList[chat_id].append({"role": "user", "content": user_text})
+            else:
+                logging.warning("未检测到有效内容，跳过")
+                return
+
+        # =========================================================
+        # 第三阶段：调用 API 并处理响应 (包含 Omni 音频逻辑)
+        # =========================================================
+        
+        # 初始化响应状态
         state = {
             "text_buffer": "",
             "image_buffer": "",
-            "image_cache": []
+            "image_cache": [],
+            "audio_buffer": []  # 音频缓冲区
         }
         
         try:
-            # 准备上下文工具ID和文件链接
             asyncToolsID = self.asyncToolsID.get(chat_id, [])
             fileLinks = self.fileLinks.get(chat_id, [])
+            if chat_id not in self.asyncToolsID: self.asyncToolsID[chat_id] = []
+            if chat_id not in self.fileLinks: self.fileLinks[chat_id] = []
             
-            if chat_id not in self.asyncToolsID:
-                self.asyncToolsID[chat_id] = []
-            if chat_id not in self.fileLinks:
-                self.fileLinks[chat_id] = []
-            
-            # 流式调用API
+            # 调用 API
             stream = await client.chat.completions.create(
                 model=self.FeishuAgent,
                 messages=self.memoryList[chat_id],
@@ -714,105 +571,206 @@ class FeishuClient:
                 extra_body={
                     "asyncToolsID": asyncToolsID,
                     "fileLinks": fileLinks,
+                    "is_app_bot": True,
                 }
             )
             
             full_response = []
             async for chunk in stream:
                 reasoning_content = ""
-                tool_content = ""
                 
                 if chunk.choices:
-                    chunk_dict = chunk.model_dump()
-                    delta = chunk_dict["choices"][0].get("delta", {})
+                    delta = chunk.choices[0].delta
                     
-                    if delta:
-                        reasoning_content = delta.get("reasoning_content", "")
-                        tool_content = delta.get("tool_content", "")
-                        async_tool_id = delta.get("async_tool_id", "")
-                        tool_link = delta.get("tool_link", "")
-                        
-                        # 处理工具链接
-                        if tool_link and settings["tools"]["toolMemorandum"]["enabled"]:
-                            self.fileLinks[chat_id].append(tool_link)
-                        
-                        # 处理异步工具ID
-                        if async_tool_id:
-                            if async_tool_id not in self.asyncToolsID[chat_id]:
-                                self.asyncToolsID[chat_id].append(async_tool_id)
-                            else:
-                                self.asyncToolsID[chat_id].remove(async_tool_id)
-                
-                # 获取当前文本块
+                    # [捕获音频]
+                    if hasattr(delta, "audio") and delta.audio:
+                        if "data" in delta.audio:
+                            state["audio_buffer"].append(delta.audio["data"])
+
+                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                         reasoning_content = delta.reasoning_content
+                         
+                    # 处理 async_tool_id 和 tool_link
+                    if hasattr(delta, "async_tool_id") and delta.async_tool_id:
+                        tid = delta.async_tool_id
+                        if tid not in self.asyncToolsID[chat_id]: self.asyncToolsID[chat_id].append(tid)
+                        else: self.asyncToolsID[chat_id].remove(tid)
+                    
+                    if hasattr(delta, "tool_link") and delta.tool_link:
+                        if settings["tools"]["toolMemorandum"]["enabled"]:
+                            self.fileLinks[chat_id].append(delta.tool_link)
+
+                # 获取内容
                 content = chunk.choices[0].delta.content or ""
                 full_response.append(content)
                 
-                # 如果开启推理可视，则显示推理内容
                 if reasoning_content and self.reasoningVisible:
                     content = reasoning_content
                 
-                # 更新缓冲区
                 state["text_buffer"] += content
                 state["image_buffer"] += content
                 
-                # 处理文本实时发送
-                if self.separators:
+                # 实时发送文本
+                if state["text_buffer"]:
+                    force_split = len(state["text_buffer"]) > 4000
                     while True:
-                        # 查找分隔符
                         buffer = state["text_buffer"]
                         split_pos = -1
-                        for i, c in enumerate(buffer):
-                            if c in self.separators:
-                                split_pos = i + 1
-                                break
-                                
-                        # 有分段符，发送当前段落
-                        if split_pos > 0:
-                            current_chunk = buffer[:split_pos]
-                            state["text_buffer"] = buffer[split_pos:]
-                            
-                            # 清洗并发送文本
-                            clean_text = self._clean_text(current_chunk)
-                            if clean_text:
-                                if self.enableTTS:
-                                    pass
-                                else:
-                                    await self._send_text(msg, clean_text)
+                        in_code_block = False
+                        if force_split:
+                            min_idx = len(buffer) + 1
+                            found_sep_len = 0
+                            for sep in self.separators:
+                                idx = buffer.find(sep)
+                                if idx != -1 and idx < min_idx:
+                                    min_idx = idx
+                                    found_sep_len = len(sep)
+                            if min_idx <= len(buffer): split_pos = min_idx + found_sep_len
                         else:
-                            break
+                            i = 0
+                            while i < len(buffer):
+                                if buffer[i:].startswith("```"):
+                                    in_code_block = not in_code_block
+                                    i += 3
+                                    continue
+                                if not in_code_block:
+                                    found_sep = False
+                                    for sep in self.separators:
+                                        if buffer[i:].startswith(sep):
+                                            split_pos = i + len(sep)
+                                            found_sep = True
+                                            break
+                                    if found_sep: break
+                                i += 1
+                        if split_pos == -1: break
+                        
+                        current_chunk = buffer[:split_pos]
+                        state["text_buffer"] = buffer[split_pos:]
+                        
+                        clean_text = self._clean_text(current_chunk)
+                        if clean_text: await self._send_text(msg, clean_text)
+                        if force_split: break
             
-            # 提取图片链接
+            # 处理剩余内容
             self._extract_images(state)
-            
-            # 处理剩余文本
             if state["text_buffer"]:
                 clean_text = self._clean_text(state["text_buffer"])
-                if clean_text:
-                    if self.enableTTS:
-                        pass
-                    else:
-                        await self._send_text(msg, clean_text)
-            
-            # 发送图片
+                if clean_text: await self._send_text(msg, clean_text)
             for img_url in state["image_cache"]:
                 await self._send_image(msg, img_url)
             
+            # [核心] 处理 Omni 音频转码与发送
+            has_omni_audio = False
+            if state["audio_buffer"]:
+                try:
+                    full_audio_b64 = "".join(state["audio_buffer"])
+                    raw_audio_bytes = base64.b64decode(full_audio_b64)
+                    
+                    # 异步转码 Opus
+                    final_audio, is_opus = await asyncio.to_thread(
+                        convert_to_opus_simple, 
+                        raw_audio_bytes
+                    )
+                    await self._send_omni_response(msg, final_audio, is_opus)
+                    has_omni_audio = True
+                except Exception as e:
+                    logging.error(f"Omni 音频处理失败: {e}")
+
             # 更新记忆
             full_content = "".join(full_response)
-            if self.enableTTS:
+            
+            # 如果没生成 Omni 音频，且开启了旧 TTS，才用旧 TTS
+            if self.enableTTS and not has_omni_audio:
                 await self._send_voice(msg, full_content)
+                
             self.memoryList[chat_id].append({"role": "assistant", "content": full_content})
             
-            # 限制记忆长度
+            # 限制记忆
             if self.memoryLimit > 0:
-                while len(self.memoryList[chat_id]) > self.memoryLimit * 2:  # 成对移除
-                    self.memoryList[chat_id].pop(0)  # 移除最早的用户消息
-                    if self.memoryList[chat_id]:  # 确保还有元素
-                        self.memoryList[chat_id].pop(0)  # 移除最早的助手回复
+                while len(self.memoryList[chat_id]) > self.memoryLimit * 2:
+                    self.memoryList[chat_id].pop(0)
+                    if self.memoryList[chat_id]: self.memoryList[chat_id].pop(0)
             
         except Exception as e:
             logging.error(f"处理消息异常: {e}")
-            await self._send_text(msg, f"处理消息失败: {e}")
+            await self._send_text(msg, f"机器人异常: {str(e)}")
+
+    async def _send_omni_response(self, original_msg, audio_data: bytes, is_opus: bool):
+        """发送 Omni 模型生成的音频 (支持语音气泡)"""
+        try:
+            file_obj = io.BytesIO(audio_data)
+            
+            if is_opus:
+                # 转换成功：发送飞书语音消息 (Voice Bubble)
+                file_type = "opus"
+                file_name = "reply.opus"
+                msg_type = "audio"
+                logging.info("发送模式: 语音气泡 (Opus)")
+            else:
+                # 转换失败：降级为发送文件 (File Attachment)
+                file_type = "wav" 
+                file_name = "reply.wav"
+                msg_type = "file"
+                logging.info("发送模式: 普通文件 (Wav)")
+
+            # 1. 上传文件
+            # 注意：飞书上传接口区分 file_type
+            upload_req = CreateFileRequest.builder() \
+                .request_body(
+                    CreateFileRequestBody.builder()
+                    .file_type(file_type) 
+                    .file_name(file_name)
+                    .file(file_obj)
+                    .build()
+                ).build()
+
+            upload_resp = self.lark_client.im.v1.file.create(upload_req)
+            
+            if not upload_resp.success():
+                logging.error(f"音频上传失败: {upload_resp.code} - {upload_resp.msg}")
+                return
+
+            file_key = upload_resp.data.file_key
+
+            # 2. 发送消息
+            # 无论是 audio 还是 file，内容格式都是 {"file_key": "xxx"}
+            content_str = json.dumps({"file_key": file_key})
+            
+            chat_type = original_msg.chat_type
+            
+            # 构建请求对象
+            if chat_type == "p2p":
+                req_builder = CreateMessageRequest.builder() \
+                    .receive_id_type("chat_id") \
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(original_msg.chat_id)
+                        .msg_type(msg_type)
+                        .content(content_str)
+                        .build()
+                    )
+                resp = self.lark_client.im.v1.message.create(req_builder.build())
+            else:
+                req_builder = ReplyMessageRequest.builder() \
+                    .message_id(original_msg.message_id) \
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .msg_type(msg_type)
+                        .content(content_str)
+                        .build()
+                    )
+                resp = self.lark_client.im.v1.message.reply(req_builder.build())
+
+            if not resp.success():
+                logging.error(f"音频消息发送失败: {resp.code} - {resp.msg}")
+            else:
+                logging.info(f"音频发送成功，Message ID: {resp.data.message_id}")
+
+        except Exception as e:
+            logging.error(f"发送Omni音频异常: {e}")
+            import traceback
+            logging.debug(traceback.format_exc())
+
 
     async def _transcribe_audio(self, audio_data: bytes, file_key: str) -> str:
         """调用本地ASR接口转换音频为文字"""
@@ -1140,23 +1098,42 @@ class FeishuClient:
         for match in matches:
             state["image_cache"].append(match.group(1))
     
-    def _clean_text(self, text):
-        """清理文本中的特殊标记"""
-        # 移除图片标记
-        clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-        # 移除超链接
-        clean = re.sub(r'\[.*?\]\(.*?\)', '', clean)
-        # 移除纯URL
-        clean = re.sub(r'https?://\S+', '', clean)
-        return clean.strip()
+    def _clean_text(self, text: str) -> str:
+        # 1. 移除 Markdown 图片 ![alt](url) -> 空
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
+        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
+        # 3. (可选) 移除纯 http 链接，看你需求
+        # text = re.sub(r"https?://\S+", "", text)
+        return text.strip()
     
     async def _send_text(self, original_msg, text):
-        """发送文本消息"""
+        """发送文本消息（使用富文本 Post 格式以支持 Markdown）"""
         try:
             if not text:
                 return
-                
+            
+            # 构建富文本结构
+            # 飞书 Post 结构: {"zh_cn": {"title": "可选标题", "content": [[Nodes]]}}
+            # 我们使用 md 标签，它独占一个段落
+            content_dict = {
+                "zh_cn": {
+                    "content": [
+                        [
+                            {
+                                "tag": "md",
+                                "text": text
+                            }
+                        ]
+                    ]
+                }
+            }
+            
+            # 序列化为 JSON 字符串
+            content_str = json.dumps(content_dict)
+            
             chat_type = original_msg.chat_type
+            msg_type = "post"  # 关键：改为 post 类型
             
             if chat_type == "p2p":  # 私聊
                 req = CreateMessageRequest.builder()\
@@ -1164,8 +1141,8 @@ class FeishuClient:
                     .request_body(
                         CreateMessageRequestBody.builder()
                         .receive_id(original_msg.chat_id)
-                        .msg_type("text")
-                        .content(json.dumps({"text": text}))
+                        .msg_type(msg_type)
+                        .content(content_str)
                         .build()
                     ).build()
                 
@@ -1176,19 +1153,24 @@ class FeishuClient:
                     .message_id(original_msg.message_id)\
                     .request_body(
                         ReplyMessageRequestBody.builder()
-                        .msg_type("text")
-                        .content(json.dumps({"text": text}))
+                        .msg_type(msg_type)
+                        .content(content_str)
                         .build()
                     ).build()
                 
                 resp = self.lark_client.im.v1.message.reply(req)
             
             if not resp.success():
-                logging.error(f"发送文本失败: {resp.code} {resp.msg}")
+                logging.error(f"发送 Markdown 文本失败: {resp.code} {resp.msg}")
+                # 如果发送失败（可能是 md 语法太复杂或有非法字符），可以考虑回退到纯文本
+                # logging.info("尝试回退到纯文本发送...")
+                # ... (可选的回退逻辑)
                 
         except Exception as e:
             logging.error(f"发送文本异常: {e}")
-    
+            import traceback
+            logging.debug(traceback.format_exc())
+                
     async def _send_image(self, original_msg, image_url):
         """发送图片消息"""
         try:

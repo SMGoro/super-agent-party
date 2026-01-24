@@ -711,46 +711,46 @@ function updateElement(el, rawMarkdown, formatFn) {
                 v-show="chatAreaOpen">
               <div class="messages-container" ref="messagesContainer"   v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
                 <div v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
-                  <div v-if="ttsSettings.enabled && message.role === 'assistant'" class="tts-controls">
-                    <el-tooltip :content="message.isPlaying || false ? t('pause') : t('play')">
-                      <el-button 
-                        @click="toggleTTS(message)"
-                        circle 
-                        size="small"
-                      >
-                        <i v-if="!message.isPlaying" class="fa-solid fa-play"></i>
-                        <i v-else class="fa-solid fa-pause"></i>
+                  <!-- TTS 控制区：支持普通 TTS 和 Omni (PCM) -->
+                  <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                    <!-- 播放/暂停 -->
+                    <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
+                      <el-button @click="toggleTTS(message)" circle size="small">
+                        <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
                       </el-button>
                     </el-tooltip>
-                    <el-tooltip :content="t('backward')">
-                      <el-button 
-                        @click="backwardTTS(message)"
-                        circle 
-                        size="small"
-                      >
-                        <i class="fa-solid fa-backward"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip :content="t('forward')">
-                      <el-button 
-                        @click="forwardTTS(message)"
-                        circle 
-                        size="small"
-                      >
-                        <i class="fa-solid fa-forward"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <span class="tts-status" v-if="message.ttsChunks">
-                      {{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}
-                    </span>
-                    <span class="tts-status" v-else>
-                      {{ t('initializing') }}
-                    </span>
-                    <span class="tts-status" v-if="message.role === 'assistant' && !isMobile">
-                      {{ t('first_sentence_latency')+': '+(message?.first_sentence_latency ?? 0) +'ms,    '+ t('TTSelapsedTime')+': '+(message?.TTSelapsedTime ?? 0) + 's'}}
+
+                    <!-- 普通 TTS 分句控制 -->
+                    <template v-if="!message.isOmni">
+                      <el-button @click="backwardTTS(message)" circle size="small"><i class="fa-solid fa-backward"></i></el-button>
+                      <el-button @click="forwardTTS(message)" circle size="small"><i class="fa-solid fa-forward"></i></el-button>
+                      <span class="tts-status" v-if="message.ttsChunks">
+                        {{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}
+                      </span>
+                    </template>
+
+                    <!-- Omni PCM 进度条控制 -->
+                    <template v-else>
+                      <div class="omni-progress-wrapper" style="margin-left: 20px;">
+                        <el-slider 
+                          v-model="message.omniCurrentTime" 
+                          :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
+                          :step="0.01"
+                          :show-tooltip="false"
+                          @change="(val) => seekOmniTTS(message, val)"
+                        />
+                        <span class="tts-status-time">
+                          {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
+                        </span>
+                      </div>
+                    </template>
+                    
+                    <!-- 延迟统计 -->
+                    <span class="tts-status" v-if="!isMobile">
+                      {{ (message?.first_sentence_latency ?? 0) }}ms
                     </span>
                   </div>
-                  <div class="message-content" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
+                  <div class="message-content" v-if="!allBriefly||message.role !== 'system'||index === 0" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
                     <!-- 用户消息内容 -->
                     <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
                       <div v-html="message.content" class = "user-msg"></div>
@@ -823,7 +823,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
                   <!-- 添加复制按钮 -->
-                  <div class="message-actions">
+                  <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
                     <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
                       <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small">
                         <i class="fa-solid fa-pen-to-square"></i>
@@ -871,7 +871,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <i class="fa-solid fa-rotate"></i>
                       </el-button>
                     </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'" :content="t('oneClickExpand')" placement="bottom">
+                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
                       <el-button 
                         class="Gen-btn" 
                         @click="toggleQuickGen(index)"
@@ -881,7 +881,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <i class="fa-solid fa-wand-magic-sparkles"></i>
                       </el-button>
                     </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'" :content="t('save')" placement="bottom">
+                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
                       <el-button 
                         class="Gen-btn" 
                         @click="saveSystemPrompt(index)"
@@ -2503,26 +2503,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </template>
                     </el-dialog>
                   </el-tab-pane>
-                  <el-tab-pane :label="t('moreCard')" name="card">
-                      <!-- 供应商选择区域 -->
-                      <el-form-item>
-                        <div class="vendor-grid">
-                          <div 
-                            v-for="item in CardOptions" 
-                            :key="item.value"
-                            class="vendor-card"
-                            @click="goToCardURL(item.value)"
-                          >
-                            <img 
-                              :src="getCardVendorLogo(item.value)" 
-                              :alt="item.label"
-                              class="vendor-logo"
-                            />
-                            <div class="vendor-name">{{ t(item.label) }}</div>
-                          </div>
-                        </div>
-                      </el-form-item>
-                  </el-tab-pane>
                   <!-- 系统提示词标签页 -->
                   <el-tab-pane :label="t('addSystemPrompt')" name="prompts">
                     <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">
@@ -2636,27 +2616,211 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </template>
                     </el-dialog>
                   </el-tab-pane>
-                  <el-tab-pane :label="t('moreSystemPrompt')" name="market">
-                      <!-- 供应商选择区域 -->
-                      <el-form-item>
-                        <div class="vendor-grid">
-                          <div 
-                            v-for="item in PromptOptions" 
-                            :key="item.value"
-                            class="vendor-card"
-                            @click="goToPromptURL(item.value)"
-                          >
-                            <img 
-                              :src="getPromptVendorLogo(item.value)" 
-                              :alt="item.label"
-                              class="vendor-logo"
-                            />
-                            <div class="vendor-name">{{ t(item.label) }}</div>
-                          </div>
-                        </div>
-                      </el-form-item>
-                  </el-tab-pane>
                 </el-tabs>
+              </div>
+              <!-- 脑区模型页面 -->
+              <div v-show="subMenu === 'mind'" class="page mind-page">
+                <div class="mind-container">
+                  
+                  <!-- 背景装饰网格 -->
+                  <div class="mind-grid-bg"></div>
+
+                  <!-- 核心大脑容器 -->
+                  <div class="brain-wrapper" :class="{'full-power-mode': isAllBrainsActive}">
+                    
+                    <!-- SVG 抽象大脑线框图 -->
+                    <svg class="brain-svg" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+                      <defs>
+                        <!-- 定义发光滤镜 -->
+                        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feGaussianBlur stdDeviation="4" result="blur" />
+                          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
+                      </defs>
+                      
+                      <!-- 大脑轮廓 (科技感线条) -->
+                      <g class="brain-lines" filter="url(#glow)">
+                        <!-- 前额叶区域 -->
+                        <path d="M60,120 Q60,80 100,50 T180,40" class="brain-path prefrontal-line" />
+                        <!-- 理性脑区域 (皮层) -->
+                        <path d="M180,40 Q260,40 320,90 T340,180" class="brain-path rational-line" />
+                        <!-- 生理脑区域 (脑干/小脑) -->
+                        <path d="M340,180 Q320,240 250,250 T180,260 L180,290" class="brain-path physio-line" />
+                        <!-- 感性脑区域 (边缘系统/中心) -->
+                        <path d="M140,140 Q200,120 240,160 T200,210 Q160,220 120,190" class="brain-path emotional-line" />
+                        <!-- 连接线 -->
+                        <path d="M100,50 L140,140" class="connector-line" />
+                        <path d="M320,90 L240,160" class="connector-line" />
+                      </g>
+                      
+                      <!-- 脉冲节点动画 -->
+                      <circle cx="100" cy="50" r="4" class="pulse-dot" />
+                      <circle cx="320" cy="90" r="4" class="pulse-dot" style="animation-delay: 0.5s" />
+                      <circle cx="200" cy="180" r="4" class="pulse-dot" style="animation-delay: 1s" />
+                    </svg>
+
+                    <!-- 四个功能区卡片 (添加了 @click 事件) -->
+                    
+                    <!-- 1. 前额叶 -->
+                    <!-- 增加 :class="{ 'enabled': prefrontalCortexSettings.enabled }" -->
+                    <div class="mind-card prefrontal-card" 
+                         :class="{ 'enabled': prefrontalCortexSettings.enabled }"
+                         @click="openBrainEdit('prefrontalCortex')">
+                      <div class="card-glow"></div>
+                      <div class="mind-icon"><i class="fa-solid fa-chess-king"></i></div>
+                      <div class="mind-content">
+                        <h3>{{ t('prefrontalCortex')}}</h3>
+                        <p>{{t('prefrontalCortexNotice')}}</p>
+                        <el-tag size="small" :type="prefrontalCortexSettings.enabled ? 'success' : 'info'">
+                          {{ prefrontalCortexSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
+                      </div>
+                    </div>
+
+                    <!-- 2. 理性脑 -->
+                    <!-- 增加 :class="{ 'enabled': NeocortexSettings.enabled }" -->
+                    <div class="mind-card rational-card" 
+                         :class="{ 'enabled': NeocortexSettings.enabled }"
+                         @click="openBrainEdit('Neocortex')">
+                      <div class="card-glow"></div>
+                      <div class="mind-icon"><i class="fa-solid fa-microchip"></i></div>
+                      <div class="mind-content">
+                        <h3>{{ t('Neocortex') }}</h3>
+                        <p>{{t('NeocortexNotice')}}</p>
+                        <el-tag size="small" :type="NeocortexSettings.enabled ? 'success' : 'info'">
+                          {{ NeocortexSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
+                      </div>
+                    </div>
+
+                    <!-- 3. 感性脑 -->
+                    <!-- 增加 :class="{ 'enabled': LimbicSystemSettings.enabled }" -->
+                    <div class="mind-card emotional-card" 
+                         :class="{ 'enabled': LimbicSystemSettings.enabled }"
+                         @click="openBrainEdit('LimbicSystem')">
+                      <div class="card-glow"></div>
+                      <div class="mind-icon"><i class="fa-solid fa-heart-pulse"></i></div>
+                      <div class="mind-content">
+                        <h3>{{ t('LimbicSystem') }}</h3>
+                        <p>{{t('LimbicSystemNotice')}}</p>
+                        <el-tag size="small" :type="LimbicSystemSettings.enabled ? 'success' : 'info'">
+                          {{ LimbicSystemSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
+                      </div>
+                    </div>
+
+                    <!-- 4. 生理脑 -->
+                    <!-- 增加 :class="{ 'enabled': ReptilianBrainSettings.enabled }" -->
+                    <div class="mind-card physio-card" 
+                         :class="{ 'enabled': ReptilianBrainSettings.enabled }"
+                         @click="openBrainEdit('ReptilianBrain')">
+                      <div class="card-glow"></div>
+                      <div class="mind-icon"><i class="fa-solid fa-dna"></i></div>
+                      <div class="mind-content">
+                        <h3>{{ t('ReptilianBrain')}}</h3>
+                        <p>{{t('ReptilianBrainNotice')}}</p>
+                        <el-tag size="small" :type="ReptilianBrainSettings.enabled ? 'success' : 'info'">
+                          {{ ReptilianBrainSettings.enabled ? t('enabled') : t('disabled') }}
+                        </el-tag>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                <!-- 新增：右下角极简控制面板 -->
+                <div class="mind-quick-panel">
+                  <!-- 头部 -->
+                  <div class="panel-header">
+                    <span class="panel-title">
+                      <i class="fa-solid fa-sliders"></i> {{ t('neuralControl') || 'Neural Control' }}
+                    </span>
+                    <!-- 状态指示灯 -->
+                    <div class="system-status" :class="{'active': isAllBrainsActive}">
+                      <div class="status-pulse"></div>
+                    </div>
+                  </div>
+
+                  <!-- 分割线 -->
+                  <div class="panel-divider"></div>
+
+                  <!-- 列表控制 -->
+                  <div class="panel-rows">
+                    <!-- 前额叶 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('prefrontalCortex') }}</span>
+                      <el-switch v-model="prefrontalCortexSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 理性脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('Neocortex') }}</span>
+                      <el-switch v-model="NeocortexSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 感性脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('LimbicSystem') }}</span>
+                      <el-switch v-model="LimbicSystemSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                    <!-- 生理脑 -->
+                    <div class="control-row">
+                      <span class="label">{{ t('ReptilianBrain') }}</span>
+                      <el-switch v-model="ReptilianBrainSettings.enabled" size="small" @change="autoSaveSettings" />
+                    </div>
+                  </div>
+                </div>
+
+
+                <!-- 通用脑区设置模态框 -->
+                <el-dialog
+                  v-model="showBrainEditDialog"
+                  :title="currentBrainTitle"
+                  width="50%"
+                  align-center
+                >
+                  <!-- 只有当 currentBrainSettings 存在时才渲染表单，防止报错 -->
+                  <el-form label-position="top">
+                    
+                    <!-- 1. 启用/禁用开关 -->
+                    <el-form-item :label="t('enableFunction')" class="form-item-align"  label-position="left">
+                        <el-switch 
+                          v-model="currentBrainSettings.enabled" 
+                        />
+                    </el-form-item>
+                    <!-- 2. 模型供应商选择 -->
+                    <el-form-item :label="t('provider')" required>
+                      <el-select
+                        v-model="currentBrainSettings.selectedProvider"
+                        :placeholder="t('selectProvider')"
+                        filterable
+                        class="full-width-input"
+                        @change="selectBrainProvider"
+                        @visible-change="handleBrainProviderVisibleChange"
+                      >
+                        <el-option
+                          v-for="provider in modelProviders"
+                          :key="provider.id"
+                          :label="provider.vendor+' - '+provider.modelId"
+                          :value="provider.id"
+                        >
+                          <div class="provider-option">
+                            <img 
+                              :src="getVendorLogo(provider.vendor)" 
+                              class="mini-vendor-logo"
+                            />
+                            <span class="model-id">{{ provider.modelId }}</span>
+                          </div>
+                        </el-option>
+                      </el-select>
+                    </el-form-item>
+
+                  </el-form>
+
+                  <template #footer>
+                    <el-button @click="showBrainEditDialog = false">{{ t('close') }}</el-button>
+                    <!-- 如果需要手动保存按钮，可以使用下面的，但在 switch/select 上加 @change 自动保存通常体验更好 -->
+                    <el-button type="primary" @click="showBrainEditDialog = false;autoSaveSettings()">{{ t('confirm') }}</el-button> 
+                  </template>
+                </el-dialog>
               </div>
               <!-- 角色语音 -->
               <div v-show="subMenu === 'voice'" class="page">
@@ -2727,7 +2891,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-option :label="t('edgetts')" value="edgetts"></el-option>
                         <el-option :label="t('systemtts')" value="systemtts" ></el-option>
                         <el-option label="GPT Sovits" value="GSV"></el-option>
-                        <el-option :label="t('openaiLike')" value="openai"></el-option>
+                        <el-option :label="t('openaiLikeTTS')" value="openai"></el-option>
                         <el-option :label="t('customTTS')" value="customTTS"></el-option>
                         <el-option label="Azure TTS" value="azure"></el-option>
                         <el-option label="Volcengine (火山)" value="volcengine"></el-option>
@@ -3187,7 +3351,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </el-select>
                         </el-form-item>
                         <!-- 提示音频选择框 -->
-                        <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
+                        <el-form-item :label="t('promptAudio')" class="form-item-align">
                           <el-select
                             v-model="newTTSConfig.gsvRefAudioPath"
                             @change="handleRefAudioPathChange"
@@ -4001,6 +4165,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                               <el-select v-model="b.action.type" @change="autoSaveSettings">
                                 <el-option :label="t('prompt')" value="prompt"></el-option>
                                 <el-option :label="t('randomEvent')" value="random"></el-option>
+                                <el-option :label="t('randomTopic')" value="topic"></el-option>
                               </el-select>
                             </el-form-item>
 
@@ -4039,6 +4204,42 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   class="full-width-input"/>
                               </el-form-item>
                             </div>
+
+                            <el-form-item v-if="b.action.type === 'topic'" :label="t('baseURL')">
+                              <el-input
+                                v-model="toolsSettings.randomTopic.baseURL"
+                                @change="autoSaveSettings"
+                                :placeholder="t('randomTopicPlaceholder')"
+                              ></el-input>
+                            </el-form-item>
+
+                            <el-form-item v-if="b.action.type === 'topic'" :label="t('topicLimit')">
+                              <el-slider
+                                  v-model="b.action.topicLimit"
+                                  :min="1"
+                                  :max="5"
+                                  :step="1"
+                                  show-input
+                                  @change="autoSaveSettings"
+                              ></el-slider>
+                            </el-form-item>
+
+                            <el-alert v-if="b.action.type === 'topic'" type="info" :closable="false" class="mb-2" style="margin-bottom: 20px;">
+                              <div class="alert-content">
+                                {{ t('randomTopicNotice') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://github.com/heshengtao/topics-after-party" 
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1">
+                                    <i class="fa-solid fa-key"></i>
+                                  </el-icon>{{ t('gotoGithub') }}
+                                </el-link>
+                              </div>
+                            </el-alert>
+
                             <div style="display: flex; justify-content: flex-end;margin-bottom: 16px;">
                               <el-tooltip :content="t('resetBehavior')" placement="top">
                                 <el-button 
@@ -4149,7 +4350,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           </el-form-item>
           <template #footer>
             <el-button @click="cancelGsvAudioUpload">{{ t('cancel') }}</el-button>
-            <el-button type="primary" @click="uploadGsvAudio" :disabled="!newGsvAudio.name">
+            <el-button type="primary" @click="uploadGsvAudio" :disabled="!newGsvAudio.name||!newGsvAudio.text">
               {{ t('createImmediately') }}
             </el-button>
           </template>
@@ -4450,6 +4651,24 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </div>
                           </el-option>
                         </el-select>
+                      </el-form-item>
+                      <el-form-item :label="t('enableOmniTTS')" class="form-item-align" label-position="left">
+                        <el-switch 
+                          v-model="settings.enableOmniTTS" 
+                          @change="autoSaveSettings"
+                        ></el-switch>
+                      </el-form-item>
+                      <el-form-item v-if="settings.enableOmniTTS" :label="t('enabledInterruption')" class="form-item-align" label-position="left">
+                        <el-switch 
+                          v-model="ttsSettings.enabledInterruption" 
+                          @change="autoSaveSettings"
+                        ></el-switch>
+                      </el-form-item>
+                      <el-form-item v-if="settings.enableOmniTTS" :label="t('omniVoice')" class="form-item-align" label-position="left">
+                        <el-input
+                          v-model="settings.omniVoice"
+                          :placeholder="t('omniVoicePlaceholder')"
+                        ></el-input>
                       </el-form-item>
                     </div>
                       <el-alert
@@ -5480,7 +5699,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           <el-option :label="t('edgetts')" value="edgetts" ></el-option>
                           <el-option :label="t('systemtts')" value="systemtts" ></el-option>
                           <el-option label="GPT Sovits" value="GSV" ></el-option>
-                          <el-option :label="t('openaiLike')" value="openai" ></el-option>
+                          <el-option :label="t('openaiLikeTTS')" value="openai" ></el-option>
                           <el-option :label="t('customTTS')" value="customTTS" ></el-option>
                           <el-option label="Azure TTS" value="azure"></el-option>
                           <el-option label="Volcengine (火山)" value="volcengine"></el-option>
@@ -5679,7 +5898,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                       <!-- 提示音频选择框 -->
-                      <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
+                      <el-form-item :label="t('promptAudio')" class="form-item-align">
                         <el-select
                           v-model="ttsSettings.gsvRefAudioPath"
                           @change="handleRefAudioPathChange"
@@ -6450,6 +6669,43 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </el-alert>
                   </div>
 
+                  <!-- 随机话题工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch
+                        v-model="toolsSettings.randomTopic.enabled"
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div class="tool-card-title">
+                      <h3 class="kb-title">{{ t('randomTopicTool') }}</h3>
+                      <el-link
+                        type="primary"
+                        :underline="false"
+                        href="https://github.com/heshengtao/topics-after-party" 
+                        target="_blank"
+                      >
+                        <el-icon class="mr-1">
+                          <i class="fa-solid fa-key"></i>
+                        </el-icon>{{ t('gotoGithub') }}
+                      </el-link>
+                    </div>
+                    <el-form-item :label="t('baseURL')">
+                      <el-input
+                        v-model="toolsSettings.randomTopic.baseURL"
+                        @change="autoSaveSettings"
+                        class="mini-input"
+                        :placeholder="t('randomTopicPlaceholder')"
+                      ></el-input>
+                    </el-form-item>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('randomTopicNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
                   <!-- 维基百科工具 -->
                   <div class="provider-card tool-card">
                     <div class="card-header">
@@ -6705,7 +6961,7 @@ function updateElement(el, rawMarkdown, formatFn) {
               <!-- 浏览器控制界面 -->
               <div v-show="subMenu === 'chromeMCP'" class="page">
                <!-- 顶部说明条 -->
-                <div class="toolbar">
+                <div v-if="isElectron" class="toolbar">
                     <el-alert
                       :title="t('chromeMCPDescription')"
                       type="info"
@@ -6717,7 +6973,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       3. {{ t('chromeMCPNotice3') }}
                     </el-alert>
                 </div>
-                <el-form :model="chromeMCPSettings" class="settings-form"  label-position="top">
+                <el-form v-if="isElectron" :model="chromeMCPSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
                       <div class="header-left">
@@ -6843,6 +7099,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     />
                   </el-card>
                 </el-form> 
+                <!-- Web端提示 -->
+                <div v-else >
+                  <el-empty :description="t('webNotSupported')" />
+                </div>
               </div>
               
               <!-- SQL控制界面 -->
@@ -7093,6 +7353,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         >
                           <el-option label="Claude Code" value="cc" ></el-option>
                           <el-option label="Qwen Code" value="qc" ></el-option>
+                          <el-option label="Open Code" value="oc" ></el-option>
                         </el-select>
                       </el-form-item>
                     </div>
@@ -7131,6 +7392,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </el-button>
                           </template>
                         </el-input>
+                      </el-form-item>
+                      <el-form-item :label="t('permissionMode')" class="form-item-align">
+                        <el-select
+                          v-model="ccSettings.permissionMode"
+                          @change="autoSaveSettings"
+                          class="full-width-input"
+                        >
+                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                          <el-option :label="t('acceptEdits')" value="acceptEdits" ></el-option>
+                          <el-option :label="t('bypassPermissions')" value="bypassPermissions" ></el-option>
+                          <el-option :label="t('planMode')" value="plan" ></el-option>
+                        </el-select>
                       </el-form-item>
                       <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
                         <el-switch
@@ -7211,6 +7484,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </el-button>
                           </template>
                         </el-input>
+                      </el-form-item>
+                      <el-form-item :label="t('permissionMode')" class="form-item-align">
+                        <el-select
+                          v-model="qcSettings.permissionMode"
+                          @change="autoSaveSettings"
+                          class="full-width-input"
+                        >
+                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                          <el-option :label="t('acceptEdits')" value="auto-edit" ></el-option>
+                          <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
+                          <el-option :label="t('planMode')" value="plan" ></el-option>
+                        </el-select>
                       </el-form-item>
                       <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
                         <el-switch
@@ -9464,10 +9749,10 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="social-links">
               <div class="link-item">
                 <span>Official Website：</span>
-                <a href="https://super-agent-party.github.io/" 
+                <a href="https://www.agentparty.top/" 
                   target="_blank" 
                   class="social-link">
-                  super-agent-party.github.io
+                  www.agentparty.top
                 </a>
               </div>
 

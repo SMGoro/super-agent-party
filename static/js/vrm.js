@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { createVRMAnimationClip, VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import { SplatMesh } from '@sparkjsdev/spark';
@@ -212,6 +213,45 @@ light.shadow.camera.near   = 0.1;
 light.shadow.camera.far    = 20;
 scene.add( light );
 
+const transformControl = new TransformControls( camera, renderer.domElement );
+transformControl.addEventListener('change', () => {
+    const obj = transformControl.object;
+    if (transformControl.getMode() === 'scale' && obj) {
+        
+        // 获取当前用户正在拖动的轴 (X, Y, Z)
+        const axis = transformControl.axis; 
+        
+        // 如果用户点击的是中心点或平面，axis 可能是 'XYZ' 或 'XY' 等
+        // 我们只处理单轴拖动的情况来实现强制等比例
+        let s = obj.scale.x; // 默认取值
+
+        if (axis === 'X') {
+            s = obj.scale.x;
+        } else if (axis === 'Y') {
+            s = obj.scale.y;
+        } else if (axis === 'Z') {
+            s = obj.scale.z;
+        } else {
+            // 如果是中心缩放 (XYZ)，原本就是等比例的，不需要处理
+            return;
+        }
+
+        // 检查是否已经相等，避免多余的赋值操作
+        if (obj.scale.y !== s || obj.scale.z !== s || obj.scale.x !== s) {
+            obj.scale.set(s, s, s);
+        }
+    }
+});
+// 当用户拖拽模型时，禁用轨道控制器（OrbitControls），防止相机乱转
+transformControl.addEventListener( 'dragging-changed', function ( event ) {
+    controls.enabled = ! event.value;
+});
+
+// 默认设为 'translate' (移动模式)，也可以是 'rotate' 或 'scale'
+transformControl.setMode('translate'); 
+
+scene.add( transformControl.getHelper() ); // 添加辅助线
+
 let currentSceneGroup = null;          // 当前场景根节点，方便整体卸载
 
 /* 拉一次配置即可，外面已经 await fetchVRMConfig() 了，直接复用 */
@@ -305,14 +345,15 @@ scene.add( ambientLight );
 
 // gltf and vrm
 let currentVrm = undefined;
+let currentVrmWrapper = new THREE.Group(); // 新增：用于包裹 VRM 的组
+scene.add(currentVrmWrapper);              // 新增：一开始就加入场景
 const loader = new GLTFLoader();
 loader.crossOrigin = 'anonymous';
 
 loader.register( ( parser ) => {
 
-    return new VRMLoaderPlugin(parser,{
-        lookAt: { type: 'bone' }
-    });
+    return new VRMLoaderPlugin(parser); 
+
 
 } );
 
@@ -1270,90 +1311,145 @@ function stopAllChunkAnimations() {
 }
 
 /**
- * 单个语音块的动画循环，用于驱动口型
- * @param {string|number} chunkId 
- * @param {object} chunkState 
+ * 最终修复版：基于共振峰 (Formants F1/F2) 的科学口型同步
+ * 通过查找频谱中的两个主要能量峰值 (F1, F2) 在元音三角形中的位置来确定口型
  */
 function startChunkAnimation(chunkId, chunkState) {
     if (!chunkState || !chunkState.isPlaying || !chunkState.analyser) {
-        console.log(`无法为 Chunk ${chunkId} 启动动画`);
         return;
     }
 
-    const dataArray = new Uint8Array(chunkState.analyser.frequencyBinCount);
-    let frameCount = 0;
+    const analyser = chunkState.analyser;
+    // 增加 FFT 精度，共振峰检测需要更高的频率分辨率
+    analyser.fftSize = 1024; // 之前是 256，太小了，分不清 F1/F2
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const sampleRate = currentAudioContext.sampleRate;
+    
+    // 平滑插值变量
+    let currentBlends = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+    
+    // 灵敏度设置 (根据麦克风/TTS音量调整)
+    const SENSITIVITY = 1.0; // 如果嘴巴动静太小，调大这个数
+    const NOISE_GATE = 15;   // 底噪门限
+
+    function getFormant(minFreq, maxFreq) {
+        // 将频率转换为数组索引
+        const nyquist = sampleRate / 2;
+        const startIndex = Math.floor((minFreq / nyquist) * bufferLength);
+        const endIndex = Math.floor((maxFreq / nyquist) * bufferLength);
+        
+        let maxAmp = -Infinity;
+        let maxIndex = -1;
+        
+        // 在指定频率范围内找最强峰值
+        for (let i = startIndex; i <= endIndex; i++) {
+            if (dataArray[i] > maxAmp) {
+                maxAmp = dataArray[i];
+                maxIndex = i;
+            }
+        }
+        
+        // 返回峰值对应的频率和强度
+        return {
+            freq: (maxIndex / bufferLength) * nyquist,
+            amp: maxAmp
+        };
+    }
 
     function animateChunk() {
         const currentState = chunkAnimations.get(chunkId);
         if (!currentState || !currentState.isPlaying) {
-            console.log(`因状态改变，停止 Chunk ${chunkId} 的动画`);
+            // 停止时归零
+            if (currentVrm && currentVrm.expressionManager) {
+                ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => currentVrm.expressionManager.setValue(v, 0));
+            }
             return;
         }
 
-        frameCount++;
-
-        // 从分析器获取实时音频频率数据
-        chunkState.analyser.getByteFrequencyData(dataArray);
-
-        // 计算音量强度
-        let sum = 0;
-        // 人声主要集中在低频区域，可以只分析这部分以获得更准确的结果
-        const relevantData = dataArray.slice(0, dataArray.length * 0.5);
-        for (let i = 0; i < relevantData.length; i++) {
-            sum += relevantData[i];
-        }
-        const average = sum / relevantData.length;
-
-        // 应用口型动画
-        if (currentVrm && currentVrm.expressionManager) {
-            let max_mouthOpen = 0.8; // 默认最大张嘴程度
-            const expression = chunkState.expression;
-            
-            // 处理其他表情
-            if (expression) {
-                // 1. 将 口型动画 添加到 mouthExpressionNames（作为被覆盖者）
-                currentVrm.expressionManager.mouthExpressionNames = ['aa'];
-
-                // 2. 为'happy', 'surprised'表情设置 overrideMouth 属性（作为覆盖者）
-                const mouthExpressions = ['happy', 'surprised'];
-
-                mouthExpressions.forEach(expressionName => {
-                    const exp = currentVrm.expressionManager.getExpression(expressionName);
-                    if (exp) {
-                        exp.overrideMouth = 'block'; 
-                    }
-                });
-                if (['surprised','happy','angry', 'sad', 'neutral', 'relaxed'].includes(expression)) {
-                    currentVrm.expressionManager.setValue(expression, 1.0);
-                } else if (['blink', 'blinkLeft', 'blinkRight'].includes(expression)) {
-                    // 简单的眨眼动画，持续1秒
-                    const progress = (frameCount % 30) / 30;
-                    const blinkValue = Math.sin(progress * Math.PI);
-                    currentVrm.expressionManager.setValue(expression, blinkValue);
-                }
-            }
-
-            // 根据音量驱动口型
-            const intensity = Math.min(average / 400, 1.0); // 40是敏感度系数，可调整
-            if (intensity > 0.05) { // 阈值，防止背景噪音导致嘴动
-                const mouthOpen = Math.min(intensity * 1.5, max_mouthOpen);
-                currentVrm.expressionManager.setValue('aa', mouthOpen); 
-                // 添加一些'ih'口型作为变化
-                const variation = Math.sin(frameCount * 0.2) * 0.1;
-                currentVrm.expressionManager.setValue('ih', Math.min(Math.max(0, mouthOpen * 0.5 + variation), max_mouthOpen));
-            } else {
-                // 平滑地闭上嘴巴
-                const currentAA = currentVrm.expressionManager.getValue('aa') || 0;
-                const currentIH = currentVrm.expressionManager.getValue('ih') || 0;
-                currentVrm.expressionManager.setValue('aa', Math.max(0, currentAA * 0.8 - 0.05));
-                currentVrm.expressionManager.setValue('ih', Math.max(0, currentIH * 0.7 - 0.03));
-            }
-        }
-
         currentState.animationId = requestAnimationFrame(animateChunk);
+
+        // 1. 获取频域数据
+        analyser.getByteFrequencyData(dataArray);
+
+        // 2. 检测共振峰
+        // F1 范围: 200Hz - 1000Hz (决定开口大小)
+        // F2 范围: 1000Hz - 3000Hz (决定舌位前后)
+        const f1 = getFormant(200, 1000);
+        const f2 = getFormant(1000, 3000);
+
+        // 3. 计算总音量 (用于控制开口幅度)
+        // 只计算人声主要频段 (200-4000Hz) 的平均能量
+        let vocalEnergy = 0;
+        const startBin = Math.floor((200 / (sampleRate/2)) * bufferLength);
+        const endBin = Math.floor((4000 / (sampleRate/2)) * bufferLength);
+        for(let i=startBin; i<endBin; i++) vocalEnergy += dataArray[i];
+        const avgVol = vocalEnergy / (endBin - startBin);
+
+        // 4. 映射逻辑 (元音三角形)
+        let target = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+        
+        if (avgVol > NOISE_GATE) {
+            // 归一化强度
+            const intensity = Math.min(1.0, (avgVol / 255) * SENSITIVITY);
+            
+            // --- 核心算法：根据 F1/F2 坐标判断元音 ---
+            // 数值基于一般人声统计学，可能需要微调
+            
+            if (f1.freq > 600) {
+                // F1 很高 -> 大张嘴 -> A (aa)
+                // 类似 "啊"
+                target.aa = intensity;
+            } 
+            else if (f1.freq < 450 && f2.freq > 1800) {
+                // F1 低 (闭嘴), F2 高 (舌前) -> I (ih)
+                // 类似 "一"
+                target.ih = intensity;
+                // I 音通常也会带一点点 E
+                target.ee = intensity * 0.3; 
+            }
+            else if (f1.freq < 450 && f2.freq < 1100) {
+                // F1 低 (闭嘴), F2 低 (舌后) -> U (ou)
+                // 类似 "呜"
+                target.ou = intensity;
+            }
+            else if (f2.freq > 1600) {
+                // 剩下的高 F2 -> E (ee)
+                // 类似 "耶"
+                target.ee = intensity;
+                target.ih = intensity * 0.2;
+            }
+            else {
+                // 剩下的 -> O (oh) 或 中性音
+                // 类似 "哦"
+                target.oh = intensity;
+                target.ou = intensity * 0.3;
+            }
+        }
+
+        // 5. 应用到 VRM
+        if (currentVrm && currentVrm.expressionManager) {
+            // 表情抑制逻辑
+            const expression = chunkState.expression;
+            let limit = 1.0;
+            if (expression && ['happy', 'surprised'].includes(expression)) {
+                limit = 0.7; 
+            }
+
+            ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => {
+                const t = target[v] * limit;
+                const c = currentBlends[v];
+                // 动态平滑: 张嘴快(0.5), 闭嘴慢(0.1)
+                const smooth = t > c ? 0.5 : 0.1; 
+                currentBlends[v] = c + (t - c) * smooth;
+                
+                currentVrm.expressionManager.setValue(v, currentBlends[v]);
+            });
+        }
     }
 
-    console.log(`为 Chunk ${chunkId} 启动动画循环`);
+    console.log(`Chunk ${chunkId}: 启动共振峰口型同步`);
     chunkState.animationId = requestAnimationFrame(animateChunk);
 }
 
@@ -1530,9 +1626,15 @@ loader.load(
         } );
 
         vrm.lookAt.target = camera;
+
+        if (vrm.lookAt.applier) {
+            vrm.lookAt.applier.yawLimit = 60.0;   // 左右转头最大 60 度
+            vrm.lookAt.applier.pitchLimit = 30.0; // 上下抬头最大 30 度
+        }
+
         currentVrm = vrm;
         console.log( vrm );
-        scene.add( vrm.scene );
+        currentVrmWrapper.add(vrm.scene); 
         
         // 让模型投射阴影
         vrm.scene.traverse((obj) => {
@@ -1688,42 +1790,18 @@ function toggleSubtitle(enable) {
     }
 }
 
-function updateSubtitle(text, chunkIndex) {
-    if (!isSubtitleEnabled) return;
+/**
+ * 提取出的尺寸调整逻辑
+ */
+function adjustSubtitleSize() {
+    if (!subtitleElement) return;
+    const maxWidth = window.innerWidth * 0.8;
+    subtitleElement.style.width = 'max-content';
+    subtitleElement.style.minWidth = '100px';
     
-    if (!subtitleElement) initSubtitleElement();
-    // 如果text只包含空白字符，则清除字幕
-    if (!text.trim()) {
-        clearSubtitle();
-        return;
-    }
-    currentSubtitleChunkIndex = chunkIndex;
-    
-    subtitleElement.style.opacity = '0';
-    setTimeout(() => {
-        subtitleElement.textContent = text;
-        
-        // 自动调整宽度
-        const maxWidth = window.innerWidth * 0.8;
-        subtitleElement.style.width = 'max-content';
-        subtitleElement.style.minWidth = '100px';
-        
-        const rect = subtitleElement.getBoundingClientRect();
-        if (rect.width > maxWidth) {
-            subtitleElement.style.width = `${maxWidth}px`;
-        }
-        
-        subtitleElement.style.opacity = '1';
-    }, 300);
-    
-    if (subtitleTimeout) clearTimeout(subtitleTimeout);
-}
-
-// 清除字幕
-function clearSubtitle() {
-    if (subtitleElement) {
-        subtitleElement.style.opacity = '0';
-        currentSubtitleChunkIndex = -1;
+    const rect = subtitleElement.getBoundingClientRect();
+    if (rect.width > maxWidth) {
+        subtitleElement.style.width = `${maxWidth}px`;
     }
 }
 
@@ -1749,49 +1827,63 @@ const VMC_BONES = [                           // VMC 标准骨骼列表
   'rightLittleProximal','rightLittleIntermediate','rightLittleDistal'
 ];
 
-/**
- * 把当前 VRM 骨骼打成 VMC-OSC 消息发出去
- * 自动 30 fps 节流，仅 Electron 有效
- */
-function sendVMCBones() {
-  if (!window.vmcAPI || !currentVrm?.humanoid) return;
+function getVMCBoneData() {
+  if (!currentVrm?.humanoid) return [];
 
-  const now = performance.now();
-  if (now - vmcLastSent < VMC_SEND_INTERVAL) return;
-  vmcLastSent = now;
+  const boneData = [];
+  
+  // VMC 接收端通常期望 Hips 的位置是相对于地面的绝对高度
+  // 我们需要获取 Hips 的世界坐标
+  const hipsNode = currentVrm.humanoid.getNormalizedBoneNode('hips');
+  let rootY = 0;
+  if (hipsNode) {
+      const worldPos = new THREE.Vector3();
+      hipsNode.getWorldPosition(worldPos);
+      // 如果模型被缩放过，或者场景有位移，这里要用世界坐标
+  }
 
   for (const name of VMC_BONES) {
     const node = currentVrm.humanoid.getNormalizedBoneNode(name);
-    if (!node || !node.position || !node.quaternion) continue;
+    if (!node) continue;
 
-    let vmcRot = { x: 0, y: 0, z: 0, w: 1 };
+    // 获取相对于父级的旋转（局部旋转），因为 VMC 传输的是 Local Rotation
+    // 注意：Hips 需要特殊处理，它通常传输世界位置
+    
+    // 1. 位置处理 (Position)
+    // 只有 Hips 需要传位置，其他骨骼位置通常由骨骼长度决定（VMC接收端会忽略非Hips的位置，或者用来缩放）
+    // 为了兼容性，我们只对 Hips 传真实位置，其他传 0 (或者传 node.position 也行，但要注意转换)
+    
+    let x = node.position.x;
+    let y = node.position.y;
+    let z = node.position.z;
 
-    if (isVRM1) {
-        // VRM 1.0 标准转换 (Three.js -> Unity/VMC)
-        // 通常是 X不变, Y反转, Z反转
-        vmcRot.x = node.quaternion.x;
-        vmcRot.y = -node.quaternion.y;
-        vmcRot.z = -node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    } else {
-        // VRM 0.x 转换 (基于你的接收端逻辑逆推)
-        // 接收是 (-x, y, -z)，所以发送也是 (-x, y, -z)
-        vmcRot.x = -node.quaternion.x;
-        vmcRot.y = -node.quaternion.y; // 保持 Y 原样 (对应接收端的 y)
-        vmcRot.z = node.quaternion.z;
-        vmcRot.w = node.quaternion.w;
-    }
+    // ★ 关键坐标系转换：ThreeJS(右手) -> Unity(左手)
+    // Position: X 取反
+    const vmcPos = { x: -x, y: y, z: z };
 
-    window.vmcAPI.sendVMCBone({
-      boneName: name,
-      position: {
-        x: node.position.x,
-        y: node.position.y,
-        z: node.position.z
-      },
-      rotation: vmcRot
+    // 2. 旋转处理 (Rotation)
+    // ThreeJS: x, y, z, w
+    // Unity:   x, -y, -z, w (通常转换公式)
+    
+    let qx = node.quaternion.x;
+    let qy = node.quaternion.y;
+    let qz = node.quaternion.z;
+    let qw = node.quaternion.w;
+
+    const vmcRot = { 
+        x: qx, 
+        y: -qy, 
+        z: -qz, 
+        w: qw 
+    };
+
+    boneData.push({
+        name: name,
+        pos: vmcPos,
+        rot: vmcRot
     });
   }
+  return boneData;
 }
 
 // VRM1 → VRM0（VMC 事实标准）
@@ -1829,26 +1921,27 @@ let lastBlendWeights = {}; // 节流：变化了才发
 
 
 
-function sendVMCBlends() {
-  if (!window.vmcAPI || !currentVrm?.expressionManager) return;
-
+function getVMCBlendData() {
+  if (!currentVrm?.expressionManager) return [];
+  
+  const blendData = [];
   const mgr = currentVrm.expressionManager;
+
   for (const vrmName of VMC_BLEND_SHAPES) {
     const weight = mgr.getValue(vrmName);
     if (weight === undefined) continue;
 
-    // 转换名字
     const vmcName = VRM1_TO_VMC0[vrmName];
-    if (!vmcName) continue;          // 没有对应就跳过
-    // 节流
-    if (Math.abs(weight - (lastBlendWeights[vmcName] ?? 0)) < 0.01) continue;
-    lastBlendWeights[vmcName] = weight;
-    window.vmcAPI.sendVMCBlend({
-      blendName: vmcName,
-      weight
+    if (!vmcName) continue;
+    
+    // 这里为了保证数据完整，Warudo 建议每帧都发，或者至少变化时发
+    // 如果为了带宽可以做节流，但最好打包发送
+    blendData.push({
+        name: vmcName,
+        weight: weight
     });
   }
-  window.vmcAPI.sendVMCBlendApply(); // 应用
+  return blendData;
 }
 const vmcToVrmBone = {
   LeftIndexIntermediate: 'leftIndexIntermediate',
@@ -1878,8 +1971,8 @@ const vmcToVrmBone = {
 // animate
 const clock = new THREE.Clock();
 clock.start();
-
-// 在animate函数中替换原来的眨眼动画代码
+let currentLookYaw = 0;   // 左右偏航角 (Y轴)
+let currentLookPitch = 0; // 上下俯仰角 (X轴)
 function animate() {
     requestAnimationFrame(animate);
     
@@ -1889,36 +1982,22 @@ function animate() {
     if (currentVrm && !shouldSkipModelUpdate) {
         if (vmcReceiveEnabled) {
             for (const [vmcName, data] of vmcBoneBuffer) {
-                // 2.1 转官方名
                 let boneName = vmcToVrmBone[vmcName] ??
                             vmcName.charAt(0).toLowerCase() + vmcName.slice(1);
+                
+                if (boneName === 'neck' || boneName === 'head') continue;
 
-                // 2.2 拿节点
                 const node = currentVrm.humanoid.getNormalizedBoneNode(boneName);
-                if (!node) {
-                // 调试用：看哪些名字还没对齐（正式版可删掉）
-                // console.warn('⚠️ 未映射骨骼:', vmcName, '->', boneName);
-                continue;
-                }
-
-                // 2.3 真正写数据
-                // 针对 VRM 0.x 修复骨骼方向相反的问题
+                if (!node) continue;
                 if (isVRM1) {
                     node.position.copy(data.position);
                     node.quaternion.copy(data.rotation);
                 } else {
                     node.position.copy(data.position);
-                    
-                    // 关键修复：只反转 Y 和 Z 轴的分量，保持 X 和 W 不变
-                    // 这样解决了“向前变向后”(Y轴) 和 “向上变向下”(Z轴) 的问题
-                    node.quaternion.set(
-                        -data.rotation.x,
-                        data.rotation.y, 
-                        -data.rotation.z,
-                        data.rotation.w
-                    );
+                    node.quaternion.set(-data.rotation.x, data.rotation.y, -data.rotation.z, data.rotation.w);
                 }
             }
+        } 
 
             /* ===== 3. 让 SpringBone / LookAt 等生效 ===== */
             currentVrm.update(deltaTime);
@@ -1941,13 +2020,120 @@ function animate() {
             sendVMCBones();
             sendVMCBlends();  // 表情
         }
+        // 3. 仿生视线追踪 (彻底修复 VRM 0.x 坐标系朝向问题)
+        const neck = currentVrm.humanoid.getNormalizedBoneNode('neck');
+        const head = currentVrm.humanoid.getNormalizedBoneNode('head');
+
+        if (neck && neck.parent) {
+            const parent = neck.parent;
+            const targetWorldPos = camera.position.clone();
+            
+            // 坐标转换
+            const localCameraPos = parent.worldToLocal(targetWorldPos.clone());
+            const neckLocalPos = neck.position.clone();
+            const viewVector = localCameraPos.sub(neckLocalPos);
+
+            // 🔥【核心修复】VRM 0.x 坐标系修正
+            // VRM 0.x 模型根节点被旋转了 180 度，所以它的"前方"是 -Z
+            // 如果不修正，算法会认为摄像机一直在"身后"，导致强制归零不动
+            if (!isVRM1) {
+                viewVector.z = -viewVector.z; // 反转 Z 轴
+                viewVector.x = -viewVector.x; // 反转 X 轴 (让左右逻辑也回归正常)
+            }
+
+            // 计算原始角度
+            const rawTargetYaw = Math.atan2(viewVector.x, viewVector.z);
+            const horizontalDist = Math.sqrt(viewVector.x**2 + viewVector.z**2);
+            const rawTargetPitch = Math.atan2(viewVector.y, horizontalDist);
+
+            // 权重分配 (0.6)
+            let targetYaw = rawTargetYaw * 0.6;
+            let targetPitch = rawTargetPitch * 0.6;
+
+            // 限制范围
+            const yawLimit = THREE.MathUtils.degToRad(45);  
+            const pitchUpLimit = THREE.MathUtils.degToRad(40);
+            const pitchDownLimit = THREE.MathUtils.degToRad(20);
+            const behindLimit = THREE.MathUtils.degToRad(110);
+
+            // 身后回正
+            if (Math.abs(rawTargetYaw) > behindLimit) {
+                targetYaw = 0;
+                targetPitch = 0;
+            } else {
+                targetYaw = THREE.MathUtils.clamp(targetYaw, -yawLimit, yawLimit);
+                targetPitch = THREE.MathUtils.clamp(targetPitch, -pitchDownLimit, pitchUpLimit);
+            }
+
+            // 平滑插值
+            const lerpSpeed = 2.0 * deltaTime;
+            currentLookYaw = THREE.MathUtils.lerp(currentLookYaw, targetYaw, lerpSpeed);
+            currentLookPitch = THREE.MathUtils.lerp(currentLookPitch, targetPitch, lerpSpeed);
+
+            // --- 最终赋值 ---
+            
+            let applyYaw = currentLookYaw;
+            let applyPitch = -currentLookPitch; // 默认 VRM1.0 (-X 抬头)
+
+            if (!isVRM1) {
+                // VRM 0.x 特殊处理
+                // 因为我们在上面反转了向量(viewVector)，所以算出来的角度数值是"正向"的
+                // 此时只需要应用到骨骼即可
+                applyYaw = currentLookYaw; 
+                
+                // VRM 0.x 通常 +X 是抬头，而我们上面用的是 standard pitch (+Y up)
+                // 如果发现抬头低头反了，把这里的正号改成负号
+                applyPitch = currentLookPitch; 
+            }
+
+            // 创建 Yaw 旋转 (绕 Y 轴)
+            const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw);
+            
+            // 创建 Pitch 旋转 (绕 X 轴)
+            const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch);
+
+            // 组合: Yaw * Pitch
+            qYaw.multiply(qPitch);
+
+            neck.quaternion.copy(qYaw);
+
+            // 头部联动
+            if (head) {
+                const qHeadYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw * 0.5);
+                const qHeadPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch * 0.5);
+                qHeadYaw.multiply(qHeadPitch);
+                
+                head.quaternion.copy(qHeadYaw);
+            }
+        }
+
+        // 4. VRM 最终更新
+        currentVrm.update(deltaTime);
+    }
+
     renderer.render(scene, camera);
     
-    // 处理窗口大小变化时字幕位置
+    const now = performance.now();
+    if (window.vmcAPI && (now - vmcLastSent >= VMC_SEND_INTERVAL)) {
+        vmcLastSent = now;
+        
+        // 只有当开启 VMC 发送时才计算
+        // 假设你在 electronAPI.getVMCConfig 里获取了状态，或者通过 window 变量判断
+        // 这里简单判断
+        const bones = getVMCBoneData();
+        const blends = getVMCBlendData();
+
+        if (bones.length > 0) {
+            window.vmcAPI.sendVMCFrame({
+                bones: bones,
+                blends: blends
+            });
+        }
+    }
+
+    // UI
     if (subtitleElement && !isDraggingSubtitle) {
         const rect = subtitleElement.getBoundingClientRect();
-        
-        // 如果字幕在窗口外，重置到默认位置
         if (rect.bottom > window.innerHeight || rect.right > window.innerWidth) {
             subtitleElement.style.left = '50%';
             subtitleElement.style.bottom = '30%';
@@ -2134,6 +2320,117 @@ function addcontrolPanel() {
                 hideTooltip();
             });
         };
+
+        const moveModeBtn = document.createElement('div');
+        moveModeBtn.id = 'move-mode-handle';
+        
+        // 状态：0=关闭, 1=移动, 2=旋转, 3=缩放
+        let transformState = 0; 
+        moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+        // 默认图标
+        moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>'; 
+        moveModeBtn.style.cssText = `
+            width: ${btn_width}px; height: ${btn_height}px; 
+            background: rgba(255,255,255,0.95);
+            border: 2px solid rgba(0,0,0,0.1); 
+            border-radius: 50%; 
+            color: #333;
+            cursor: pointer; 
+            -webkit-app-region: no-drag; 
+            display: flex;
+            align-items: center; 
+            justify-content: center; 
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            transition: all 0.2s ease;
+            user-select: none; 
+            pointer-events: auto; 
+            backdrop-filter: blur(10px);
+        `;
+
+        // 点击事件循环
+        moveModeBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!currentVrm) return;
+            transformState = (transformState + 1) % 4;
+            updateTransformState();
+        });
+
+        async function updateTransformState() {
+            if (typeof transformControl === 'undefined') return;
+
+            // 每次切换先附着
+            if (transformState !== 0 && currentVrmWrapper) {
+                transformControl.attach(currentVrmWrapper);
+            }
+
+            switch (transformState) {
+                case 0: // 关闭
+                    transformControl.detach();
+                    moveModeBtn.style.color = '#333';
+                    moveModeBtn.style.background = 'rgba(255,255,255,0.95)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeOff') || 'Mode: Off';
+                    break;
+
+                case 1: // 移动 (World 坐标)
+                    transformControl.setMode('translate');
+                    transformControl.setSpace('world'); 
+                    moveModeBtn.style.color = '#ff6b35'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i>';
+                    moveModeBtn.title = await t('ModeMove') || 'Move Mode';
+                    break;
+
+                case 2: // 旋转 (Local 坐标)
+                    transformControl.setMode('rotate');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#007bff'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+                    moveModeBtn.title = await t('ModeRotate') || 'Rotate Mode';
+                    break;
+
+                case 3: // 缩放 (Local 坐标)
+                    transformControl.setMode('scale');
+                    transformControl.setSpace('local'); 
+                    moveModeBtn.style.color = '#e83e8c'; 
+                    moveModeBtn.style.background = 'rgba(255,255,255,1)';
+                    moveModeBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
+                    // 提示用户拖拽中心
+                    moveModeBtn.title = await t('ModeScale') || 'Scale Mode (Drag CENTER box for uniform)';
+                    break;
+            }
+        }
+
+        // 悬停效果
+        moveModeBtn.addEventListener('mouseenter', () => {
+            moveModeBtn.style.transform = 'scale(1.1)';
+            moveModeBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+            showTooltip(moveModeBtn, moveModeBtn.title);
+        });
+        moveModeBtn.addEventListener('mouseleave', () => {
+            moveModeBtn.style.transform = 'scale(1)';
+            moveModeBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            hideTooltip();
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (!currentVrm || typeof transformControl === 'undefined') return;
+            
+            if (e.code === 'Escape') { transformState = 0; updateTransformState(); return; }
+
+            if (transformState !== 0) {
+                switch(e.code) {
+                    case 'KeyT': transformState = 1; updateTransformState(); break;
+                    case 'KeyR': transformState = 2; updateTransformState(); break;
+                    case 'KeyS': transformState = 3; updateTransformState(); break;
+                }
+            }
+        });
 
         // 拖拽按钮
         const dragButton = document.createElement('div');
@@ -2670,9 +2967,6 @@ function addcontrolPanel() {
 
           if (currentVrm) currentVrm.update(delta);
           if (currentMixer) currentMixer.update(delta);
-
-          // sendVMCBones();
-          // sendVMCBlends();
 
           // 关键：必须调用 renderer.render，否则 XR 不提交画面
           renderer.render(scene, camera);
@@ -3335,6 +3629,7 @@ function addcontrolPanel() {
             controlPanel.appendChild(vmcButton);
         }
         controlPanel.appendChild(xrAutoBtn); // 新增：XR 自动按钮
+        controlPanel.appendChild(moveModeBtn); 
         controlPanel.appendChild(switchCtrlBtn);
         controlPanel.appendChild(refreshButton);
         controlPanel.appendChild(closeButton);
@@ -3349,6 +3644,7 @@ function addcontrolPanel() {
             idleAnimationButton, 
             prevModelButton, 
             nextModelButton, 
+            moveModeBtn,
             refreshButton, 
             closeButton,
             xrAutoBtn,
@@ -3618,27 +3914,82 @@ function sendToMain(type, data) {
     }
 }
 
-// 修改 handleTTSMessage 函数
+let fullTargetText = "";          // 记录当前对话收到的所有文本
+let currentVisibleCount = 0;      // 当前已显示的字符数
+let displayStartIndex = 0; // 新增：锁定当前显示的起始位置
+const MAX_WINDOW_SIZE = 80;  // 一屏最多显示约40个字（视UI宽度而定）
+const OVERLAP_SIZE = 40;     // 翻页时保留的字数（即“半页”重叠）
+const SAFE_PUNC_LIST = /[，。！？；：、“”（）《》,.!?;:()]/; // 定义安全分割的标点符号
+
+let typewriterTimer = null;       // 打字机计时器
+let isAudioStreaming = false;
+let isOmniMode = false;           // 是否处于 Omni 流模式
+let omniNextStartTime = 0;        // 预估的音频流结束时间点
+
+/**
+ * 强制停止所有音频播放并重置音频上下文
+ * 解决“上一句话还没说完，下一句话就开始了”产生的重叠问题
+ */
+async function haltCurrentAudio() {
+    // 1. 停止音频上下文（最关键的一步）
+    if (currentAudioContext) {
+        try {
+            // suspend() 会立即停止音频输出
+            await currentAudioContext.suspend();
+            // close() 释放硬件资源，强迫下次创建新的 Context，避免时间戳错乱
+            await currentAudioContext.close();
+        } catch (e) {
+            console.warn("AudioContext cleanup warning:", e);
+        }
+        currentAudioContext = null; // 置空，以便下次 processOmniStreaming 重新创建
+    }
+
+    // 2. 重置音频流时间戳
+    omniNextStartTime = 0;
+    
+    // 3. 停止所有动画与分析器连接
+    stopAllChunkAnimations();
+    chunkAnimations.clear(); // 清空 Map，防止残留状态
+}
+
 function handleTTSMessage(message) {
     const { type, data } = message;
 
     switch (type) {
         case 'ttsStarted':
-            console.log('TTS 流程开始');
-            stopAllChunkAnimations(); // 停止所有之前的口型动画
+            // 建议：在这里也调用一次 haltCurrentAudio() 以防万一，
+            // 但如果这里是同步调用，可能会导致上一句结尾被切断太快。
+            // 只要 stopSpeaking 处理得当，这里重置变量即可。
+            isOmniMode = false;
+            fullTargetText = "";
+            currentVisibleCount = 0;
+            displayStartIndex = 0;
+            isAudioStreaming = false;
+            omniNextStartTime = 0;
+            
+            // 确保如果有旧的打字机在跑，立即停止
+            stopTypewriterLoop();
+            stopAllChunkAnimations();
             clearSubtitle();
+            
+            // 如果希望极其保险，防止上一句尾音残留，取消下面这行的注释：
+            // haltCurrentAudio(); 
+            break;
+
+        case 'omniStreaming':
+            if (windowName === 'default') {
+                isOmniMode = true;
+                isAudioStreaming = true; // 标记正在接收流
+                if (data.text) fullTargetText = data.text;
+                if (data.audioData) processOmniStreaming(data);
+                startTypewriterLoop();
+            }
             break;
 
         case 'startSpeaking':
-            console.log('收到播放指令, Chunk:', data.chunkIndex);
-            if (windowName == 'default'){
-                // 调用新的口型同步函数
-                startLipSyncForChunk(data); 
-                if (data.text) {
-                    updateSubtitle(data.text, data.chunkIndex);
-                }
-            }else if (windowName == data.voice){
-                // 调用新的口型同步函数
+            // 传统 TTS 逻辑
+            if (windowName === 'default' || windowName === data.voice) {
+                isOmniMode = false;
                 startLipSyncForChunk(data); 
                 if (data.text) {
                     updateSubtitle(data.text, data.chunkIndex);
@@ -3646,29 +3997,252 @@ function handleTTSMessage(message) {
             }
             break;
 
+        // ==========================================
+        // 修改点 1: 强制打断 (用户停止或新对话开始前)
+        // ==========================================
+        case 'stopSpeaking':
+            isOmniMode = false;
+            isAudioStreaming = false;
+            displayStartIndex = 0;
+            
+            // 1. 停止打字机
+            stopTypewriterLoop();
+            
+            // 2. 【核心修复】强制销毁音频上下文，立即静音
+            // 不加这一步，浏览器缓冲区里已调度的音频还会继续播放几秒
+            haltCurrentAudio(); 
+
+            // 3. 清理 UI
+            finalizeSpeech(true); 
+            break;
+
+        // ==========================================
+        // 修改点 2: 流传输结束 (自然播放结束)
+        // ==========================================
+        case 'allChunksCompleted':
+            // 标记流已结束，不再接收新数据
+            isOmniMode = false; 
+            isAudioStreaming = false; 
+            
+            // 注意：这里不要调用 haltCurrentAudio()，
+            // 否则句子最后几秒的语音会被切断（因为音频播放通常滞后于数据接收）。
+            // 音频的自然结束交给 AudioContext 自己跑完，或者等待下一次 ttsStarted/stopSpeaking 清理。
+            
+            // 如果文字已经打完，触发收尾；
+            // 如果文字没打完，打字机循环通过 isAudioStreaming=false 判断会进入加速收尾模式，
+            // 跑完所有字后会自动调用 finalizeSpeech(false)。
+            if (currentVisibleCount >= fullTargetText.length) {
+                finalizeSpeech(false);
+            }
+            break;
+            
         case 'chunkEnded':
-            // 注意：现在音频播放结束时会自动停止，所以这个消息的处理可以简化
-            console.log('后端通知 Chunk 结束:', data.chunkIndex);
-            // 如果字幕仍然显示的是这个 chunk 的，就清除它
-            if (currentSubtitleChunkIndex === data.chunkIndex) {
+            if (currentSubtitleChunkIndex === data.chunkIndex && !isOmniMode) {
                 clearSubtitle();
             }
             break;
+    }
+}
 
-        case 'stopSpeaking':
-            console.log('收到停止指令');
-            stopAllChunkAnimations();
-            clearSubtitle();
-            break;
+// ==========================================
+// 3. 动态打字机逻辑
+// ==========================================
+/**
+ * 完整改进版打字机循环
+ * 支持：动态语速、半页重叠翻页、标点符号安全分割、视觉反馈
+ */
+function startTypewriterLoop() {
+    if (typewriterTimer) return;
 
-        case 'allChunksCompleted':
-            console.log('所有 TTS 语音块处理完成');
-            // stopAllChunkAnimations 会在最后一个 chunk 结束时自动调用并重置表情
-            // 这里可以确保万无一失
-            stopAllChunkAnimations();
-            clearSubtitle();
-            sendToMain('animationComplete', { status: 'completed' });
-            break;
+    function type() {
+        const pendingChars = fullTargetText.length - currentVisibleCount;
+        
+        if (pendingChars > 0) {
+            const now = currentAudioContext ? currentAudioContext.currentTime : 0;
+            const remainingAudioTime = Math.max(0, omniNextStartTime - now);
+            
+            let idealDelay = 0;
+            const isChinese = /[\u4e00-\u9fa5]/.test(fullTargetText);
+            const naturalDelay = isChinese ? 200 : 100; 
+            if (isAudioStreaming) {
+                // --- A模式：流增长阶段 (固定语速模式) ---
+                // 提高一点基础延迟，让语速更自然
+                idealDelay = naturalDelay;
+
+                // 只有大幅落后（>40字）才轻微补偿，步进不超过 50ms
+                if (pendingChars > 40) idealDelay -= 40;
+
+            } else {
+                // --- B 模式：收尾阶段 (修正拖后腿问题) ---
+                if (remainingAudioTime > 0) {
+                    // 计算同步所需的延迟
+                    let syncDelay = (remainingAudioTime / pendingChars) * 1000;
+                    idealDelay = Math.min(syncDelay, naturalDelay);
+                } else {
+                    // 音频已经放完了，文字还没打完，用较快的固定语速收尾
+                    idealDelay = 100; 
+                }
+
+                // 最终 B 模式最快限制在 80ms，不至于快到闪瞎眼
+                idealDelay = Math.max(idealDelay, 80);
+            }
+            
+            // 综合约束：最快 60ms (约每秒7字)，最慢 450ms
+            const finalDelay = Math.min(Math.max(idealDelay, 60), 450);
+
+            currentVisibleCount++;
+
+            // --- 智能翻页逻辑 (保持不变) ---
+            const currentDisplayLength = currentVisibleCount - displayStartIndex;
+            if (currentDisplayLength > MAX_WINDOW_SIZE) {
+                let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                let lastPuncIndex = -1;
+                for (let i = searchText.length - 1; i >= 0; i--) {
+                    if (SAFE_PUNC_LIST.test(searchText[i])) {
+                        lastPuncIndex = i;
+                        break;
+                    }
+                }
+                if (lastPuncIndex !== -1) {
+                    const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                    const newOverlap = currentVisibleCount - foundIndex;
+                    if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                        targetStartIndex = foundIndex;
+                    }
+                }
+                displayStartIndex = targetStartIndex;
+                // triggerPageFlipEffect();
+            }
+
+            // --- 渲染 ---
+            const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
+            const prefix = displayStartIndex > 0 ? "..." : "";
+            renderSubtitleUI(prefix + displayText);
+
+            typewriterTimer = setTimeout(type, finalDelay);
+        } else {
+            typewriterTimer = null;
+            // 只有当所有文字都打完了，才进入收尾倒计时
+            if (!isOmniMode) {
+                finalizeSpeech(false);
+            }
+        }
+    }
+    type();
+}
+
+
+function stopTypewriterLoop() {
+    if (typewriterTimer) {
+        clearTimeout(typewriterTimer);
+        typewriterTimer = null;
+    }
+}
+
+// ==========================================
+// 4. 音频流处理 (Omni 模式)
+// ==========================================
+async function processOmniStreaming(data) {
+    const chunkId = 'omni_live_stream';
+    
+    try {
+        if (!currentAudioContext) {
+            currentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (currentAudioContext.state === 'suspended') await currentAudioContext.resume();
+
+        let state = chunkAnimations.get(chunkId);
+        if (!state) {
+            state = { 
+                isPlaying: true, 
+                analyser: currentAudioContext.createAnalyser(), 
+                expression: 'neutral' 
+            };
+            state.analyser.fftSize = 256;
+            state.analyser.connect(currentAudioContext.destination);
+            chunkAnimations.set(chunkId, state);
+            startChunkAnimation(chunkId, state);
+            omniNextStartTime = currentAudioContext.currentTime;
+        }
+
+        const raw = atob(data.audioData);
+        const pcm16 = new Int16Array(raw.length / 2);
+        for (let i = 0; i < raw.length; i += 2) {
+            pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
+        }
+        
+        const buffer = currentAudioContext.createBuffer(1, pcm16.length, data.sampleRate || 24000);
+        const floatData = buffer.getChannelData(0);
+        for (let i = 0; i < pcm16.length; i++) {
+            floatData[i] = pcm16[i] / 32768;
+        }
+
+        const source = currentAudioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(state.analyser);
+
+        const now = currentAudioContext.currentTime;
+        if (omniNextStartTime < now) omniNextStartTime = now;
+        
+        source.start(omniNextStartTime);
+        omniNextStartTime += buffer.duration;
+    } catch (e) {
+        console.error('Omni Streaming Error:', e);
+    }
+}
+
+// ==========================================
+// 5. 字幕渲染与清理
+// ==========================================
+function renderSubtitleUI(text) {
+    if (!isSubtitleEnabled) return;
+    if (!subtitleElement) initSubtitleElement();
+    subtitleElement.textContent = text;
+    subtitleElement.style.opacity = '1';
+    if (typeof adjustSubtitleSize === 'function') adjustSubtitleSize();
+}
+
+function updateSubtitle(text, chunkIndex) {
+    // 兼容传统 TTS 的字幕显示
+    if (!isSubtitleEnabled || !text.trim()) return;
+    renderSubtitleUI(text);
+    currentSubtitleChunkIndex = chunkIndex;
+}
+
+function clearSubtitle() {
+    if (subtitleElement) {
+        subtitleElement.style.transition = 'opacity 0.5s ease';
+        subtitleElement.style.opacity = '0';
+    }
+}
+
+function finalizeSpeech(immediate = false) {
+    // 停止动画驱动
+    stopAllChunkAnimations();
+    if (chunkAnimations.has('omni_live_stream')) {
+        stopChunkAnimation('omni_live_stream');
+        chunkAnimations.delete('omni_live_stream');
+    }
+
+    if (immediate) {
+        clearSubtitle();
+        fullTargetText = "";
+        currentVisibleCount = 0;
+        displayStartIndex = 0;
+    } else {
+        // --- 优化点：文字全部打完后，多留 2.5 秒的“静止阅读时间” ---
+        if (subtitleTimeout) clearTimeout(subtitleTimeout);
+        subtitleTimeout = setTimeout(() => {
+            // 确保这期间没有开启新的对话
+            if (!isOmniMode && !typewriterTimer) {
+                clearSubtitle();
+                fullTargetText = "";
+                currentVisibleCount = 0;
+                displayStartIndex = 0;
+            }
+        }, 2000); 
     }
 }
 
@@ -3771,18 +4345,16 @@ async function switchToModel(index,isRefresh = false) {
             idleAnimationManager.stopAllAnimations();
         }
         
-        // 移除当前VRM模型
-        if (currentVrm) {
-            scene.remove(currentVrm.scene);
-            currentVrm = undefined;
-        }
-        
         // 🔥 添加：重置闲置动画管理器
         idleAnimationManager = null;
 
         // 移除当前VRM模型
         if (currentVrm) {
-            scene.remove(currentVrm.scene);
+            if (typeof transformControl !== 'undefined') {
+                transformControl.detach();
+            }
+            // scene.remove(currentVrm.scene); <-- 删除这行
+            currentVrmWrapper.remove(currentVrm.scene); // 从 Wrapper 移除
             currentVrm = undefined;
         }
         
@@ -3831,9 +4403,15 @@ async function switchToModel(index,isRefresh = false) {
                 });
                 
                 vrm.lookAt.target = camera;
+
+                if (vrm.lookAt.applier) {
+                    vrm.lookAt.applier.yawLimit = 60.0;   // 左右转头最大 60 度
+                    vrm.lookAt.applier.pitchLimit = 30.0; // 上下抬头最大 30 度
+                }
+
                 currentVrm = vrm;
                 console.log('New VRM loaded:', vrm);
-                scene.add(vrm.scene);
+                currentVrmWrapper.add(vrm.scene);
                 // 让模型投射阴影
                 vrm.scene.traverse((obj) => {
                     if (obj.isMesh) {
@@ -3868,6 +4446,10 @@ async function switchToModel(index,isRefresh = false) {
                 // 隐藏加载提示
                 hideModelSwitchingIndicator();
                 
+                if (typeof transformControl !== 'undefined' && transformControl.object) {
+                    transformControl.attach(currentVrmWrapper);
+                }
+
                 console.log(`Successfully switched to model: ${selectedModel.name}`);
             },
             (progress) => {

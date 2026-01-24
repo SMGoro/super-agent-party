@@ -158,7 +158,7 @@ async def call_vue_method(method_name, args_list=None):
                 return remote_object['value']
             
             if remote_object.get('type') == 'undefined':
-                return "Success (No content returned)"
+                return "Success"
                 
             return f"Operation completed (Type: {remote_object.get('type')})"
 

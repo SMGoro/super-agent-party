@@ -92,6 +92,12 @@ let vue_data = {
     isMaximized: false,
     hasUpdate: false,
     updateSuccess: false,
+    audioCtx: null,          // WebAudio 上下文
+    activeSources: [], 
+    audioStartTime: 0,       // 下一帧应该开始的时间
+    omniQueue: [],        // [{idx, text, expressions, voice, pcmBase64}, ...]
+    omniIdx: 0,           // 当前正在播的索引
+    isOmniPlaying: false, // 是否正在播放
     settings: {
       model: '',
       base_url: '',
@@ -102,6 +108,8 @@ let vue_data = {
       selectedProvider: null,
       top_p: 1,
       reasoning_effort: null,
+      enableOmniTTS: false,// 是否启用omniTTS
+      omniVoice: 'Cherry', // omniTTS的语音
       extra_params: [], // 额外参数
     },
     reasonerSettings: {
@@ -213,6 +221,10 @@ let vue_data = {
       },
       autoBehavior: {
         enabled: false
+      },
+      randomTopic: {
+        enabled: false,
+        baseURL:'https://topics-after-party.zeabur.app'
       },
     },
     toolForShowInfo: {"name": "", "description": ""},
@@ -330,15 +342,55 @@ let vue_data = {
       selectedProvider: null,
       base_url:'',
       api_key:'',
-      model:''
+      model:'',
+      permissionMode: 'default',
     },
     qcSettings: {
       enabled: false,
       selectedProvider: null,
       base_url:'',
       api_key:'',
-      model:''
+      model:'',
+      permissionMode: 'default',
     },
+    ocSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+      permissionMode: 'default',
+    },
+    prefrontalCortexSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    NeocortexSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    LimbicSystemSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    ReptilianBrainSettings: {
+      enabled: false,
+      selectedProvider: null,
+      base_url:'',
+      api_key:'',
+      model:'',
+    },
+    showBrainEditDialog: false, // 控制模态框显示
+    currentEditingKey: '',      // 当前正在编辑哪个脑区 (例如 'prefrontalCortex')
     HASettings: {
       enabled: false,
       api_key: '',
@@ -1153,6 +1205,7 @@ let vue_data = {
 ],
     roleTiles:[
         { id: 'memory', title: 'CharacterMemory', icon: 'fa-solid fa-brain' },
+        // { id: 'mind', title: 'CharacterMind', icon: 'fa-solid fa-heart' },
         { id: 'voice', title: 'CharacterVoice', icon: 'fa-solid fa-volume-high' },
         { id: 'appearance', title: 'CharacterAppearance', icon: 'fa-solid fa-person' },
         { id: 'behavior', title: 'CharacterBehavior', icon: 'fa-solid fa-person-running' },
@@ -1265,7 +1318,8 @@ let vue_data = {
           events:[""],
           type:"random",
           orderIndex:0,
-        }
+        },
+        topicLimit: 1, // 话题限制
       }
     },
     allBriefly:false,
@@ -1559,7 +1613,7 @@ let vue_data = {
     },
     editingCustomHttpTool: false,
     vendorValues: [
-      'custom', 'OpenAI', 'Ollama','Vllm','LMstudio','xinference','Dify', 'Deepseek', 'Volcano','302.AI',
+      'custom', 'OpenAI', 'Ollama','Vllm','LMstudio','xinference','Dify','newapi','LocalAI','ttswebui', 'Deepseek', 'Volcano','302.AI',
       'siliconflow', 'aliyun', 'ZhipuAI', 'moonshot', 'minimax', 'Gemini','Anthropic', 
       'Grok', 'mistral', 'lingyi','baichuan', 'qianfan', 'hunyuan', 'stepfun', 'Github', 
       'openrouter','together', 'fireworks', '360', 'Nvidia',
@@ -1574,6 +1628,9 @@ let vue_data = {
       'LMstudio': 'source/providers/lmstudio.png',
       'xinference': 'source/providers/xinference.png',
       'Dify': 'source/providers/dify.png',
+      'newapi': 'source/providers/newapi.png',
+      'LocalAI': 'source/providers/localai.png',
+      'ttswebui': 'source/providers/ttswebui.jpeg',
       'Deepseek': 'source/providers/deepseek.png',
       'Volcano': 'source/providers/volcengine.png',
       'siliconflow': 'source/providers/silicon.png',
@@ -1611,6 +1668,9 @@ let vue_data = {
       'LMstudio': 'https://lmstudio.ai/docs/app',
       'xinference': 'https://inference.readthedocs.io/zh-cn/latest/index.html',
       'Dify': 'http://localhost/apps',
+      'newapi': 'https://github.com/QuantumNous/new-api',
+      'LocalAI': 'https://github.com/mudler/LocalAI',
+      'ttswebui': 'https://github.com/rsxdalv/TTS-WebUI',
       'Deepseek': 'https://platform.deepseek.com/api_keys',
       'Volcano': 'https://www.volcengine.com/experience/ark',
       'siliconflow': 'https://cloud.siliconflow.cn/i/yGxrNlGb',

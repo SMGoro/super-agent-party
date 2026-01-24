@@ -490,26 +490,44 @@ let vue_methods = {
       this.activeMemoryTab = 'prompts';
     },
     async syncProviderConfig(targetConfig) {
-      // 当有选中供应商时执行同步
       if (targetConfig.selectedProvider) {
-        // 在供应商列表中查找匹配项
         const provider = this.modelProviders.find(
           p => p.id === targetConfig.selectedProvider && !p.disabled
         );
         if (provider) {
-          // 同步核心配置
+          let targetUrl = provider.url;
+
+          // 判断当前同步的对象是否为 ccSettings (通过引用比较)
+          // 如果是 CC 配置，则应用特殊的 vendor_list 映射逻辑
+          if (targetConfig === this.ccSettings) {
+             const vendor_list = {
+              "Anthropic": "https://api.anthropic.com/",
+              "Deepseek": "https://api.deepseek.com/anthropic/",
+              "siliconflow": "https://api.siliconflow.cn/",
+              "ZhipuAI":"https://open.bigmodel.cn/api/anthropic/",
+              "moonshot":"https://api.moonshot.cn/anthropic/",
+              "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
+              "modelscope":"https://api-inference.modelscope.cn/",
+              "302.AI":"https://api.302.ai/cc/"
+            };
+            // 使用映射的 URL，如果没有匹配则回退到默认 url
+            targetUrl = vendor_list[provider.vendor] || provider.url;
+          }
+
+          // 同步核心配置 (注意：这里比较和赋值时使用 targetUrl)
           const shouldUpdate = 
             targetConfig.model !== provider.modelId ||
-            targetConfig.base_url !== provider.url ||
+            targetConfig.base_url !== targetUrl || // 比较 targetUrl
             targetConfig.api_key !== provider.apiKey;
+            
           if (shouldUpdate) {
             targetConfig.model = provider.modelId || '';
-            targetConfig.base_url = provider.url || '';
+            targetConfig.base_url = targetUrl || ''; // 赋值 targetUrl
             targetConfig.api_key = provider.apiKey || '';
-            console.log(`已同步 ${provider.vendor} 配置`);
+            console.log(`已同步 ${provider.vendor} 配置 (CC模式: ${targetConfig === this.ccSettings})`);
           }
         } else {
-          // 清理无效的供应商选择
+          // ... (保持原本的清理逻辑不变)
           console.warn('找不到匹配的供应商，已重置配置');
           targetConfig.selectedProvider = null;
           targetConfig.model = '';
@@ -1216,6 +1234,9 @@ let vue_methods = {
             max_rounds: data.data.max_rounds || 0,
             selectedProvider: data.data.selectedProvider || '',
             top_p: data.data.top_p || 1,
+            reasoning_effort: data.data.reasoning_effort || null,
+            enableOmniTTS: data.data.enableOmniTTS || false,
+            omniVoice: data.data.omniVoice || 'Cherry',
             extra_params: data.data.extra_params || [],
           };
           this.isBtnCollapse = data.data.isBtnCollapse || false;
@@ -1244,6 +1265,11 @@ let vue_methods = {
           this.CLISettings = data.data.CLISettings || this.CLISettings;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
+          this.ocSettings = data.data.ocSettings || this.ocSettings;
+          this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
+          this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
+          this.LimbicSystemSettings = data.data.LimbicSystemSettings || this.LimbicSystemSettings;
+          this.ReptilianBrainSettings = data.data.ReptilianBrainSettings || this.ReptilianBrainSettings;
           this.HASettings = data.data.HASettings || this.HASettings;
           this.chromeMCPSettings = data.data.chromeMCPSettings || this.chromeMCPSettings;
           this.sqlSettings = data.data.sqlSettings || this.sqlSettings;
@@ -1514,6 +1540,7 @@ let vue_methods = {
           this.currentAudio.pause();
           this.currentAudio = null;
           this.stopGenerate();
+          this.stopAllAudioPlayback();
         }
         this.TTSrunning = false;
       }
@@ -1799,6 +1826,10 @@ let vue_methods = {
           content: '',
           pure_content: '',
           currentChunk: 0,
+          isOmni: this.settings.enableOmniTTS, 
+          omniAudioChunks: [],
+          omniDuration: 0,      // 必须是 0
+          omniCurrentTime: 0,   // 必须是 0
           ttsChunks: [],
           chunks_voice:[],
           audioChunks: [],
@@ -1852,7 +1883,6 @@ let vue_methods = {
                   console.log(`first token processed in ${this.elapsedTime}ms`);
                   lastMessage.first_token_latency = this.elapsedTime;
                 }
-
                 // --- ✨ 核心修改：处理 content 并过滤代码块 ---
                 if (parsed.choices?.[0]?.delta?.content) {
                   const contentChunk = parsed.choices[0].delta.content;
@@ -1944,6 +1974,29 @@ let vue_methods = {
                   this.scrollToBottom();
                 }
 
+                // 在流式读取循环中
+                if (parsed.choices?.[0]?.delta?.audio?.data) {
+                    const b64 = parsed.choices[0].delta.audio.data;
+                    const lastMessage = this.messages[this.messages.length - 1];
+
+                    // 初始化 Omni 存储
+                    if (!lastMessage.omniAudioChunks) {
+                        lastMessage.omniAudioChunks = [];
+                        lastMessage.omniDuration = 0;
+                        lastMessage.omniCurrentTime = 0;
+                        lastMessage.isOmni = true; // 标记这是 Omni 消息
+                    }
+
+                    // 存储数据块
+                    lastMessage.omniAudioChunks.push(b64);
+                    
+                    // 计算该块时长 (PCM 16bit, 24000Hz, 单声道)
+                    const chunkDuration = (atob(b64).length / 2) / 24000;
+                    lastMessage.omniDuration += chunkDuration;
+
+                    // 实时播放
+                    this.playPCMChunk(b64, lastMessage.pure_content, lastMessage);
+                }
                 if (parsed.usage && parsed.usage?.total_tokens) {
                   // const lastMessage = this.messages[this.messages.length - 1];
                   lastMessage.total_tokens  = parsed.usage.total_tokens;
@@ -1977,6 +2030,20 @@ let vue_methods = {
           lastMessage.chunks_voice.push(this.cur_voice);
           lastMessage.ttsChunks.push(tts_buffer);
         }
+        // 如果是 Omni 模型播放
+        if (this.audioStartTime > this.audioCtx.currentTime) {
+            // 计算音频播放还需要多久结束 (秒转毫秒)
+            const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
+            
+            setTimeout(() => {
+                this.sendTTSStatusToVRM('allChunksCompleted', {});
+                console.log('Omni audio finished, sent allChunksCompleted');
+            }, remainingTime);
+        } else {
+            // 如果没有音频在排队，直接发
+            this.sendTTSStatusToVRM('allChunksCompleted', {});
+        }
+
       } catch (error) {
         if (error.name === 'AbortError') {
           showNotification(this.t('message.stopGenerate'), 'info');
@@ -2023,10 +2090,121 @@ let vue_methods = {
         this.isSending = false;
         this.isTyping = false;
         this.abortController = null;
+        setTimeout(() => {
+            if (!this.isSending && this.audioStartTime <= this.audioCtx.currentTime) {
+                this.sendTTSStatusToVRM('allChunksCompleted', {});
+            }
+        }, 1000);
         await this.autoSaveSettings();
         await this.saveConversations();
       }
     },
+
+    async playPCMChunk(b64, currentText = '', message = null) {
+      this.isOmniPlaying = true;
+      try {
+        // 1. 确保 AudioContext 已启动（浏览器安全策略要求）
+        if (!this.audioCtx) {
+          this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.audioCtx.state === 'suspended') {
+          await this.audioCtx.resume();
+        }
+
+        // 2. 解码 Base64 PCM 数据 (16-bit, 24000Hz)
+        const raw = atob(b64);
+        const pcm16 = new Int16Array(raw.length / 2);
+        for (let i = 0; i < raw.length; i += 2) {
+          // PCM 小端序转换
+          pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
+        }
+
+        // 3. 转换为 Web Audio 缓冲 (Float32Array)
+        const sampleRate = 24000;
+        const buf = this.audioCtx.createBuffer(1, pcm16.length, sampleRate);
+        const floatData = buf.getChannelData(0);
+        for (let i = 0; i < pcm16.length; i++) {
+          // 归一化到 [-1, 1] 范围
+          floatData[i] = pcm16[i] / 32768; 
+        }
+
+        // 4. 排程管理：计算当前块应该在什么时候开始播放
+        const now = this.audioCtx.currentTime;
+        // 如果累积的排程时间落后于当前时间，则从当前时间开始
+        if (this.audioStartTime < now) {
+          this.audioStartTime = now;
+        }
+
+        // 5. 创建音频源节点
+        const src = this.audioCtx.createBufferSource();
+        src.buffer = buf;
+
+        // 【关键修复 1】将当前节点加入全局管理数组，以便 stopAllAudioPlayback 可以强制停止它
+        if (!this.activeSources) this.activeSources = [];
+        this.activeSources.push(src);
+
+        // 6. VRM 同步：将音频和文字通过 WebSocket 发送给 VRM 模型
+        if (this.vrmOnline) {
+          this.sendTTSStatusToVRM('omniStreaming', {
+            audioData: b64,
+            text: currentText,
+            sampleRate: sampleRate,
+            timestamp: Date.now()
+          });
+        }
+
+        // 7. 音量控制节点
+        const gainNode = this.audioCtx.createGain();
+        // 关键逻辑：如果 VRM 在线，本地主界面静音（或极小声），由 VRM 界面发声
+        gainNode.gain.value = this.vrmOnline ? 0.000001 : 1.0;
+
+        src.connect(gainNode);
+        gainNode.connect(this.audioCtx.destination);
+
+        // 8. 绑定进度更新与结束回调
+        const chunkDuration = buf.duration;
+
+        src.onended = () => {
+          // 【关键修复 2】播放结束（或被强制 stop）后，从数组中移除该节点，防止内存泄漏
+          if (this.activeSources) {
+            this.activeSources = this.activeSources.filter(s => s !== src);
+          }
+
+          // 只有在消息仍处于播放状态时才更新进度条（防止手动停止后进度还在跳）
+          if (message && message.isOmni && message.isPlaying) {
+            message.omniCurrentTime += chunkDuration;
+
+            // 播放结束判定：如果当前进度接近总时长
+            if (message.omniCurrentTime >= (message.omniDuration || 0) - 0.05) {
+              message.isPlaying = false;
+              message.omniCurrentTime = message.omniDuration; // 进度条吸附到终点
+              
+              // 通知 VRM 播放彻底结束，重置表情
+              this.sendTTSStatusToVRM('allChunksCompleted', {});
+              this.isOmniPlaying = false;
+              console.log('Playback finished for message:', message.id);
+            }
+          }
+          
+          // 显式断开节点，帮助垃圾回收
+          try {
+            src.disconnect();
+            gainNode.disconnect();
+          } catch (e) {
+            // 忽略断开连接时的潜在错误
+          }
+        };
+
+        // 9. 启动播放并更新下一段的起始时间
+        src.start(this.audioStartTime);
+        this.audioStartTime += buf.duration;
+
+      } catch (error) {
+        console.error('Error in playPCMChunk:', error);
+        if (message) message.isPlaying = false;
+      }
+    },
+
     async translateMessage(index) {
       const msg = this.messages[index];
       const originalContent = msg.content;
@@ -2144,6 +2322,21 @@ let vue_methods = {
       this.isSending = false;
       this.isTyping = false;
       this.abortController = null;
+      if(this.settings.enableOmniTTS){
+        if (this.activeSources && this.activeSources.length > 0) {
+          this.activeSources.forEach(src => {
+            try {
+              src.stop(); // 立即停止播放
+            } catch (e) {
+              // 忽略已经停止或未开始的错误
+            }
+          });
+          // 清空数组
+          this.activeSources = [];
+        }
+        this.audioStartTime = 0; 
+        this.stopAllAudioPlayback();
+      }
     },
     async autoSaveSettings() {
       if (this.isElectron) {
@@ -2178,6 +2371,11 @@ let vue_methods = {
           CLISettings: this.CLISettings,
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
+          ocSettings: this.ocSettings,
+          prefrontalCortexSettings: this.prefrontalCortexSettings,
+          NeocortexSettings: this.NeocortexSettings,
+          LimbicSystemSettings: this.LimbicSystemSettings,
+          ReptilianBrainSettings: this.ReptilianBrainSettings,
           HASettings: this.HASettings,
           chromeMCPSettings: this.chromeMCPSettings,
           sqlSettings: this.sqlSettings,
@@ -2240,11 +2438,43 @@ let vue_methods = {
         this.ws.addEventListener('message', handler);
       });
     },
+
+    getSanitizedConversations() {
+      // 使用 map 创建新数组，不影响原始的内存数据
+      return this.conversations.map(conv => ({
+        ...conv,
+        // 清洗消息列表
+        messages: conv.messages.map(msg => {
+          // 使用解构赋值，排除掉不需要保存的大体积/临时属性
+          const {
+            audioChunks,      // 普通 TTS 的音频 Blob URL (保存了也没用)
+            omniAudioChunks,  // PCM 流的巨大 Base64 数组 (核心清洗目标)
+            ttsQueue,         // 运行时的 Set 队列
+            isPlaying,        // 播放状态
+            cur_audioDatas,   // 临时 Base64 数据
+            ...rest           // 保留 role, content, pure_content, timestamp, fileLinks 等
+          } = msg;
+
+          // 返回一个干净的消息对象
+          return {
+            ...rest,
+            // 明确将这些字段设为空，防止某些旧数据残留
+            audioChunks: [],
+            omniAudioChunks: [],
+            currentChunk: 0,
+            omniCurrentTime: 0,
+            isPlaying: false
+          };
+        })
+      }));
+    },
+
     async saveConversations() {
       return new Promise((resolve, reject) => {
-        // 构造 payload（保持原有逻辑）
+        const sanitizedConversations = this.getSanitizedConversations();
+
         const payload = {
-          conversations: this.conversations
+          conversations: sanitizedConversations
         };
         const correlationId = uuid.v4();
         // 发送保存请求
@@ -2746,6 +2976,9 @@ let vue_methods = {
         'LMstudio': this.isdocker ? 'http://host.docker.internal:1234/v1' :'http://127.0.0.1:1234/v1',
         'xinference': this.isdocker ? 'http://host.docker.internal:9997/v1' :'http://127.0.0.1:9997/v1',
         'Dify': this.isdocker ? 'http://host.docker.internal/v1' :'http://127.0.0.1/v1',
+        'newapi': this.isdocker ? 'http://host.docker.internal:3000/v1' : 'http://127.0.0.1:3000/v1',
+        'LocalAI': this.isdocker ? 'http://host.docker.internal:8080/v1' : 'http://127.0.0.1:8080/v1',
+        'ttswebui': this.isdocker ? 'http://host.docker.internal:7778/v1' : 'http://127.0.0.1:7778/v1',
         'Gemini': 'https://generativelanguage.googleapis.com/v1beta/openai',
         'Anthropic': 'https://api.anthropic.com/v1',
         'Grok': 'https://api.groq.com/openai/v1',
@@ -2824,14 +3057,14 @@ let vue_methods = {
     async selectCCProvider(providerId) {
       const provider = this.modelProviders.find(p => p.id === providerId);
       let vendor_list = {
-        "Anthropic": "https://api.anthropic.com",
-        "Deepseek": "https://api.deepseek.com/anthropic",
-        "siliconflow": "https://api.siliconflow.cn",
-        "ZhipuAI":"https://open.bigmodel.cn/api/anthropic",
-        "moonshot":"https://api.moonshot.cn/anthropic",
-        "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic",
-        "modelscope":"https://api-inference.modelscope.cn",
-        "302.AI":"https://api.302.ai/cc"
+        "Anthropic": "https://api.anthropic.com/",
+        "Deepseek": "https://api.deepseek.com/anthropic/",
+        "siliconflow": "https://api.siliconflow.cn/",
+        "ZhipuAI":"https://open.bigmodel.cn/api/anthropic/",
+        "moonshot":"https://api.moonshot.cn/anthropic/",
+        "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
+        "modelscope":"https://api-inference.modelscope.cn/",
+        "302.AI":"https://api.302.ai/cc/"
       };
 
       let cc_url = vendor_list[provider.vendor] || provider.url;
@@ -2850,6 +3083,35 @@ let vue_methods = {
         this.qcSettings.base_url = provider.url;
         this.qcSettings.api_key = provider.apiKey;
         await this.autoSaveSettings();
+      }
+    },
+    async selectOCProvider(providerId) {
+      const provider = this.modelProviders.find(p => p.id === providerId);
+      if (provider) {
+        this.ocSettings.model = provider.modelId;
+        this.ocSettings.base_url = provider.url;
+        this.ocSettings.api_key = provider.apiKey;
+        await this.autoSaveSettings();
+      }
+    },
+    async selectBrainProvider(providerId) {
+      // 1. 在供应商列表中查找详细信息
+      const provider = this.modelProviders.find(p => p.id === providerId);
+
+      // 2. 校验：确保找到了供应商，且当前有正在编辑的脑区配置
+      if (provider && this.currentBrainSettings) {
+        // 3. 将供应商的详细信息 (model, url, key) 同步到当前脑区的设置中
+        this.currentBrainSettings.model = provider.modelId;
+        this.currentBrainSettings.base_url = provider.url;
+        this.currentBrainSettings.api_key = provider.apiKey;
+
+        // 4. 打印日志方便调试
+        console.log(`[${this.currentEditingKey}] 切换模型为: ${provider.modelId}`);
+
+        // 5. 自动保存
+        if (typeof this.autoSaveSettings === 'function') {
+          await this.autoSaveSettings();
+        }
       }
     },
     // 推理模型供应商选择
@@ -2945,6 +3207,11 @@ let vue_methods = {
         this.selectQCProvider(this.qcSettings.selectedProvider);
       }
     },
+    handleOCProviderVisibleChange(visible) {
+      if (!visible) {
+        this.selectOCProvider(this.ocSettings.selectedProvider);
+      }
+    },
     handleReasonerProviderVisibleChange(visible) {
       if (!visible) {
         this.selectReasonerProvider(this.reasonerSettings.selectedProvider);
@@ -2953,6 +3220,12 @@ let vue_methods = {
     handleVisionProviderVisibleChange(visible) {
       if (!visible) {
         this.selectVisionProvider(this.visionSettings.selectedProvider);
+      }
+    },
+    handleBrainProviderVisibleChange(visible) {
+      // 当下拉框关闭 (!visible) 且当前有选中的供应商 ID 时
+      if (!visible && this.currentBrainSettings && this.currentBrainSettings.selectedProvider) {
+        this.selectBrainProvider(this.currentBrainSettings.selectedProvider);
       }
     },
     // 创建知识库
@@ -5605,7 +5878,7 @@ handleCreateDiscordSeparator(val) {
     handleASRResult(data) {
       if (data.type === 'transcription') {
         const lastMessage = this.messages[this.messages.length - 1];
-        if (!this.ttsSettings.enabledInterruption && this.ttsSettings.enabled) {
+        if (!this.ttsSettings.enabledInterruption && (this.ttsSettings.enabled||this.settings.enableOmniTTS)) {
           // 如果TTS正在运行，并且不允许中断，则不处理ASR结果
           if(this.TTSrunning){
             if ((!lastMessage || (lastMessage?.currentChunk ?? 0) >= (lastMessage?.ttsChunks?.length ?? 0)) && !this.isTyping) {
@@ -5628,6 +5901,10 @@ handleCreateDiscordSeparator(val) {
             this.TTSrunning = false;
             this.cur_audioDatas = [];
             // 通知VRM所有音频播放完成
+            this.sendTTSStatusToVRM('allChunksCompleted', {});
+        }
+        else if(this.settings.enableOmniTTS && this.ttsSettings.enabledInterruption){
+            this.stopAllAudioPlayback();
             this.sendTTSStatusToVRM('allChunksCompleted', {});
         }
         if (data.is_final) {
@@ -5821,8 +6098,9 @@ handleCreateDiscordSeparator(val) {
               if (this.currentAudio) {
                 this.currentAudio.pause();
                 this.currentAudio = null;
-                this.stopGenerate();
               }
+              this.stopGenerate();
+              this.sendTTSStatusToVRM('stopSpeaking', {});
             }
             if (!this.currentAudio || this.currentAudio.paused) {
               if (this.asrSettings.engine === 'webSpeech') {
@@ -6468,41 +6746,102 @@ handleCreateDiscordSeparator(val) {
     },
     toggleTTS(message) {
       if (message.isPlaying) {
-        // 如果正在播放，则暂停
+        // 如果正在播放，点击则停止
         message.isPlaying = false;
-        if (this.currentAudio) {
-          this.currentAudio.pause();
-          this.currentAudio = null;
-        }
-        // 发送停止说话信号到VRM
+        this.stopAllAudioPlayback();
         this.sendTTSStatusToVRM('stopSpeaking', {});
       } else {
-        // 如果没有播放，则开始播放，先停止其他播放
+        // 如果未在播放
         this.stopAllAudioPlayback();
-        message.isPlaying = true;
-        this.playAudioChunk(message);
+        
+        if (message.isOmni) {
+          // --- 核心逻辑：检查是否播放到了末尾 ---
+          // 如果当前时间 >= 总时长 (减去一个极小的偏移量防止浮点误差)
+          if ((message.omniCurrentTime || 0) >= (message.omniDuration || 0) - 0.1) {
+            console.log('Omni audio at end, restarting from beginning');
+            message.omniCurrentTime = 0; // 重头开始
+          }
+          
+          message.isPlaying = true;
+          this.playOmniFromTime(message, message.omniCurrentTime);
+        } else {
+          // 普通 TTS 逻辑
+          message.isPlaying = true;
+          this.playAudioChunk(message);
+        }
       }
     },
+    // 进度条跳转
+    seekOmniTTS(message, time) {
+      this.stopAllAudioPlayback();
+      message.omniCurrentTime = time;
+      if (message.isPlaying || true) { // 跳转后通常直接播放
+        message.isPlaying = true;
+        this.playOmniFromTime(message, time);
+      }
+    },
+
+    // 核心回放逻辑
+    async playOmniFromTime(message, startTime = 0) {
+      if (!message.omniAudioChunks || message.omniAudioChunks.length === 0) return;
+      
+      if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
+      
+      // 每次开始新播放时，将排程起点设为当前时间
+      this.audioStartTime = this.audioCtx.currentTime;
+
+      let accumulated = 0;
+      for (const b64 of message.omniAudioChunks) {
+        // 如果中途用户点了暂停，跳出循环不再排程
+        if (!message.isPlaying) break;
+
+        const chunkDuration = (atob(b64).length / 2) / 24000;
+        
+        // 只播放从 startTime 开始之后的块
+        if (accumulated + chunkDuration > startTime) {
+          this.playPCMChunk(b64, message.pure_content, message);
+        }
+        accumulated += chunkDuration;
+      }
+    },
+
     // 停止所有正在播放的音频
     stopAllAudioPlayback() {
-      // 停止当前正在播放的音频
+      // 1. 停止 HTML5 Audio (普通 TTS)
       if (this.currentAudio) {
         this.currentAudio.pause();
         this.currentAudio = null;
       }
-
-      // 停止阅读音频
+      
+      // 2. 停止阅读音频
       if (this.currentReadAudio) {
         this.currentReadAudio.pause();
         this.currentReadAudio = null;
       }
-
-      // 停止所有消息的播放状态
+      // 3. 【核心修复】停止所有 Web Audio API 的 Omni 节点
+      if (this.activeSources && this.activeSources.length > 0) {
+        this.activeSources.forEach(src => {
+          try {
+            src.stop(); // 立即停止播放
+          } catch (e) {
+            // 忽略已经停止或未开始的错误
+          }
+        });
+        // 清空数组
+        this.activeSources = [];
+      }
+      this.audioStartTime = 0; 
+      // 4. 重置所有消息状态
       this.messages.forEach(message => {
         message.isPlaying = false;
       });
 
-      // 发送停止信号到VRM
+      // 5. 也可以选择暂停 AudioContext (可选，更彻底)
+      // if (this.audioCtx && this.audioCtx.state === 'running') {
+      //   this.audioCtx.suspend();
+      // }
+
+      // 6. 发送停止信号到VRM
       this.sendTTSStatusToVRM('stopSpeaking', {});
     },
 
@@ -9036,6 +9375,102 @@ stopTTSActivities() {
           }
         }
       }
+      if (b.action.type === 'topic' && this.toolsSettings.randomTopic.baseURL) {
+        this.getRandomTopic(b)
+      }
+    },
+
+    async getRandomTopic(b) {
+      try {
+        // 1. 获取基础配置
+        const baseUrl = this.toolsSettings.randomTopic.baseURL || "https://topics-after-party.zeabur.app";
+        
+        let calculatedDepth = Math.ceil(this.messages.length / 6);
+        const depth = Math.max(1, Math.min(5, calculatedDepth));
+
+        // 2. 构建请求参数 (映射 Python 中的 params)
+        // 注意：这里默认使用 zh-CN，如果你的场景是英文，请改为 en-US
+        const params = new URLSearchParams({
+            locale: this.target_language || "zh-CN", 
+            limit: b.action.topicLimit || 1,
+            depth: depth, // 默认获取 1 层话题
+        });
+
+        const endpoint = `${baseUrl}/api/topic?${params.toString()}`;
+
+        // 3. 发送请求
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+                // 浏览器端通常不需要手动设置 User-Agent，但如果有特定后端要求可加上
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const resJson = await response.json();
+
+        // 4. 检查 API 业务状态码
+        if (resJson.code !== 200) {
+            console.warn(`❌ 获取话题失败: API 返回错误代码 ${resJson.code}`);
+            return;
+        }
+
+        const dataList = resJson.data || [];
+
+        // 5. 如果没有数据
+        if (dataList.length === 0) {
+            console.warn("📭 未找到符合条件的话题。");
+            return;
+        }
+
+        // 6. 格式化为 Markdown (复刻 Python 逻辑)
+        const mdOutput = dataList.map((item, index) => {
+            const idx = index + 1;
+            const text = item.text || "";
+            const cat = item.category || "未知";
+            const tags = item.tags || [];
+            const followUps = item.follow_ups || [];
+
+            // 构建基础文本：1. [分类] 内容
+            let topicStr = `\n\n${idx}. **[${cat}]** ${text}`;
+
+            // 添加标签 (可选)
+            if (tags.length > 0) {
+                const tagStr = tags.map(t => `\`#${t}\``).join(" ");
+                topicStr += `\n\n   > 🏷️ ${tagStr}`;
+            }
+
+            // 添加追问 (可选)
+            if (followUps.length > 0) {
+                topicStr += "\n\n   > 🗣️ **追问参考**：";
+                followUps.forEach(fu => {
+                    topicStr += `\n\n   > - ${fu}`;
+                });
+            }
+
+            return topicStr;
+        });
+
+        // 7. 最终组合并发送
+        // 用双换行连接，保持段落间距
+        const finalPrompt = mdOutput.join("\n\n");
+        
+        console.log('Random Topic Prompt:', finalPrompt);
+        
+        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题，因为这是系统消息，用户看不到！";
+        // 调用发送函数
+        this.sendMessage('system'); 
+
+      } catch (e) {
+        console.error("⚠️ 获取随机话题发生错误:", e);
+        // 可选：发生错误时，是否需要提示用户？
+        // this.userInput = "获取话题失败，请稍后再试。";
+        // this.sendMessage('system');
+      }
     },
 
     /* 触发一次后，如果是“不重复”就把 enabled 关掉 */
@@ -9392,7 +9827,7 @@ stopTTSActivities() {
   },
   savePrompt() {
     if (!this.promptForm.name || !this.promptForm.content) {
-      ElMessage.warning(this.t('pleaseCompleteForm'))
+      showNotification(this.t('pleaseCompleteForm'), 'warning')
       return
     }
     if (!this.promptForm.id) {
@@ -9661,6 +10096,7 @@ stopTTSActivities() {
     } finally {
       this.isGenerating = false;
       this.QuickGenAbortController = null;
+      this.quickCreatePrompt = '';
     }
   },
   stopQuickGen() {
@@ -13077,4 +13513,8 @@ async togglePlugin(plugin) {
         }
     },
 
+    openBrainEdit(brainKey) {
+      this.currentEditingKey = brainKey;
+      this.showBrainEditDialog = true;
+    },
 }

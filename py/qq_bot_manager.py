@@ -464,6 +464,7 @@ class MyClient(botpy.Client):
                 extra_body={
                     "asyncToolsID": asyncToolsID,
                     "fileLinks": fileLinks,
+                    "is_app_bot": True,
                 }
             )
             
@@ -722,6 +723,7 @@ class MyClient(botpy.Client):
                 extra_body={
                     "asyncToolsID": asyncToolsID,
                     "fileLinks": fileLinks,
+                    "is_app_bot": True,
                 }
             )
             
