@@ -508,7 +508,9 @@ let vue_methods = {
               "moonshot":"https://api.moonshot.cn/anthropic/",
               "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
               "modelscope":"https://api-inference.modelscope.cn/",
-              "302.AI":"https://api.302.ai/cc/"
+              "302.AI":"https://api.302.ai/cc/",
+              "newapi": provider.url.replace(/\/v1\/?$/, ''),
+              "Ollama":provider.url.replace(/\/v1\/?$/, '')
             };
             // 使用映射的 URL，如果没有匹配则回退到默认 url
             targetUrl = vendor_list[provider.vendor] || provider.url;
