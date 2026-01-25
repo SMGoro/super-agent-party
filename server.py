@@ -910,6 +910,16 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot:
         language_message = f"\n\n当你看到被插入到对话之间的系统消息，这是自主行为系统向你发送的消息，例如用户主动或者要求你设置了一些定时任务或者延时任务，当你看到自主行为系统向你发送的消息时，说明这些任务到了需要被执行的节点，例如：用户要你三点或五分钟后提醒开会的事情，然后当你看到一个被插入的“提醒用户开会”的系统消息，你需要立刻提醒用户开会，以此类推\n\n"
         content_append(request.messages, 'system', language_message)
+    if settings["isGroupMode"]:
+        selectedGroupAgents = settings['selectedGroupAgents']
+        selectedMemory = settings['memorySettings']['selectedMemory']
+        if selectedGroupAgents:
+            userName = "user"
+            if settings["memorySettings"]["userName"]:
+                userName = settings["memorySettings"]["userName"]
+            selectedGroupAgents.append(userName)
+            group_message = f"\n\n你当前处于群聊模式，群聊中的角色有：{selectedGroupAgents}\n\n你在扮演{selectedMemory}"
+            content_append(request.messages, 'system', group_message)
     if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
         # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
         for key in settings['ttsSettings']['newtts']:
