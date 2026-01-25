@@ -1914,4 +1914,5 @@ main();`,
     isGroupMode: false,           // 是否开启群聊模式
     selectedGroupAgents: [], 
     showGroupSettingsDialog: false,
+    voiceStack : ['default'], // 存储语音播放队列
 };
