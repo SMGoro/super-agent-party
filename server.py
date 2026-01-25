@@ -916,9 +916,39 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             if settings['ttsSettings']['newtts'][key]['enabled']:
                 newttsList.append(key)
         if newttsList:
-            newttsList = json.dumps(newttsList,ensure_ascii=False)
-            print(f"可用音色：{newttsList}")
-            newtts_messages = f"你可以使用以下音色：\n{newttsList}\n以及特殊无声音色<silence>标签（如果要使用，必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分会不会进入语音合成，当你生成回答时，你需要以XML格式组织回答，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><silence>(眼睛笑成了一条线)</silence><Narrator>说完她伸了个懒腰。</Narrator>\n\n还有注意！<音色名></音色名>之间不能嵌套，只能并列，并且<音色名>和</音色名>必须成对出现，防止出现音色混乱！\n\n如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！\n\n"
+            finalttsList = ["<silence>"]
+            selectedMemory = settings['memorySettings']['selectedMemory']
+            if selectedMemory in newttsList:
+                finalttsList.append("<"+selectedMemory+">")
+            if "Narrator" in newttsList:
+                finalttsList.append("<Narrator>")
+                Narrator_label = "Narrator"
+            if "旁白" in newttsList:
+                finalttsList.append("<旁白>")
+                Narrator_label = "旁白"
+
+            finalttsList = json.dumps(finalttsList, ensure_ascii=False, indent=4)
+            print("可用音色：",finalttsList)
+            newtts_messages = f"""
+你可以使用以下音色：
+
+{finalttsList}
+
+（所有的音色标签必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分会不会进入语音合成，
+
+当你生成回答时，你需要以XML格式组织回答，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。
+
+对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。
+
+注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！
+
+只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：`<{Narrator_label}>现在是下午三点，她说道：</{Narrator_label}><角色名>天气真好哇！</角色名><silence>(眼睛笑成了一条线)</silence><{Narrator_label}>说完她伸了个懒腰。</{Narrator_label}><角色名>我们出去玩吧！</角色名>`
+
+还有注意！<音色名></音色名>之间不能嵌套，只能并列，并且<音色名>和</音色名>必须成对出现，防止出现音色混乱！
+
+如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！
+
+注意！你最好只使用你正在扮演的角色音色和旁白音色，不要使用其他角色音色，除非你明确知道你在做什么！\n\n"""
             content_prepend(request.messages, 'system', newtts_messages)
     if settings['vision']['desktopVision'] and not request.is_app_bot:
         desktop_message = "\n\n用户与你对话时，会自动发给你当前的桌面截图。\n\n"
@@ -4048,13 +4078,27 @@ async def chat_endpoint(request: ChatRequest,fastapi_request: Request):
     """
     fastapi_base_url = str(fastapi_request.base_url)
     global client, settings,reasoner_client,mcp_client_list
-    model = request.model or 'super-model' # 默认使用 'super-model'
+    raw_model = request.model or 'super-model'
+    override_memory_id = None
+    
+    if raw_model.startswith("memory/"):
+        parts = raw_model.split('/', 2) # 分解为 ['memory', 'id', 'rest']
+        if len(parts) >= 2:
+            override_memory_id = parts[1]
+            # 如果有第三部分，则是实际的模型/Agent名；否则默认为 super-model
+            request.model = parts[2] if len(parts) > 2 else 'super-model'
+            print(f"检测到动态 Memory ID: {override_memory_id}, 目标模型更新为: {request.model}")
+    
+    model = request.model or 'super-model'
     enable_thinking = request.enable_thinking or False
     enable_deep_research = request.enable_deep_research or False
     enable_web_search = request.enable_web_search or False
     async_tools_id = request.asyncToolsID or None
     if model == 'super-model':
         current_settings = await load_settings()
+        if override_memory_id:
+            current_settings["memorySettings"]["is_memory"] = True
+            current_settings["memorySettings"]["selectedMemory"] = override_memory_id
         if len(current_settings['modelProviders']) <= 0:
             return JSONResponse(
                 status_code=500,

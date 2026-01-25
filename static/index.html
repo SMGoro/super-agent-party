@@ -709,192 +709,130 @@ function updateElement(el, rawMarkdown, formatFn) {
                 ref="chatAreaRef"
                 :class="{ collapsed: !chatAreaOpen }" 
                 v-show="chatAreaOpen">
-              <div class="messages-container" ref="messagesContainer"   v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
-                <div v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
-                  <!-- TTS 控制区：支持普通 TTS 和 Omni (PCM) -->
-                  <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
-                    <!-- 播放/暂停 -->
-                    <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
-                      <el-button @click="toggleTTS(message)" circle size="small">
-                        <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
-                      </el-button>
-                    </el-tooltip>
+              <div class="messages-container" ref="messagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
+                <!-- 添加 is-group-mode 类 -->
+                <div v-for="(message, index) in messages" :key="index" class="message" :class="[message.role, { 'is-group-mode': isGroupMode }]">
+                  
+                  <!-- 群聊模式 - AI 头像 (左侧) -->
+                  <div v-if="isGroupMode && message.role === 'assistant' && message.agentName" class="im-avatar left">
+                    <img :src="getRoleAvatar(message.agentName)" draggable="false" />
+                  </div>
 
-                    <!-- 普通 TTS 分句控制 -->
-                    <template v-if="!message.isOmni">
-                      <el-button @click="backwardTTS(message)" circle size="small"><i class="fa-solid fa-backward"></i></el-button>
-                      <el-button @click="forwardTTS(message)" circle size="small"><i class="fa-solid fa-forward"></i></el-button>
-                      <span class="tts-status" v-if="message.ttsChunks">
-                        {{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}
-                      </span>
-                    </template>
-
-                    <!-- Omni PCM 进度条控制 -->
-                    <template v-else>
-                      <div class="omni-progress-wrapper" style="margin-left: 20px;">
-                        <el-slider 
-                          v-model="message.omniCurrentTime" 
-                          :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
-                          :step="0.01"
-                          :show-tooltip="false"
-                          @change="(val) => seekOmniTTS(message, val)"
-                        />
-                        <span class="tts-status-time">
-                          {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
-                        </span>
-                      </div>
-                    </template>
+                  <!-- 内容包裹层：负责纵向排列 名字、气泡、按钮 -->
+                  <div class="im-content-wrapper">
                     
-                    <!-- 延迟统计 -->
-                    <span class="tts-status" v-if="!isMobile">
-                      {{ (message?.first_sentence_latency ?? 0) }}ms
-                    </span>
-                  </div>
-                  <div class="message-content" v-if="!allBriefly||message.role !== 'system'||index === 0" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
-                    <!-- 用户消息内容 -->
-                    <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
-                      <div v-html="message.content" class = "user-msg"></div>
-                      <!-- 文件链接展示 -->
-                      <div v-if="message.fileLinks?.length" class="file-links">
-                        <a v-for="(link, linkIndex) in message.fileLinks" :key="linkIndex" :href="formatFileUrl(link.path)" target="_blank" class="file-link">
-                          @{{ link.name }}
-                        </a>
-                      </div>
-                      <!-- 图片展示 -->
-                      <div v-if="message.imageLinks?.length" class="image-links">
-                        <img v-for="(link, linkIndex) in message.imageLinks" :key="linkIndex" :src="formatFileUrl(link.path)" class="image-link"/>
-                      </div>
+                    <!-- AI 名字 (仅群聊显示) -->
+                    <div v-if="(isGroupMode && message.agentName) && message.role === 'assistant'" class="im-name-tag">
+                        {{ message.agentName }}
                     </div>
-                    <!-- AI回复内容 -->
-                    <div v-else-if="message.role === 'assistant'" class="markdown-body">
-                        <!-- Briefly 模式 (通常是静态的，可以用 v-html，或者也用 v-morph) -->
-                        <div 
-                            v-if="message.briefly" 
-                            v-html="formatMessage(message.pure_content??message.content, index)">
-                        </div>
-                        
-                        <!-- 正常模式：混合渲染 -->
-                        <div v-else>
-                            <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
-                                
-                                <!-- 🌟 重点修改这里 🌟 -->
-                                <!-- 1. 添加 class="streaming" 用于 CSS 光标特效 -->
-                                <!-- 2. 使用 v-morph 指令替代 v-html -->
-                                <!-- 3. 将 formatMessage 作为参数传递 (或者在指令内部直接调用全局的 md) -->
-                                <!-- 注意：我们需要传递一个箭头函数或者绑定上下文，让指令能调用 formatMessage -->
-                                <div 
-                                    v-if="segment.type === 'text'" 
-                                    class="stream-content"
-                                    :class="{ 'streaming': isTyping && index === messages.length - 1 && segIndex === splitMessageContent(message.content).length - 1 }"
-                                    v-morph:format="segment.content" 
-                                    style="display: inline-block; width: 100%;"
-                                ></div>
-                                <!-- 如果您无法轻松传递 formatMessage 方法，请在指令 updateElement 中直接使用 window.md.render 
-                                    并把 formatMessage 中的后处理逻辑（如 latex 占位）移到 updateElement 中 
-                                -->
 
-                                <!-- UI段：渲染组件 (保持不变) -->
-                                <a2-u-i-renderer 
-                                    v-else-if="segment.type === 'ui'"
-                                    :config="segment.content"
-                                    @action="handleA2UIAction"
-                                ></a2-u-i-renderer>
-                            </template>
-                            
-                            <!-- 思考中 loading (保留，但 CSS 里的光标特效已经很强了，这个可以作为冗余) -->
-                            <div 
-                              v-if="isTyping && index === messages.length - 1 && !message.content" 
-                            >
-                              <i class="fa-solid fa-spinner fa-spin"></i>
-                            </div>
+                    <!-- TTS 控制区 -->
+                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                      <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
+                        <el-button @click="toggleTTS(message)" circle size="small">
+                          <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
+                        </el-button>
+                      </el-tooltip>
+                      <template v-if="!message.isOmni">
+                        <el-button @click="backwardTTS(message)" circle size="small"><i class="fa-solid fa-backward"></i></el-button>
+                        <el-button @click="forwardTTS(message)" circle size="small"><i class="fa-solid fa-forward"></i></el-button>
+                        <span class="tts-status" v-if="message.ttsChunks">
+                          {{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}
+                        </span>
+                      </template>
+                      <template v-else>
+                        <div class="omni-progress-wrapper" style="margin-left: 20px;">
+                          <el-slider 
+                            v-model="message.omniCurrentTime" 
+                            :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
+                            :step="0.01"
+                            :show-tooltip="false"
+                            @change="(val) => seekOmniTTS(message, val)"
+                          />
+                          <span class="tts-status-time">
+                            {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
+                          </span>
                         </div>
+                      </template>
+                      <span class="tts-status" v-if="message.role === 'assistant' && !isMobile && !message.isOmni">
+                        {{ t('first_sentence_latency')+': '+(message?.first_sentence_latency ?? 0) +'ms' }}
+                      </span>
                     </div>
-                    <!-- 系统消息内容 -->
-                    <div v-else class="system-content" data-mjx-disabled="true" >
-                      <div 
-                        v-html="index===0 ? (t('system_prompt') + message.content):message.content" 
-                        :style="{ 
-                          'max-height': index===0 ? '200px' : 'none',
-                          'overflow-y': index===0 ? 'auto' : 'hidden'
-                        }"
-                        class="scroll-on-hover"
-                        @click="openEditDialog(message.role, message.content,index)"
-                      ></div>
+
+                    <!-- 消息气泡主体 -->
+                    <div class="message-content" v-if="!allBriefly||message.role !== 'system'||index === 0" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
+                      
+                      <!-- User -->
+                      <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
+                        <div v-html="message.content" class = "user-msg"></div>
+                        <div v-if="message.fileLinks?.length" class="file-links">
+                          <a v-for="(link, linkIndex) in message.fileLinks" :key="linkIndex" :href="formatFileUrl(link.path)" target="_blank" class="file-link">@{{ link.name }}</a>
+                        </div>
+                        <div v-if="message.imageLinks?.length" class="image-links">
+                          <img v-for="(link, linkIndex) in message.imageLinks" :key="linkIndex" :src="formatFileUrl(link.path)" class="image-link"/>
+                        </div>
+                      </div>
+                      
+                      <!-- Assistant -->
+                      <div v-else-if="message.role === 'assistant'" class="markdown-body">
+                          <div v-if="message.briefly" v-html="formatMessage(message.pure_content??message.content, index)"></div>
+                          <div v-else>
+                              <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
+                                  <div v-if="segment.type === 'text'" class="stream-content" :class="{ 'streaming': isTyping && index === messages.length - 1 && segIndex === splitMessageContent(message.content).length - 1 }" v-morph:format="segment.content" style="display: inline-block; width: 100%;"></div>
+                                  <a2-u-i-renderer v-else-if="segment.type === 'ui'" :config="segment.content" @action="handleA2UIAction"></a2-u-i-renderer>
+                              </template>
+                              <div v-if="isTyping && index === messages.length - 1 && !message.content"><i class="fa-solid fa-spinner fa-spin"></i></div>
+                          </div>
+                      </div>
+                      
+                      <!-- System -->
+                      <div v-else class="system-content" data-mjx-disabled="true">
+                        <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" class="scroll-on-hover" @click="openEditDialog(message.role, message.content,index)" :style="{ 'max-height': index===0 ? '200px' : 'none', 'overflow-y': index===0 ? 'auto' : 'hidden' }"></div>
+                      </div>
+
                     </div>
+
+                    <!-- 操作按钮区 -->
+                    <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
+                      <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
+                        <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
+                        <el-button class="briefly-btn" @click="toggleBriefly(index)" circle size="small"><i class="fa-solid fa-asterisk"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
+                        <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip :content="t('copy')" placement="bottom">
+                        <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip :content="t('translateAndMark')" placement="bottom">
+                        <el-button @click="translateMessage(index)" circle size="small"><i class="fa-solid fa-language"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
+                        <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="index == 0" :content="t('reset')" placement="bottom">
+                        <el-button @click="resetMessage(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
+                        <el-button class="Gen-btn" @click="toggleQuickGen(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-wand-magic-sparkles"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
+                        <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
+                      </el-tooltip>
+                      <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0)}}
+                      </span>
+                    </div>
+
                   </div>
-                  <!-- 添加复制按钮 -->
-                  <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
-                    <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
-                      <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small">
-                        <i class="fa-solid fa-pen-to-square"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
-                      <el-button 
-                        class="briefly-btn" 
-                        @click="toggleBriefly(index)"
-                        circle 
-                        size="small">
-                        <i class="fa-solid fa-asterisk"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
-                      <el-button 
-                        class="rewrite-btn" 
-                        @click="rewrite(index)"
-                        circle 
-                        size="small">
-                        <i class="fa-solid fa-rotate"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip :content="t('copy')" placement="bottom">
-                      <el-button 
-                        class="copy-btn" 
-                        @click="copyMessageContent(message)"
-                        circle 
-                        size="small">
-                        <i class="fa-solid fa-copy"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip  :content="t('translateAndMark')" placement="bottom">
-                      <el-button @click="translateMessage(index)" circle size="small">
-                        <i class="fa-solid fa-language"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
-                      <el-button @click="deleteMessage(index)" circle size="small">
-                        <i class="fa-solid fa-trash-can"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="index == 0" :content="t('reset')" placement="bottom">
-                      <el-button @click="resetMessage(index)" circle size="small">
-                        <i class="fa-solid fa-rotate"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
-                      <el-button 
-                        class="Gen-btn" 
-                        @click="toggleQuickGen(index)"
-                        :disabled="isQuickGenerating"
-                        circle 
-                        size="small">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
-                      <el-button 
-                        class="Gen-btn" 
-                        @click="saveSystemPrompt(index)"
-                        :disabled="isQuickGenerating"
-                        circle 
-                        size="small">
-                        <i class="fa-solid fa-floppy-disk"></i>
-                      </el-button>
-                    </el-tooltip>
-                    <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                        {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms,    '+ t('elapsedTime')+': '+(message?.elapsedTime ?? 0) + 's'}}
-                    </span>
+
+                  <!-- 群聊模式 - 用户头像 (右侧) -->
+                  <div v-if="isGroupMode && message.role === 'user'" class="im-avatar right">
+                    <img src="source/providers/logo.png" draggable="false" />
                   </div>
+
                 </div>
               </div>
               
@@ -1296,6 +1234,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </el-button>
                 </el-tooltip>
 
+                <!-- 1. 群聊模式开关 -->
+                <el-tooltip :content="t('groupChatSettings')" placement="top">
+                  <el-button 
+                    v-if="MoreButtonDict.find(b => b.name === 'groupChatBotton')?.enabled && !isCapsuleMode"
+                    @click="showGroupSettingsDialog = true"
+                    class="icon-btn group-chat-btn"
+                    :type="isGroupMode ? 'primary' : 'default'"
+                    circle>
+                    <i class="fa-solid fa-users"></i>
+                  </el-button>
+                </el-tooltip>
+
                 <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
                   <el-button
                     v-if="!isCapsuleMode"
@@ -1473,6 +1423,69 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
             </div>
           </div>
+          <!-- 群聊设置弹窗 -->
+          <el-dialog
+            v-model="showGroupSettingsDialog"
+            :title="t('groupChatSettings')"
+            width="500px">
+            <div class="knowledge-dialog-content">
+              
+              <!-- 1. 开启/关闭群聊模式 -->
+              <el-form-item :label="t('enableGroupChat')" class="form-item-align" label-position="left">
+                <el-switch
+                  v-model="isGroupMode"
+                  @change="autoSaveSettings"
+                ></el-switch>
+              </el-form-item>
+
+              <!-- 2. 选择群聊成员 -->
+              <div class="group-settings-area" style="margin-top: 20px;">
+                <div style="margin-bottom: 10px; font-weight: bold;">{{ t('selectGroupAgents') }}</div>
+                
+                <el-select 
+                    v-model="selectedGroupAgents" 
+                    multiple 
+                    placeholder="Select"
+                    style="width: 100%;">
+                    
+                    <!-- 第一组：角色记忆 (Memories) -->
+                    <el-option-group :label="t('characterRoles')">
+                        <el-option
+                            v-for="m in memories"
+                            :key="'mem_' + m.id"
+                            :label="m.name"
+                            :value="'memory/' + m.id + '/super-model'">
+                            <span style="float: left">
+                                <i class="fa-solid fa-brain" style="margin-right: 8px;"></i>{{ m.name }}
+                            </span>
+                        </el-option>
+                    </el-option-group>
+
+                    <!-- 第二组：智能体 (Agents) -->
+                    <el-option-group :label="t('agents')">
+                        <el-option :label="t('defaultAgent')" value="super-model">
+                            <span style="float: left">
+                                <i class="fa-solid fa-robot" style="margin-right: 8px;"></i>{{ t('defaultAgent') }}
+                            </span>
+                        </el-option>
+                        <el-option
+                            v-for="(agent, id) in agents"
+                            :key="id"
+                            :label="agent.name"
+                            :value="id">
+                            <span style="float: left">
+                                <i class="fa-solid fa-microchip" style="margin-right: 8px;"></i>{{ agent.name }}
+                            </span>
+                        </el-option>
+                    </el-option-group>
+                </el-select>
+                
+                <div class="tip-text" style="margin-top: 10px; color: #909399; font-size: 12px;">
+                    <i class="fa-solid fa-circle-info"></i> {{ t('groupChatTip') || 'Selected agents will respond based on context.' }}
+                </div>
+              </div>
+            </div>
+          </el-dialog>
           <el-dialog
             v-model="showEditDialog"
             :title="editType === 'system' ? t('editSystemPrompt') : t('editMessage')"
@@ -2197,8 +2210,38 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-form-item>
 
                         <el-form-item :label="t('avatar')">
-                          <el-input v-model="newMemory.avatar" 
-                          :placeholder="t('avatarPlaceholder')"/>
+                          <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+                            <!-- 头像预览 (如果有值显示图片，没值显示图标) -->
+                            <div style="flex-shrink: 0;">
+                                <img 
+                                  :src="newMemory.avatar? newMemory.avatar : 'source/Avatar.png'"  
+                                  style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid #dcdfe6;"
+                                />
+                            </div>
+
+                            <!-- URL 输入框 (保留手动输入功能) -->
+                            <el-input 
+                              v-model="newMemory.avatar" 
+                              :placeholder="t('avatarPlaceholder')"
+                              style="flex: 1; min-width: 0;"
+                            ></el-input>
+
+                            <!-- 上传按钮 -->
+                            <el-tooltip :content="t('uploadImage')" placement="top">
+                              <el-button @click="triggerAvatarUpload" type="primary" circle>
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <!-- 隐藏的文件输入控件 -->
+                            <input
+                              type="file"
+                              ref="avatarInput"
+                              accept="image/*"
+                              style="display: none"
+                              @change="handleAvatarUpload"
+                            ></input>
+                          </div>
                         </el-form-item>
 
                         <!-- 新增已有记忆选择框 -->
@@ -13179,79 +13222,132 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="chat-area" style="min-width: 450px;flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; width: 100%;">
                 
                 <!-- 消息列表 (flex: 1) -->
-                <div class="messages-container" ref="messagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick" style="flex: 1; overflow-y: auto; padding-bottom: 10px;">
-                    <div v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
-                    <!-- TTS 控件 -->
-                    <div v-if="ttsSettings.enabled && message.role === 'assistant'" class="tts-controls">
-                        <el-tooltip :content="message.isPlaying || false ? t('pause') : t('play')">
+              <div class="messages-container" ref="messagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
+                <!-- 添加 is-group-mode 类 -->
+                <div v-for="(message, index) in messages" :key="index" class="message" :class="[message.role, { 'is-group-mode': isGroupMode }]">
+                  
+                  <!-- 群聊模式 - AI 头像 (左侧) -->
+                  <div v-if="isGroupMode && message.role === 'assistant' && message.agentName" class="im-avatar left">
+                    <img :src="getRoleAvatar(message.agentName)" draggable="false" />
+                  </div>
+
+                  <!-- 内容包裹层：负责纵向排列 名字、气泡、按钮 -->
+                  <div class="im-content-wrapper">
+                    
+                    <!-- AI 名字 (仅群聊显示) -->
+                    <div v-if="(isGroupMode && message.agentName) && message.role === 'assistant'" class="im-name-tag">
+                        {{ message.agentName }}
+                    </div>
+
+                    <!-- TTS 控制区 -->
+                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                      <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
                         <el-button @click="toggleTTS(message)" circle size="small">
-                            <i v-if="!message.isPlaying" class="fa-solid fa-play"></i>
-                            <i v-else class="fa-solid fa-pause"></i>
+                          <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
                         </el-button>
-                        </el-tooltip>
-                        <el-tooltip :content="t('backward')">
-                        <el-button @click="backwardTTS(message)" circle size="small">
-                            <i class="fa-solid fa-backward"></i>
-                        </el-button>
-                        </el-tooltip>
-                        <el-tooltip :content="t('forward')">
-                        <el-button @click="forwardTTS(message)" circle size="small">
-                            <i class="fa-solid fa-forward"></i>
-                        </el-button>
-                        </el-tooltip>
-                        <span class="tts-status" v-if="message.ttsChunks">{{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}</span>
-                        <span class="tts-status" v-else>{{ t('initializing') }}</span>
+                      </el-tooltip>
+                      <template v-if="!message.isOmni">
+                        <el-button @click="backwardTTS(message)" circle size="small"><i class="fa-solid fa-backward"></i></el-button>
+                        <el-button @click="forwardTTS(message)" circle size="small"><i class="fa-solid fa-forward"></i></el-button>
+                        <span class="tts-status" v-if="message.ttsChunks">
+                          {{ (message.currentChunk || 0) + 1 }}/{{ message.ttsChunks.length }}
+                        </span>
+                      </template>
+                      <template v-else>
+                        <div class="omni-progress-wrapper" style="margin-left: 20px;">
+                          <el-slider 
+                            v-model="message.omniCurrentTime" 
+                            :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
+                            :step="0.01"
+                            :show-tooltip="false"
+                            @change="(val) => seekOmniTTS(message, val)"
+                          />
+                          <span class="tts-status-time">
+                            {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
+                          </span>
+                        </div>
+                      </template>
+                      <span class="tts-status" v-if="message.role === 'assistant' && !isMobile && !message.isOmni">
+                        {{ t('first_sentence_latency')+': '+(message?.first_sentence_latency ?? 0) +'ms' }}
+                      </span>
                     </div>
 
-                    <div class="message-content" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
-                        <!-- User Content -->
-                        <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
-                            <div v-html="message.content" class="user-msg"></div>
-                            <div v-if="message.fileLinks?.length" class="file-links">
-                                <a v-for="(link, linkIndex) in message.fileLinks" :key="linkIndex" :href="formatFileUrl(link.path)" target="_blank" class="file-link">@{{ link.name }}</a>
-                            </div>
-                            <div v-if="message.imageLinks?.length" class="image-links">
-                                <img v-for="(link, linkIndex) in message.imageLinks" :key="linkIndex" :src="formatFileUrl(link.path)" class="image-link"/>
-                            </div>
+                    <!-- 消息气泡主体 -->
+                    <div class="message-content" v-if="!allBriefly||message.role !== 'system'||index === 0" :class="{ typing: message.role === 'assistant' && isTyping && index === messages.length - 1 }">
+                      
+                      <!-- User -->
+                      <div v-if="message.role === 'user'" class="user-content" data-mjx-disabled="true">
+                        <div v-html="message.content" class = "user-msg"></div>
+                        <div v-if="message.fileLinks?.length" class="file-links">
+                          <a v-for="(link, linkIndex) in message.fileLinks" :key="linkIndex" :href="formatFileUrl(link.path)" target="_blank" class="file-link">@{{ link.name }}</a>
                         </div>
-                        
-                        <!-- Assistant Content -->
-                        <div v-else-if="message.role === 'assistant'" class="markdown-body">
-                            <div v-if="message.briefly" v-html="formatMessage(message.pure_content??message.content, index)"></div>
-                            <div v-else>
-                                <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
-                                    <div 
-                                        v-if="segment.type === 'text'" 
-                                        class="stream-content"
-                                        :class="{ 'streaming': isTyping && index === messages.length - 1 && segIndex === splitMessageContent(message.content).length - 1 }"
-                                        v-morph:format="segment.content" 
-                                        style="display: inline-block; width: 100%;"
-                                    ></div>
-                                    <a2-u-i-renderer v-else-if="segment.type === 'ui'" :config="segment.content" @action="handleA2UIAction"></a2-u-i-renderer>
-                                </template>
-                            </div>
+                        <div v-if="message.imageLinks?.length" class="image-links">
+                          <img v-for="(link, linkIndex) in message.imageLinks" :key="linkIndex" :src="formatFileUrl(link.path)" class="image-link"/>
                         </div>
+                      </div>
+                      
+                      <!-- Assistant -->
+                      <div v-else-if="message.role === 'assistant'" class="markdown-body">
+                          <div v-if="message.briefly" v-html="formatMessage(message.pure_content??message.content, index)"></div>
+                          <div v-else>
+                              <template v-for="(segment, segIndex) in splitMessageContent(message.content)" :key="segIndex">
+                                  <div v-if="segment.type === 'text'" class="stream-content" :class="{ 'streaming': isTyping && index === messages.length - 1 && segIndex === splitMessageContent(message.content).length - 1 }" v-morph:format="segment.content" style="display: inline-block; width: 100%;"></div>
+                                  <a2-u-i-renderer v-else-if="segment.type === 'ui'" :config="segment.content" @action="handleA2UIAction"></a2-u-i-renderer>
+                              </template>
+                              <div v-if="isTyping && index === messages.length - 1 && !message.content"><i class="fa-solid fa-spinner fa-spin"></i></div>
+                          </div>
+                      </div>
+                      
+                      <!-- System -->
+                      <div v-else class="system-content" data-mjx-disabled="true">
+                        <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" class="scroll-on-hover" @click="openEditDialog(message.role, message.content,index)" :style="{ 'max-height': index===0 ? '200px' : 'none', 'overflow-y': index===0 ? 'auto' : 'hidden' }"></div>
+                      </div>
 
-                        <!-- System Content -->
-                        <div v-else class="system-content" data-mjx-disabled="true">
-                            <div v-html="index===0 ? (t('system_prompt') + message.content):message.content" class="scroll-on-hover" @click="openEditDialog(message.role, message.content,index)"></div>
-                        </div>
                     </div>
 
-                    <!-- 操作栏 -->
-                    <div class="message-actions">
-                        <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
-                            <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip :content="t('copy')" placement="bottom">
-                            <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
-                            <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
-                        </el-tooltip>
+                    <!-- 操作按钮区 -->
+                    <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
+                      <el-tooltip v-if="mainAgent === 'super-model' || message.role !== 'system'" :content="t('edit')" placement="bottom">
+                        <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
+                        <el-button class="briefly-btn" @click="toggleBriefly(index)" circle size="small"><i class="fa-solid fa-asterisk"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
+                        <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip :content="t('copy')" placement="bottom">
+                        <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip :content="t('translateAndMark')" placement="bottom">
+                        <el-button @click="translateMessage(index)" circle size="small"><i class="fa-solid fa-language"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
+                        <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="index == 0" :content="t('reset')" placement="bottom">
+                        <el-button @click="resetMessage(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
+                        <el-button class="Gen-btn" @click="toggleQuickGen(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-wand-magic-sparkles"></i></el-button>
+                      </el-tooltip>
+                      <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
+                        <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
+                      </el-tooltip>
+                      <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0)}}
+                      </span>
                     </div>
-                    </div>
+
+                  </div>
+
+                  <!-- 群聊模式 - 用户头像 (右侧) -->
+                  <div v-if="isGroupMode && message.role === 'user'" class="im-avatar right">
+                    <img src="source/providers/logo.png" draggable="false" />
+                  </div>
+
                 </div>
+              </div>
 
                 <!-- 底部工具栏与输入框 -->
                 <div style="border-top: 1px solid var(--el-border-color); padding: 10px; background: var(--el-bg-color);">
