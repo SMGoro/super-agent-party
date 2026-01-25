@@ -9864,13 +9864,8 @@ stopTTSActivities() {
         if (this.ttsSettings.newtts[key].enabled) newttsList.push(key);
       }
     }
-    const ttsPrompt =
-      newttsList.length === 0 || !this.ttsSettings?.enabled
-        ? '如果被翻译的文字与目标语言一致，则返回原文即可'
-        : `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList.join(
-            ', '
-          )}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`;
-
+    const ttsPrompt = '如果被翻译的文字与目标语言一致，则返回原文即可'
+    
     try {
       const res = await fetch('/simple_chat', {
         method: 'POST',

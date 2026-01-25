@@ -311,6 +311,12 @@ If you have any questions or issues with the project, you are welcome to join ou
 
 3. Discord: [Discord link](https://discord.gg/f2dsAKKr2V)
 
+## Contributors  
+
+<a href="https://github.com/heshengtao/super-agent-party/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=heshengtao/super-agent-party" />
+</a>
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=heshengtao/super-agent-party&type=Date)](https://www.star-history.com/#heshengtao/super-agent-party&Date)

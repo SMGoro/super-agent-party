@@ -312,6 +312,12 @@
 
 3. discord:[discord链接](https://discord.gg/f2dsAKKr2V)
 
+## 贡献者  
+
+<a href="https://github.com/heshengtao/super-agent-party/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=heshengtao/super-agent-party" />
+</a>
+
 ## 星标历史
 
 [![Star History Chart](https://api.star-history.com/svg?repos=heshengtao/super-agent-party&type=Date)](https://www.star-history.com/#heshengtao/super-agent-party&Date)
