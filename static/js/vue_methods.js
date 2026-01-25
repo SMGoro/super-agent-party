@@ -1685,7 +1685,7 @@ let vue_methods = {
         // ✨✨✨ 修复核心：每次生成开始时重置计时器 ✨✨✨
         // 这样每个角色的 First Token Latency 都是相对于它自己开始生成的时间
         this.startTimer(); 
-
+        this.voiceStack = ['default']; 
         let max_rounds = this.settings.max_rounds || 0;
         
         // --- 准备消息 Payload ---
@@ -1962,6 +1962,7 @@ let vue_methods = {
             if (audioResolve) audioResolve();
             throw error;
         } finally {
+            this.voiceStack = ['default']
             if (this.allBriefly) currentMsg.briefly = true;
             
             if (this.conversationId === null) {
@@ -6320,106 +6321,96 @@ handleCreateDiscordSeparator(val) {
      * }
      */
     splitTTSBuffer(buffer) {
-      // 0. 清理
-      buffer = buffer
-        // 移除标题标记（#、##、###等）
-        .replace(/#{1,6}\s/gm, '')  // 匹配行首的1-6个#后跟空格
-        // 移除单个Markdown格式字符（*_~`），但改为全局匹配连续出现（例如***）
-        .replace(/[*_~`]+/g, '')  // 使用"+"匹配连续出现的字符
-        // 移除列表项标记（如"- "或"* "）
-        .replace(/^\s*[-*]\s/gm, '')
-        .replace(/[\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F300}-\u{1F9FF}]/gu, '')   // 移除所有Unicode代理对（如表情符号）
-        // 移除所有Unicode代理对（如表情符号）
-        .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
-        // 移除图片标记（![alt](url)）
-        .replace(/!\[.*?\]\(.*?\)/g, '')
-        // 移除链接标记（[text](url)）
-        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-        // 移除首尾空格
-        .trim();
+        // 0. 基础清理逻辑 (保持不变)
+        buffer = buffer
+            .replace(/#{1,6}\s/gm, '')
+            .replace(/[*_~`]+/g, '')
+            .replace(/^\s*[-*]\s/gm, '')
+            .replace(/[\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F300}-\u{1F9FF}]/gu, '')
+            .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+            .replace(/!\[.*?\]\(.*?\)/g, '')
+            .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+            .trim();
 
-      if (!buffer || buffer.trim() === '') {
-        return {
-          chunks: [],
-          chunks_voice: [],
-          remaining: '',
-          remaining_voice: this.cur_voice || 'default'
+        if (!buffer) {
+            return {
+                chunks: [],
+                chunks_voice: [],
+                remaining: '',
+                remaining_voice: this.voiceStack[this.voiceStack.length - 1] // 返回栈顶
+            };
+        }
+
+        // 1. 初始化栈（防御性）
+        if (!this.voiceStack) this.voiceStack = ['default'];
+
+        // 2. 构造正则
+        const separators = (this.ttsSettings.separators || [])
+            .map(s => s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r'));
+
+        const voiceKeys = ['default', 'silence', ...Object.keys(this.ttsSettings.newtts || {})].filter(Boolean);
+        const openTagRe = new RegExp(`<(${voiceKeys.join('|')})>`, 'gi');
+        const closeTagRe = /<\/\w+>/gi; // 匹配任何结束标签
+        const sepRe = separators.length
+            ? new RegExp(separators.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+            : /$^/;
+
+        // 3. 扫描所有标记并排序
+        const tokens = [];
+        let m;
+        openTagRe.lastIndex = 0;
+        while ((m = openTagRe.exec(buffer)) !== null) tokens.push({ type: 'open', value: m[1], index: m.index, raw: m[0] });
+
+        closeTagRe.lastIndex = 0;
+        while ((m = closeTagRe.exec(buffer)) !== null) tokens.push({ type: 'close', value: m[0], index: m.index, raw: m[0] });
+
+        sepRe.lastIndex = 0;
+        while ((m = sepRe.exec(buffer)) !== null) tokens.push({ type: 'sep', value: m[0], index: m.index, raw: m[0] });
+
+        tokens.sort((a, b) => a.index - b.index);
+
+        // 4. 遍历处理
+        const chunks = [];
+        const chunks_voice = [];
+        let segmentStart = 0;
+
+        const emitText = (endIdx) => {
+            const text = buffer.slice(segmentStart, endIdx);
+            const cleaned = text.replace(/\s+/g, ' ').trim();
+            if (cleaned && !/^[\s\p{P}]*$/u.test(cleaned)) {
+                chunks.push(cleaned);
+                // 关键：永远使用当前栈顶的音色
+                chunks_voice.push(this.voiceStack[this.voiceStack.length - 1]);
+            }
         };
-      }
 
-      // 1. 还原分隔符里的转义
-      const separators = (this.ttsSettings.separators || [])
-        .map(s => s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r'));
-
-      // 2. 构造正则：确保至少有一个合法捕获组
-      const voiceKeys = ['default', 'silence', ...Object.keys(this.ttsSettings.newtts || {})]
-        .filter(Boolean);
-      const openTagRe = new RegExp(`<(${voiceKeys.join('|')})>`, 'gi');
-      const closeTagRe = /<\/\w+>/gi;
-      
-      // 修复分隔符正则表达式
-      const sepRe = separators.length
-        ? new RegExp(separators.map(s => {
-            // 对正则特殊字符进行转义
-            return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          }).join('|'), 'g')
-        : /$^/;
-
-      // 3. 扫描 token
-      const tokens = [];
-      const pushToken = (type, value, index) => tokens.push({ type, value, index });
-
-      let m;
-      openTagRe.lastIndex = 0;
-      while ((m = openTagRe.exec(buffer)) !== null) pushToken('open', m[1], m.index);
-
-      closeTagRe.lastIndex = 0;
-      while ((m = closeTagRe.exec(buffer)) !== null) pushToken('close', m[0], m.index);
-
-      sepRe.lastIndex = 0;
-      while ((m = sepRe.exec(buffer)) !== null) pushToken('sep', m[0], m.index);
-
-      tokens.sort((a, b) => a.index - b.index);
-
-      // 4. 逐段切分
-      const chunks = [];
-      const chunks_voice = [];
-      let currentVoice = (this.cur_voice || 'default')
-      let segmentStart = 0;
-
-      const emitText = (endIdx, voice) => {
-        const text = buffer.slice(segmentStart, endIdx);
-        const cleaned = text.replace(/\s+/g, ' ').trim();
-        if (cleaned && !/^[\s\p{P}]*$/u.test(cleaned)) {
-          chunks.push(cleaned);
-          chunks_voice.push(voice);
+        for (const tok of tokens) {
+            switch (tok.type) {
+                case 'open':
+                    emitText(tok.index);
+                    this.voiceStack.push(tok.value); // 压入新音色
+                    segmentStart = tok.index + tok.raw.length;
+                    break;
+                case 'close':
+                    emitText(tok.index);
+                    if (this.voiceStack.length > 1) {
+                        this.voiceStack.pop(); // 弹出当前音色，回到上一层
+                    }
+                    segmentStart = tok.index + tok.raw.length;
+                    break;
+                case 'sep':
+                    emitText(tok.index);
+                    segmentStart = tok.index + tok.raw.length;
+                    break;
+            }
         }
-      };
 
-      for (const tok of tokens) {
-        switch (tok.type) {
-          case 'open':
-            emitText(tok.index, currentVoice);
-            segmentStart = tok.index + `<${tok.value}>`.length;
-            currentVoice = tok.value
-            break;
-          case 'close':
-            emitText(tok.index, currentVoice);
-            segmentStart = tok.index + tok.value.length;
-            currentVoice = 'default';
-            break;
-          case 'sep':
-            emitText(tok.index, currentVoice); // 修改为在分隔符之前结束
-            segmentStart = tok.index + tok.value.length;
-            break;
-        }
-      }
+        // 5. 剩余文本
+        const remaining = buffer.slice(segmentStart);
+        // 告知外部当前处于什么音色状态（栈顶）
+        const remaining_voice = this.voiceStack[this.voiceStack.length - 1];
 
-      // 5. 剩余
-      const remaining = buffer.slice(segmentStart);
-      const remaining_voice = currentVoice || this.cur_voice || 'default';
-
-      return { chunks, chunks_voice, remaining, remaining_voice };
+        return { chunks, chunks_voice, remaining, remaining_voice };
     },
 
     // TTS处理进程 - 使用流式响应
