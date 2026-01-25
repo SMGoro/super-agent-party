@@ -1606,6 +1606,14 @@ app.whenReady().then(async () => {
         `);
       }
     });
+    ipcMain.handle('request-stop-slackbot', async (event) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        await win.webContents.executeJavaScript(`
+          window.stopSlackBotHandler && window.stopSlackBotHandler()
+        `);
+      }
+    });
     ipcMain.handle('exec-command', (event, command) => {
       return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {

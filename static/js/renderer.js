@@ -813,6 +813,7 @@ const app = Vue.createApp({
       window.stopFeishuBotHandler = this.requestFeishuBotStopIfRunning;
       window.stopDiscordBotHandler = this.requestDiscordBotStopIfRunning;
       window.stopTelegramBotHandler = this.requestTelegramBotStopIfRunning;
+      window.stopSlackBotHandler = this.requestSlackBotStopIfRunning;
       window.electronAPI.onWindowState((_, state) => {
         this.isMaximized = state === 'maximized'
       });
@@ -899,6 +900,7 @@ const app = Vue.createApp({
       delete window.stopFeishuBotHandler;
       delete window.stopDiscordBotHandler;
       delete window.stopTelegramBotHandler;
+      delete window.stopSlackBotHandler;
     }
     if (this.ttsWebSocket) {
       this.ttsWebSocket.close();
@@ -1282,6 +1284,21 @@ const app = Vue.createApp({
     },
     filteredDiscordSeparators() {
       const current = this.discordBotConfig.separators;
+      const defaults = this.defaultSeparators;
+      const custom = current
+        .filter(s => !defaults.some(d => d.value === s))
+        .map(s => ({
+          label: `(${this.formatSeparator(s)})`,
+          value: s
+        }));
+      return [...this.defaultSeparators, ...custom];
+    },
+    isSlackBotConfigValid() {
+      // Slack 需要同时拥有这两个 token 才能运行
+      return !!this.slackBotConfig.bot_token && !!this.slackBotConfig.app_token;
+    },
+    filteredSlackSeparators() {
+      const current = this.slackBotConfig.separators;
       const defaults = this.defaultSeparators;
       const custom = current
         .filter(s => !defaults.some(d => d.value === s))

@@ -438,6 +438,17 @@
       "enable_tts": false,
       "wakeWord": ""
     },
+    "slackBotConfig": {
+      "bot_token": "",    
+      "app_token": "", 
+      "llm_model": "super-model",
+      "memory_limit": 30,
+      "separators": ["。", "\n", "？", "！"],
+      "reasoning_visible": true,
+      "quick_restart": true,
+      "enable_tts": false,
+      "wakeWord": ""
+    },
     "VRMConfig": {
       "name": "default",
       "enabledExpressions": false,
