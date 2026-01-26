@@ -1,5 +1,7 @@
 # -- coding: utf-8 --
+import importlib
 import mimetypes
+import pathlib
 import sys
 import traceback
 
@@ -97,6 +99,28 @@ def fix_macos_environment():
 
 # --- 在程序最开始的地方调用这个函数 ---
 fix_macos_environment()
+
+def _fix_onnx_dll():
+    # 1. 找到 uv 虚拟环境里的 onnxruntime
+    spec = importlib.util.find_spec("onnxruntime")
+    if spec is None or spec.origin is None:
+        return          # 没装 onnxruntime，随它去
+    # DLL 就在 site-packages/onnxruntime/capi 里
+    dll_dir = pathlib.Path(spec.origin).with_name("capi")
+    if not dll_dir.is_dir():
+        return
+
+    # 2. 置顶搜索路径
+    os.environ["PATH"] = str(dll_dir) + os.pathsep + os.environ["PATH"]
+    if hasattr(os, "add_dll_directory"):      # Python 3.8+
+        os.add_dll_directory(str(dll_dir))
+
+    # 3. 如果已经有人 import 过 onnxruntime，清掉缓存
+    for mod in list(sys.modules):
+        if mod.startswith("onnxruntime"):
+            del sys.modules[mod]
+
+_fix_onnx_dll()
 
 # 在程序最开始设置
 if hasattr(sys, '_MEIPASS'):
