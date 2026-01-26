@@ -54,58 +54,72 @@
         ]
       }
     ],
-    "win": {
+    "linux": {
       "icon": "static/source/icon.png",
       "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-Linux.${ext}"
+    },
+    "mac": {
+      "icon": "static/source/icon.icns",
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "${productName}-${version}-Mac.${ext}",
+      "category": "public.app-category.utilities",
+      "identity": "super-agent-party",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "type": "distribution",
+      "asarUnpack": "**/*.node",
+      "extendInfo": {
+        "NSRequiresAquaSystemAppearance": false
+      },
+      "provisioningProfile": null
+    },
+    "dmg": {
+      "icon": "static/source/icon.icns",
+      "iconSize": 100,
+      "contents": [
         {
-          "target": "nsis",
-          "arch": ["x64"]
+          "x": 380,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 180,
+          "type": "file"
         }
       ],
-      "verifyUpdateCodeSignature": false
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "win": {
+      "icon": "static/source/icon.png",
+      "verifyUpdateCodeSignature": false,
+      "target": [
+        "nsis"
+      ],
+      "publisherName": "Heshengtao",
+      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
     },
     "nsis": {
       "oneClick": false,
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "uninstallDisplayName": "${productName}",
       "createDesktopShortcut": true,
-      "perMachine": false
-    },
-    "linux": {
-      "icon": "static/source/icon.png",
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": ["x64"]
-        }
-      ],
-      "artifactName": "${productName}-${version}-Linux-x64.${ext}",
-      "category": "Utility"
-    },
-    "mac": {
-      "icon": "static/source/icon.icns",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        }
-      ],
-      "artifactName": "${productName}-${version}-Mac-${arch}.${ext}",
-      "category": "public.app-category.utilities",
-      "identity": null,
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist"
-    },
-    "dmg": {
-      "icon": "static/source/icon.icns",
-      "contents": [
-        { "x": 380, "y": 180, "type": "link", "path": "/Applications" },
-        { "x": 130, "y": 180, "type": "file" }
-      ],
-      "window": { "width": 540, "height": 380 }
+      "differentialPackage": true,
+      "perMachine": false 
     }
   },
   "devDependencies": {
