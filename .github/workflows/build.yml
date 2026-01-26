@@ -6,24 +6,10 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.platform }} - ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-          - os: macos-latest     # 对应 Apple Silicon (arm64)
-            platform: macos
-            arch: arm64
-          - os: macos-15-intel   # 对应 Intel (x64)
-            platform: macos
-            arch: x64
+        os: [windows-latest, ubuntu-latest]
 
     permissions:
       contents: write
@@ -36,14 +22,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          # 确保 Python 本身的架构与我们要打包的目标架构一致
-          architecture: ${{ matrix.arch }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install Python dependencies
         run: |
@@ -52,32 +35,25 @@ jobs:
           uv venv
           uv sync
 
+      - name: Install Node.js dependencies
+        run: npm install
+
       - name: Build Python backend
-        # 编译出对应当前机器架构的二进制文件
         run: |
           uv add pyinstaller
           uv run pyinstaller server.spec
 
-      - name: Install Node.js dependencies
-        run: |
-          npm config set registry https://registry.npmjs.org/
-          npm install
-
       - name: Build and Publish Electron app
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false 
         run: |
-          case "${{ matrix.platform }}" in
-            windows)
-              npx electron-builder build --win --x64 --publish always
+          case "${{ matrix.os }}" in
+            windows-latest)
+              npx electron-builder build --win --publish always
               ;;
-            linux)
-              npx electron-builder build --linux AppImage --x64 --publish always
-              ;;
-            macos)
-              # 重点修复：增加了 -- 前缀，确保参数被识别为架构而非 Target
-              npx electron-builder build --mac --${{ matrix.arch }} --publish always
+            ubuntu-latest)
+              npx electron-builder build --linux --publish always
               ;;
           esac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
