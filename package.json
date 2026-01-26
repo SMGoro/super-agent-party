@@ -3,7 +3,7 @@
   "version": "v0.3.7",
   "description": "超级智能体派对v0.3.7 | 轻松链接一切!",
   "main": "main.js",
-  "asar": true, 
+  "asar": true,
   "scripts": {
     "start": "node start.js",
     "dev": "node start.js",
@@ -117,8 +117,9 @@
       "target": [
         "nsis"
       ],
-      "publisherName": "Heshengtao",
-      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      "signtoolOptions": {
+        "timeStampServer": "http://timestamp.digicert.com"
+      }
     },
     "nsis": {
       "oneClick": false,
@@ -128,7 +129,8 @@
       "uninstallDisplayName": "${productName}",
       "createDesktopShortcut": true,
       "differentialPackage": true,
-      "perMachine": false 
+      "perMachine": false,
+      "publisherName": "Heshengtao"
     }
   },
   "devDependencies": {
