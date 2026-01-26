@@ -551,7 +551,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
                       </el-tooltip>
                       <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0)}}
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms,    '+ t('elapsedTime')+': '+(message?.elapsedTime ?? 0) + 's'}}
                       </span>
                     </div>
 
