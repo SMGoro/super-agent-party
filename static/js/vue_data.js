@@ -1412,6 +1412,7 @@ let vue_data = {
       { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-paper-plane' },
       { id: 'discord_bot', title: 'discordBot', icon: 'fa-brands fa-discord' },
       { id: 'telegram_bot', title: 'telegramBot', icon: 'fa-brands fa-telegram' },
+      { id: 'slack_bot', title: 'slackBot', icon: 'fa-brands fa-slack' },
       { id: 'read_bot', title: 'readBot', icon: "fa-solid fa-book-open-reader"}, 
       { id: 'translate_bot', title: 'translateBot', icon: "fa-solid fa-language"}, 
       { id: 'bot_config', title: 'bot_config', icon: 'fa-solid fa-robot' }
@@ -1470,6 +1471,25 @@ let vue_data = {
       nickNameList: [],
       wakeWord: '小派',
     },
+
+    isSlackBotRunning: false,
+    isSlackStarting: false,
+    isSlackStopping: false,
+    isSlackReloading: false,
+
+    // Slack 配置对象
+    slackBotConfig: {
+      bot_token: '',      // Slack 的 xoxb token
+      app_token: '',      // Slack 的 xapp token (Socket Mode)
+      llm_model: 'super-model',
+      memory_limit: 30,
+      separators: ['。', '\n', '？', '！'],
+      reasoning_visible: true,
+      quick_restart: true,
+      enable_tts: false,
+      wakeWord: '',
+    },
+
     danmu: [], // 弹幕列表
     bilibiliWs: null, // WebSocket连接
     danmuProcessTimer: null, // 弹幕处理定时器

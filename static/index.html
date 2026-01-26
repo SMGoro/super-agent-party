@@ -822,7 +822,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
                       </el-tooltip>
                       <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0)}}
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms,    '+ t('elapsedTime')+': '+(message?.elapsedTime ?? 0) + 's'}}
                       </span>
                     </div>
 
@@ -9770,7 +9770,7 @@ function updateElement(el, rawMarkdown, formatFn) {
         <!-- logo页面 -->
         <div v-show="activeMenu === 'logo'" class="page logo-container">
           <div class="license-notice">
-            <h1>Super Agent Party v0.3.6</h1>
+            <h1>Super Agent Party v0.3.7</h1>
             <h3>开源协议声明 / Open Source License</h3>
             <div class="notice-section">
               <p>❗ 注意！本项目是基于AGPL协议开源的，请遵守AGPL协议，以避免不必要的法律问题！</p>
@@ -10786,6 +10786,188 @@ function updateElement(el, rawMarkdown, formatFn) {
                               v-model="discordBotConfig.token"
                               show-password
                               :placeholder="t('enterDiscordBotToken')"
+                              class="full-width-input"
+                              @change="autoSaveSettings"
+                            />
+                          </el-form-item>
+                        </div>
+                      </div>
+                    </el-form>
+                  </div>
+
+
+                  <!-- Slack 机器人配置页面 -->
+                  <div v-show="subMenu === 'slack_bot'">
+                    <el-form class="settings-form" :model="slackBotConfig" label-position="top">
+                      <div class="tool-item">
+                        <!-- 头部 -->
+                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                          <span>
+                            <el-icon><i class="fa-brands fa-slack"></i></el-icon>
+                            {{ t('slack_bot_config') || 'Slack 机器人配置' }}
+                            <el-link type="primary" :underline="false" href="https://api.slack.com/apps" target="_blank">
+                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                              {{ t('gotoSlackBot') || '前往 Slack App 控制台' }}
+                            </el-link>
+                          </span>
+
+                          <!-- 按钮组 -->
+                          <div>
+                            <el-tooltip :content="t('start_bot')" placement="top">
+                              <el-button
+                                type="primary"
+                                @click="startSlackBot"
+                                :disabled="!isSlackBotConfigValid || isSlackBotRunning || isSlackStarting"
+                                circle
+                              >
+                                <template v-if="isSlackStarting">
+                                  <i class="fa-solid fa-spinner fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-play"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('stop_bot')" placement="top">
+                              <el-button
+                                type="danger"
+                                @click="stopSlackBot"
+                                :disabled="!isSlackBotRunning || isSlackStopping"
+                                circle
+                              >
+                                <template v-if="isSlackStopping">
+                                  <i class="fa-solid fa-spinner fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-stop"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('reload_bot')" placement="top">
+                              <el-button
+                                @click="reloadSlackBot"
+                                :disabled="!isSlackBotRunning || isSlackReloading"
+                                circle
+                              >
+                                <template v-if="isSlackReloading">
+                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                                </template>
+                                <template v-else>
+                                  <i class="fa-solid fa-rotate"></i>
+                                </template>
+                              </el-button>
+                            </el-tooltip>
+                          </div>
+                        </div>
+
+                        <!-- 表单 -->
+                        <div class="tool-content">
+                          <!-- 主智能体 -->
+                          <el-form-item :label="t('mainAgent')" required>
+                            <el-select v-model="slackBotConfig.llm_model" @change="autoSaveSettings">
+                              <el-option :label="t('defaultAgent')" value="super-model" />
+                              <el-option
+                                v-for="(agent, id) in agents"
+                                :key="id"
+                                :label="agent.name"
+                                :value="id"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 记忆 (这里和 Discord 一样，直接绑定 memorySettings) -->
+                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                            <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
+                          </el-form-item>
+                          <el-form-item :label="t('selectMemory')">
+                            <el-select
+                              v-model="memorySettings.selectedMemory"
+                              :placeholder="t('selectMemoryPlaceholder')"
+                              class="full-width-input"
+                              @change="changeMemory"
+                            >
+                              <el-option
+                                v-for="mem in memories"
+                                :key="mem.id"
+                                :label="mem.name"
+                                :value="mem.id"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 分隔符 -->
+                          <el-form-item :label="t('separators')">
+                            <el-select
+                              v-model="slackBotConfig.separators"
+                              multiple
+                              filterable
+                              allow-create
+                              @create="handleCreateSlackSeparator"
+                              @change="autoSaveSettings"
+                            >
+                              <el-option
+                                v-for="sep in filteredSlackSeparators"
+                                :key="sep.value"
+                                :label="sep.label"
+                                :value="sep.value"
+                              />
+                            </el-select>
+                          </el-form-item>
+
+                          <!-- 记忆轮数 -->
+                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                            <el-slider
+                              v-model="slackBotConfig.memory_limit"
+                              :min="0"
+                              :max="1000"
+                              :step="2"
+                              show-input
+                              @input="autoSaveSettings"
+                            />
+                          </el-form-item>
+
+                          <!-- 推理显示 -->
+                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                            <el-switch v-model="slackBotConfig.reasoning_visible" @change="autoSaveSettings"></el-switch>
+                          </el-form-item>
+
+                          <!-- 快速重启 -->
+                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                            <el-switch v-model="slackBotConfig.quick_restart" @change="autoSaveSettings"></el-switch>
+                          </el-form-item>
+
+                          <!-- 启用 TTS -->
+                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                            <el-switch v-model="slackBotConfig.enable_tts" @change="autoSaveSettings"></el-switch>
+                          </el-form-item>
+
+                          <el-form-item :label="t('wakeWord')">
+                            <el-input
+                              v-model="slackBotConfig.wakeWord"
+                              :placeholder="t('botWakeWordPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings"
+                            />
+                          </el-form-item>
+
+                          <!-- Bot Token (Slack 需要两个) -->
+                          <el-form-item label="Bot User OAuth Token (xoxb-...)" required>
+                            <el-input
+                              v-model="slackBotConfig.bot_token"
+                              show-password
+                              placeholder="xoxb-xxxxxxxxxxxx"
+                              class="full-width-input"
+                              @change="autoSaveSettings"
+                            />
+                          </el-form-item>
+
+                          <el-form-item label="App-Level Token (xapp-...)" required>
+                            <el-input
+                              v-model="slackBotConfig.app_token"
+                              show-password
+                              placeholder="xapp-1-xxxxxxxxxxxx"
                               class="full-width-input"
                               @change="autoSaveSettings"
                             />
@@ -13335,7 +13517,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
                       </el-tooltip>
                       <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0)}}
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms,    '+ t('elapsedTime')+': '+(message?.elapsedTime ?? 0) + 's'}}
                       </span>
                     </div>
 

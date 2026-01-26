@@ -1,7 +1,7 @@
 [project]
 name = "super-agent-party"
-version = "v0.3.6"
-description = "超级智能体派对v0.3.6 | 轻松链接一切!"
+version = "v0.3.7"
+description = "超级智能体派对v0.3.7 | 轻松链接一切!"
 license = "AGPL-3.0"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -69,4 +69,5 @@ dependencies = [
     "xlrd>=2.0.2",
     "tetos>=0.4.2",
     "langchain-classic>=1.0.1",
+    "slack-sdk>=3.39.0",
 ]

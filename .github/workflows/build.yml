@@ -6,10 +6,21 @@ on:
 
 jobs:
   build:
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-13    # Intel Mac
+            platform: macos
+            arch: x64
+          - os: macos-14    # Apple Silicon Mac (M1/M2/M3)
+            platform: macos
+            arch: arm64
 
     permissions:
       contents: write
@@ -27,33 +38,36 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install uv
           uv venv
+          # 根据不同操作系统执行对应的安装
           uv sync
-
-      - name: Install Node.js dependencies
-        run: npm install
 
       - name: Build Python backend
         run: |
           uv add pyinstaller
           uv run pyinstaller server.spec
+        # 确保 server.spec 输出到 dist/server 目录，以便 electron-builder 抓取
+
+      - name: Install Node.js dependencies
+        run: npm install
 
       - name: Build and Publish Electron app
         shell: bash
-        run: |
-          case "${{ matrix.os }}" in
-            windows-latest)
-              npx electron-builder build --win --publish always
-              ;;
-            ubuntu-latest)
-              npx electron-builder build --linux --publish always
-              ;;
-          esac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: false # 强制跳过证书查找，实现 Ad-hoc 签名
+        run: |
+          if [ "${{ matrix.platform }}" == "windows" ]; then
+            npx electron-builder build --win --x64 --publish always
+          elif [ "${{ matrix.platform }}" == "linux" ]; then
+            npx electron-builder build --linux AppImage --x64 --publish always
+          elif [ "${{ matrix.platform }}" == "macos" ]; then
+            # 根据矩阵中的 arch 编译对应的 Mac 版本
+            npx electron-builder build --mac ${{ matrix.arch }} --publish always
+          fi

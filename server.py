@@ -7507,6 +7507,34 @@ async def reload_discord_bot(config: DiscordBotConfig):
     return {"success": True, "message": "Discord 机器人已重载"}
 
 
+from py.slack_bot_manager import SlackBotManager, SlackBotConfig
+
+slack_bot_manager = SlackBotManager()
+
+@app.post("/start_slack_bot")
+async def start_slack_bot(config: SlackBotConfig):
+    try:
+        slack_bot_manager.start_bot(config)
+        return {"success": True, "message": "Slack 机器人已启动"}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
+
+@app.post("/stop_slack_bot")
+async def stop_slack_bot():
+    slack_bot_manager.stop_bot()
+    return {"success": True, "message": "Slack 机器人已停止"}
+
+@app.get("/slack_bot_status")
+async def slack_bot_status():
+    return slack_bot_manager.get_status()
+
+@app.post("/reload_slack_bot")
+async def reload_slack_bot(config: SlackBotConfig):
+    slack_bot_manager.stop_bot()
+    await asyncio.sleep(1)
+    slack_bot_manager.start_bot(config)
+    return {"success": True, "message": "Slack 机器人已重载"}
+
 from py.telegram_bot_manager import TelegramBotManager, TelegramBotConfig
 
 # 全局 Telegram 机器人管理器

@@ -508,7 +508,9 @@ let vue_methods = {
               "moonshot":"https://api.moonshot.cn/anthropic/",
               "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
               "modelscope":"https://api-inference.modelscope.cn/",
-              "302.AI":"https://api.302.ai/cc/"
+              "302.AI":"https://api.302.ai/cc/",
+              "newapi": provider.url.replace(/\/v1\/?$/, ''),
+              "Ollama":provider.url.replace(/\/v1\/?$/, '')
             };
             // 使用映射的 URL，如果没有匹配则回退到默认 url
             targetUrl = vendor_list[provider.vendor] || provider.url;
@@ -1228,6 +1230,7 @@ let vue_methods = {
           this.feishuBotConfig = data.data.feishuBotConfig || this.feishuBotConfig;
           this.discordBotConfig = data.data.discordBotConfig || this.discordBotConfig;
           this.telegramBotConfig = data.data.telegramBotConfig || this.telegramBotConfig;
+          this.slackBotConfig = data.data.slackBotConfig || this.slackBotConfig;
           this.targetLangSelected = data.data.targetLangSelected || this.targetLangSelected;
           this.allBriefly = data.data.allBriefly || this.allBriefly;
           this.BotConfig = data.data.BotConfig || this.BotConfig;
@@ -2264,6 +2267,7 @@ let vue_methods = {
           qqBotConfig : this.qqBotConfig,
           feishuBotConfig: this.feishuBotConfig,
           discordBotConfig: this.discordBotConfig,
+          slackBotConfig: this.slackBotConfig,
           telegramBotConfig: this.telegramBotConfig,
           targetLangSelected: this.targetLangSelected,
           allBriefly: this.allBriefly,
@@ -4673,6 +4677,106 @@ async checkDiscordBotStatus() {
 },
 handleCreateDiscordSeparator(val) {
   this.discordBotConfig.separators.push(val);
+},
+
+async requestSlackBotStopIfRunning() {
+    try {
+      // 1. 先从后端确认 Slack 机器人的真实运行状态
+      const response = await fetch(`/slack_bot_status`);
+      const status = await response.json();
+
+      // 2. 如果后端返回正在运行 (is_running 为 true)
+      if (status.is_running) {
+        // 3. 调用你之前在 methods 里写好的 stopSlackBot 方法
+        // 该方法包含了停止逻辑、Loading 状态切换以及 showNotification 通知
+        await this.stopSlackBot();
+        console.log('Slack 机器人已应系统请求成功关闭');
+      }
+    } catch (error) {
+      // 捕获网络错误或后端未启动的情况
+      console.error('检查或停止 Slack 机器人失败:', error);
+    }
+  },
+
+/* ------- Slack 机器人 ------- */
+async startSlackBot() {
+  this.isSlackStarting = true;
+  try {
+    showNotification('正在连接 Slack 机器人...', 'info');
+    // 注意：这里发送的是 slackBotConfig，但后端会自动处理共用的 memorySettings 状态
+    const res = await fetch('/start_slack_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...this.slackBotConfig,
+        // 显式传一下 memory 配置，确保后端能拿到最新的
+        memory_settings: this.memorySettings 
+      }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      this.isSlackBotRunning = true;
+      showNotification('Slack 机器人启动成功', 'success');
+    } else {
+      showNotification(`启动失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误或服务器未响应', 'error');
+  } finally {
+    this.isSlackStarting = false;
+  }
+},
+async stopSlackBot() {
+  this.isSlackStopping = true;
+  try {
+    const res = await fetch('/stop_slack_bot', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      this.isSlackBotRunning = false;
+      showNotification('Slack 机器人已停止', 'success');
+    } else {
+      showNotification(`停止失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误', 'error');
+  } finally {
+    this.isSlackStopping = false;
+  }
+},
+async reloadSlackBot() {
+  this.isSlackReloading = true;
+  try {
+    const res = await fetch('/reload_slack_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...this.slackBotConfig,
+        memory_settings: this.memorySettings
+      }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      showNotification('Slack 机器人已重载', 'success');
+    } else {
+      showNotification(`重载失败：${json.message}`, 'error');
+    }
+  } catch (e) {
+    showNotification('网络错误', 'error');
+  } finally {
+    this.isSlackReloading = false;
+  }
+},
+async checkSlackBotStatus() {
+  try {
+    const res = await fetch('/slack_bot_status');
+    const st = await res.json();
+    this.isSlackBotRunning = st.is_running;
+  } catch (e) {
+    console.error('检查 Slack 状态失败', e);
+  }
+},
+handleCreateSlackSeparator(val) {
+  this.slackBotConfig.separators.push(val);
 },
 
     // // 启动微信机器人
@@ -9864,12 +9968,7 @@ stopTTSActivities() {
         if (this.ttsSettings.newtts[key].enabled) newttsList.push(key);
       }
     }
-    const ttsPrompt =
-      newttsList.length === 0 || !this.ttsSettings?.enabled
-        ? '如果被翻译的文字与目标语言一致，则返回原文即可'
-        : `你还需要在翻译的同时，添加对应的音色标签。如果被翻译的文字与目标语言一致，则只需要添加对应的音色标签。注意！不要使用<!--  -->这会导致部分文字不可见！你可以使用以下音色：\n${newttsList.join(
-            ', '
-          )}\n，当你生成回答时，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。对于没有对应音色的部分，可以不括。即使音色名称不为英文，还是可以照样使用<音色名>使用该音色的文本</音色名>来启用对应音色。注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：<Narrator>现在是下午三点，她说道：</Narrator><角色名>”天气真好哇！“</角色名><Narrator>说完她伸了个懒腰。</Narrator>\n\n`;
+    const ttsPrompt = '如果被翻译的文字与目标语言一致，则返回原文即可'
 
     try {
       const res = await fetch('/simple_chat', {
