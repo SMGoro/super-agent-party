@@ -18,7 +18,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-          - os: macos-latest     # 对应 Apple Silicon (ARM64)
+          - os: macos-latest     # 对应 Apple Silicon (arm64)
             platform: macos
             arch: arm64
           - os: macos-15-intel   # 对应 Intel (x64)
@@ -36,7 +36,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          # 重要：根据矩阵架构选择对应的 Python 安装包
+          # 确保 Python 本身的架构与我们要打包的目标架构一致
           architecture: ${{ matrix.arch }}
 
       - name: Set up Node.js
@@ -53,19 +53,20 @@ jobs:
           uv sync
 
       - name: Build Python backend
-        # 这会根据当前运行架构生成对应的 Python 二进制
+        # 编译出对应当前机器架构的二进制文件
         run: |
           uv add pyinstaller
           uv run pyinstaller server.spec
 
       - name: Install Node.js dependencies
-        run: npm install
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm install
 
       - name: Build and Publish Electron app
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 必须明确禁止自动搜索证书，否则 Ad-hoc 签名在 CI 环境会报错
           CSC_IDENTITY_AUTO_DISCOVERY: false 
         run: |
           case "${{ matrix.platform }}" in
@@ -76,7 +77,7 @@ jobs:
               npx electron-builder build --linux AppImage --x64 --publish always
               ;;
             macos)
-              # 专门构建矩阵指定的架构版本
-              npx electron-builder build --mac ${{ matrix.arch }} --publish always
+              # 重点修复：增加了 -- 前缀，确保参数被识别为架构而非 Target
+              npx electron-builder build --mac --${{ matrix.arch }} --publish always
               ;;
           esac
