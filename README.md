@@ -26,7 +26,7 @@
 
 ### 🚀 **An AI desktop companion with endless possibilities!**  
 
-- ✅ Omnichannel One-Click Deployment: Supports rapid deployment of agent configurations to multiple terminals, already compatible with scenarios such as classic chat interfaces, desktop companion, QQ, Feishu, Discord, Telegram chatbots, Bilibili, YouTube, Twitch live-streaming bots, and more—ready to use out of the box.  
+- ✅ Omnichannel One-Click Deployment: Supports rapid deployment of agent configurations to multiple terminals, already compatible with scenarios such as classic chat interfaces, desktop companion, QQ, Feishu, Telegram, Discord, Slack chatbots, Bilibili, YouTube, Twitch live-streaming bots, and more—ready to use out of the box.  
 
 - ✅ Ecosystem Tool Interconnectivity: Freely integrates third-party agents and workflows as toolchains (already adapted for systems like Home Assistant, Claude Code, Qwen Code, Dify, ComfyUI, MCP, A2A, etc.), enabling cross-platform capability aggregation through the Agent-Party architecture.  
 
@@ -55,8 +55,8 @@
 ### Tavern Character Cards: Supports Tavern character cards with long-term memory capabilities.
 ![image](doc/image/5.jpeg)
 
-### Social platform bots: Support one-click deployment to QQ, Lark, Telegram, Discord.
-![image](doc/image/6.jpeg)
+### Instant Messaging Bot: Supports One-Click Deployment to QQ, Feishu, Telegram, Discord, Slack
+![image](doc/image/6-1.jpeg)
 
 ### Live Streaming Bot: Supports One-Click Deployment to Bilibili, YouTube, and Twitch
 ![image](doc/image/7.jpeg)
@@ -228,7 +228,7 @@ Please refer to the following document for the main functions:
 | Supported Model Service Providers | Supports common local deployment engine interfaces and cloud service provider interfaces, such as: openai/ollama/dify, etc. |
 | Multimodal Model Integration | Integrates various types of models including role-playing, reasoning, vision, image generation, speech recognition, and speech synthesis for combined use. |
 | VRM Desktop Pet Robot | Highly customizable with support for custom avatars, custom animations, voice interaction, and dialogue interruption.It can be streamed transparently to screen recording software such as OBS, and supports bidirectional VMC protocol! |
-| Messaging Platform Bots | Currently supports QQ, Feishu, Discord, Telegram, with more platforms to be added later |
+| Messaging Platform Bots | Currently supports QQ, Feishu, Telegram, Discord, Slack, with more platforms to be added later |
 | Live Streaming Bots | Currently supports Bilibili, YouTube, Twitch, with more platforms to be added later |
 | Announcer Bot | Supports long text narration, multi-voice narration, digital human video narration, batch conversion of ultra-long texts to speech (with download capability), and parsing of common ebook formats like EPUB. Chapter-based conversion will be developed later. |
 | Chat Interface | The chat interface supports front-end rendering features such as A2UI, mathematical formulas, mermaid diagrams, and HTML code graphics. Images can be downloaded or copied.Supports capsule mode and assistant mode, making it easy to shrink and dock the conversation interface. Combined with desktop vision and screenshots, it seamlessly integrates into work and entertainment |
