@@ -67,6 +67,9 @@
 ### AI Browser: Empower Your AI Agents with Their Own Browser, Supporting Automatic Control
 ![image](doc/image/9.jpeg)
 
+### Multi-Role Group Chat: You can chat with multiple characters at the same time!
+![image](doc/image/10.jpeg)
+
 ## Quick Start
 
 ### 中国用户下载请点击 **中国用户点击下载** 的链接！
