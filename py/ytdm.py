@@ -1,6 +1,7 @@
 # py/ytdm.py
 from __future__ import annotations
 import asyncio, threading, time
+import uuid
 from googleapiclient.discovery import build
 from typing import Optional, Callable
 
@@ -80,6 +81,7 @@ class YouTubeDMClient:
             author = item["authorDetails"]["displayName"]
             text   = item["snippet"]["displayMessage"]
             msg = {
+                'id': str(uuid.uuid4()),
                 "type": "message",
                 "content": f"{author} send: {text}",
                 "danmu_type": "danmaku",

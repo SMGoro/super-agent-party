@@ -7723,24 +7723,23 @@ handleCreateSlackSeparator(val) {
   // 处理弹幕队列
   async processDanmuQueue() {
     try {
-      console.log(this.danmu);
-      const lastMessage = this.messages[this.messages.length - 1];
+      // --- TTS 播放状态检查 ---
       if(this.TTSrunning && this.ttsSettings.enabled){
+        const lastMessage = this.messages[this.messages.length - 1];
         if ((!lastMessage || (lastMessage?.currentChunk ?? 0) >= (lastMessage?.ttsChunks?.length ?? 0)) && !this.isTyping) {
           console.log('All audio chunks played');
           lastMessage.currentChunk = 0;
           this.TTSrunning = false;
           this.cur_audioDatas = [];
-          // 通知VRM所有音频播放完成
           this.sendTTSStatusToVRM('allChunksCompleted', {});
         }
         else{
-          console.log('Audio chunks still playing');
+          // 还在播放中，直接返回
           return;
         }
       }
 
-      // 检查所有条件
+      // --- 基础状态检查 ---
       if (!this.isLiveRunning || 
           this.danmu.length === 0 || 
           this.isTyping || 
@@ -7748,36 +7747,51 @@ handleCreateSlackSeparator(val) {
           this.isProcessingDanmu) {
         return;
       }
-      console.log('弹幕队列处理中');
-      // 设置处理标志，防止并发处理
+
+      console.log('弹幕队列处理中...');
       this.isProcessingDanmu = true;
       
-      // 获取最老的弹幕（队列末尾）
+      // 获取最老的弹幕（队列末尾，因为是 unshift 进来的）
       const oldestDanmu = this.danmu[this.danmu.length - 1];
       
       if (oldestDanmu && oldestDanmu.content) {
-        console.log('处理弹幕:', oldestDanmu.content);
         
-        // 将弹幕内容赋值到用户输入
+        // --- 【去重逻辑 3】: 连续处理防重 (防止 AI 连续回复同一句话) ---
+        if (this.lastProcessedContent === oldestDanmu.content) {
+            console.log('检测到与上一条已处理弹幕内容完全相同，跳过:', oldestDanmu.content);
+            this.danmu.pop(); // 直接移除该重复项
+            this.isProcessingDanmu = false; // 释放锁
+            return; // 结束本次循环
+        }
+        // --------------------------------------------------------------
+
+        console.log('开始处理弹幕:', oldestDanmu.content);
+        
+        // 更新最后处理的内容
+        this.lastProcessedContent = oldestDanmu.content;
+
+        // 赋值给用户输入
         this.userInput = oldestDanmu.content;
         
-        // 发送消息
+        // 发送消息给 AI
         await this.sendMessage();
         
-        // 删除已处理的弹幕
-        this.danmu.pop(); // 删除最后一个元素（最老的）
+        // 处理成功后，从队列移除
+        this.danmu.pop(); 
         
-        console.log('弹幕处理完成，剩余弹幕数量:', this.danmu.length);
+        console.log('弹幕处理完成，剩余:', this.danmu.length);
       }
       
     } catch (error) {
       console.error('处理弹幕时出错:', error);
+      // 出错时通常也要移除这一条，防止死循环卡住队列
+      // 视具体需求而定，这里选择移除
+      this.danmu.pop(); 
     } finally {
-      // 重置处理标志
+      // 无论成功与否，最后都要释放锁
       this.isProcessingDanmu = false;
     }
   },
-
   // 连接WebSocket
   connectLiveWebSocket() {
     try {
@@ -7868,52 +7882,86 @@ handleCreateSlackSeparator(val) {
 
   // 处理弹幕消息
   handleDanmuMessage(data) {
-    // 如果是统一的消息格式
     if (data.type === 'message') {
+      
+      // --- 【去重逻辑 1】: ID 级去重 (防止 WebSocket 重发) ---
+      if (data.id) {
+        if (this.receivedMsgIds.has(data.id)) {
+          console.log('拦截到重复ID消息，已忽略:', data.content);
+          return;
+        }
+        // 记录新 ID
+        this.receivedMsgIds.add(data.id);
+        
+        // 限制 Set 大小，防止内存溢出 (保留最近500条足够了)
+        if (this.receivedMsgIds.size > 500) {
+          const firstVal = this.receivedMsgIds.values().next().value;
+          this.receivedMsgIds.delete(firstVal);
+        }
+      }
+      // ----------------------------------------------------
+
       const danmuItem = {
-        content: data.content,
+        id: data.id,
+        content: data.content, // 这里包含 "用户名: 消息内容"
         type: data.danmu_type,
         timestamp: new Date().toLocaleTimeString('zh-CN', {
           timeZone: 'Asia/Shanghai',
           hour12: false
         })
       };
-      if (this.liveConfig.onlyDanmaku){
+
+      // --- 唤醒词与类型过滤逻辑 ---
+      let shouldAdd = false;
+      
+      // 判断是否只接收纯弹幕/SC
+      if (this.liveConfig.onlyDanmaku) {
         if (danmuItem.type === "danmaku" || danmuItem.type === "super_chat") {
-          if (this.liveConfig.wakeWord){
-            if (data.content.includes(this.liveConfig.wakeWord)){
-              this.danmu.unshift(danmuItem);
-            }
-          }
-          else {
-            this.danmu.unshift(danmuItem);
-          }
-        } 
-      }else {
+           // 如果设置了唤醒词，必须包含唤醒词
+           if (this.liveConfig.wakeWord) {
+             if (data.content.includes(this.liveConfig.wakeWord)) {
+               shouldAdd = true;
+             }
+           } else {
+             shouldAdd = true;
+           }
+        }
+      } else {
+        // 接收所有类型
         if (danmuItem.type === "danmaku" || danmuItem.type === "super_chat") {
-          if (this.liveConfig.wakeWord){
-            if (data.content.includes(this.liveConfig.wakeWord)){
-              this.danmu.unshift(danmuItem);
+          if (this.liveConfig.wakeWord) {
+            if (data.content.includes(this.liveConfig.wakeWord)) {
+              shouldAdd = true;
             }
+          } else {
+            shouldAdd = true;
           }
-          else {
-            this.danmu.unshift(danmuItem);
-          }
-        } else{
-          this.danmu.unshift(danmuItem);
+        } else {
+          // 礼物、进场等其他类型直接放行
+          shouldAdd = true;
         }
       }
-      
-      
-      // 保持数组长度不超过this.liveConfig.danmakuQueueLimit
-      if (this.danmu.length > this.liveConfig.danmakuQueueLimit) {
-        this.danmu = this.danmu.slice(0, this.liveConfig.danmakuQueueLimit);
+
+      if (shouldAdd) {
+        // --- 【去重逻辑 2】: 队列防刷屏 (防止瞬间多条相同内容占满队列) ---
+        // 检查队列头部（最新的一条），如果内容完全一致则不重复入队
+        if (this.danmu.length > 0 && this.danmu[0].content === danmuItem.content) {
+             console.log('拦截到连续相同内容弹幕，已忽略入队');
+             return;
+        }
+        // -----------------------------------------------------------
+
+        this.danmu.unshift(danmuItem);
+        
+        // 保持队列长度限制
+        if (this.danmu.length > this.liveConfig.danmakuQueueLimit) {
+          this.danmu = this.danmu.slice(0, this.liveConfig.danmakuQueueLimit);
+        }
+        
+        console.log('收到新弹幕:', danmuItem.content, '当前队列长度:', this.danmu.length);
       }
       
-      console.log('收到新弹幕:', danmuItem.content, '当前队列长度:', this.danmu.length);
-      
     } else if (data.type === 'error') {
-      // 处理错误消息
       showNotification(data.message, 'error');
     }
   },

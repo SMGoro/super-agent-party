@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 import asyncio, threading, http.cookies, aiohttp
+import uuid
 from typing import Optional, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -136,6 +137,7 @@ async def start_live(request: LiveConfigRequest):
 
             async def _twitch_on_msg(chan, user, msg):
                 await manager.broadcast({
+                    'id': str(uuid.uuid4()),
                     "type": "message",
                     "content": f"{user} send: {msg}",
                     "danmu_type": "danmaku",
@@ -403,6 +405,7 @@ class WebSocketHandler(blivedm.BaseHandler):
     def _on_danmaku(self, client: blivedm.BLiveClient, message: web_models.DanmakuMessage):
         msg_text = f'{message.uname}发送弹幕：{message.msg}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "danmaku"
@@ -413,6 +416,7 @@ class WebSocketHandler(blivedm.BaseHandler):
     def _on_gift(self, client: blivedm.BLiveClient, message: web_models.GiftMessage):
         msg_text = f'{message.uname} 赠送{message.gift_name}x{message.num} （{message.coin_type}瓜子x{message.total_coin}）'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "gift"
@@ -423,6 +427,7 @@ class WebSocketHandler(blivedm.BaseHandler):
     def _on_buy_guard(self, client: blivedm.BLiveClient, message: web_models.GuardBuyMessage):
         msg_text = f'{message.username} 上舰，guard_level={message.guard_level}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "buy_guard"
@@ -433,6 +438,7 @@ class WebSocketHandler(blivedm.BaseHandler):
     def _on_super_chat(self, client: blivedm.BLiveClient, message: web_models.SuperChatMessage):
         msg_text = f'{message.uname}发送醒目留言：{message.message}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "super_chat"
@@ -444,6 +450,7 @@ class WebSocketHandler(blivedm.BaseHandler):
         if message.msg_type == 1:
             msg_text =  f'{message.username} 进入房间'
             data = {
+                'id': str(uuid.uuid4()),
                 'type': 'message',
                 'content': msg_text,
                 "danmu_type": "enter_room"
@@ -453,6 +460,7 @@ class WebSocketHandler(blivedm.BaseHandler):
         elif message.msg_type == 2:
             msg_text = f'{message.username} 关注了你'
             data = {
+                'id': str(uuid.uuid4()),
                 'type': 'message',
                 'content': msg_text,
                 "danmu_type": "follow"
@@ -470,6 +478,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
     def _on_open_live_danmaku(self, client: blivedm.OpenLiveClient, message: open_models.DanmakuMessage):
         msg_text = f'{message.uname}发送弹幕：{message.msg}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "danmaku"
@@ -482,6 +491,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
         total_coin = message.price * message.gift_num
         msg_text = f'{message.uname} 赠送{message.gift_name}x{message.gift_num} （{coin_type}x{total_coin}）'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "gift"
@@ -492,6 +502,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
     def _on_open_live_buy_guard(self, client: blivedm.OpenLiveClient, message: open_models.GuardBuyMessage):
         msg_text = f'{message.user_info.uname} 购买 大航海等级={message.guard_level}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "buy_guard"
@@ -502,6 +513,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
     def _on_open_live_super_chat(self, client: blivedm.OpenLiveClient, message: open_models.SuperChatMessage):
         msg_text = f'{message.uname}发送醒目留言：{message.message}'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "super_chat"
@@ -512,6 +524,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
     def _on_open_live_like(self, client: blivedm.OpenLiveClient, message: open_models.LikeMessage):
         msg_text = f'{message.uname} 点赞'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "like"
@@ -522,6 +535,7 @@ class OpenLiveWebSocketHandler(blivedm.BaseHandler):
     def _on_open_live_enter_room(self, client: blivedm.OpenLiveClient, message: open_models.RoomEnterMessage):
         msg_text = f'{message.uname} 进入房间'
         data = {
+            'id': str(uuid.uuid4()),
             'type': 'message',
             'content': msg_text,
             "danmu_type": "enter_room"
