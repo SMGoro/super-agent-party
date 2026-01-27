@@ -509,6 +509,7 @@ let vue_methods = {
               "aliyun": "https://dashscope.aliyuncs.com/apps/anthropic/",
               "modelscope":"https://api-inference.modelscope.cn/",
               "302.AI":"https://api.302.ai/cc/",
+              "MiMo":"https://api.xiaomimimo.com/anthropic/",
               "newapi": provider.url.replace(/\/v1\/?$/, ''),
               "Ollama":provider.url.replace(/\/v1\/?$/, '')
             };
@@ -1107,12 +1108,21 @@ let vue_methods = {
         }
       });
       this.scrollPanelToBottom();
+      this.browserPanelToBottom();
     },
 
     /* 侧边栏滚动：完全一样的思路 */
     scrollPanelToBottom() {
       this.$nextTick(() => {
         const panel = this.$refs.messagesPanel;
+        if (this.isElemNearBottom(panel)) {
+          panel.scrollTop = panel.scrollHeight;
+        }
+      });
+    },
+    browserPanelToBottom() {
+      this.$nextTick(() => {
+        const panel = this.$refs.browserMessagesContainer;
         if (this.isElemNearBottom(panel)) {
           panel.scrollTop = panel.scrollHeight;
         }
@@ -2825,6 +2835,7 @@ let vue_methods = {
         }
         const data = await response.json();
         provider.models = data.data;
+        showNotification(this.t('fetch_models_success'));
       } catch (error) {
         showNotification(this.t('fetch_models_failed'), 'error');
       }
@@ -2888,6 +2899,7 @@ let vue_methods = {
         'Volcano': 'https://ark.cn-beijing.volces.com/api/v3',
         'moonshot': 'https://api.moonshot.cn/v1',
         'minimax': 'https://api.minimaxi.com/v1',
+        'MiMo': 'https://api.xiaomimimo.com/v1',
         'Ollama': this.isdocker ? 'http://host.docker.internal:11434/v1' : 'http://127.0.0.1:11434/v1',
         'Vllm': this.isdocker ? 'http://host.docker.internal:8000/v1' :'http://127.0.0.1:8000/v1',
         'LMstudio': this.isdocker ? 'http://host.docker.internal:1234/v1' :'http://127.0.0.1:1234/v1',
