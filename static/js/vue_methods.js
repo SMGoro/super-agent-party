@@ -7911,33 +7911,39 @@ handleCreateSlackSeparator(val) {
         })
       };
 
-      // --- 唤醒词与类型过滤逻辑 ---
+      // --- 【核心修改】：唤醒词多行解析与类型过滤逻辑 ---
       let shouldAdd = false;
       
-      // 判断是否只接收纯弹幕/SC
+      // 1. 解析唤醒词：按换行符分割 -> 去除首尾空格 -> 过滤空行
+      const wakeStr = this.liveConfig.wakeWord || "";
+      // 正则 /[\r\n]+/ 兼容 Windows 和 Linux 换行符
+      const wakeKeywords = wakeStr.split(/[\r\n]+/)
+                                  .map(k => k.trim())
+                                  .filter(k => k.length > 0);
+
+      // 2. 定义匹配函数：如果没有设置唤醒词，默认全部通过；否则检查是否包含任意一个关键词
+      const isMatchWakeWord = (text) => {
+        if (wakeKeywords.length === 0) return true; // 未设置唤醒词，放行
+        return wakeKeywords.some(keyword => text.includes(keyword));
+      };
+      
+      // 3. 根据配置判断
       if (this.liveConfig.onlyDanmaku) {
+        // 【模式A】: 只接收弹幕/SC，且需满足唤醒词
         if (danmuItem.type === "danmaku" || danmuItem.type === "super_chat") {
-           // 如果设置了唤醒词，必须包含唤醒词
-           if (this.liveConfig.wakeWord) {
-             if (data.content.includes(this.liveConfig.wakeWord)) {
-               shouldAdd = true;
-             }
-           } else {
+           if (isMatchWakeWord(data.content)) {
              shouldAdd = true;
            }
         }
       } else {
-        // 接收所有类型
+        // 【模式B】: 接收所有类型
         if (danmuItem.type === "danmaku" || danmuItem.type === "super_chat") {
-          if (this.liveConfig.wakeWord) {
-            if (data.content.includes(this.liveConfig.wakeWord)) {
-              shouldAdd = true;
-            }
-          } else {
+          // 文本类消息：需要检查唤醒词
+          if (isMatchWakeWord(data.content)) {
             shouldAdd = true;
           }
         } else {
-          // 礼物、进场等其他类型直接放行
+          // 非文本类消息（礼物、进场等）：直接放行，不受唤醒词限制
           shouldAdd = true;
         }
       }

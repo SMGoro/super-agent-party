@@ -12009,14 +12009,16 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   @change="autoSaveSettings"
                                 />
                               </el-form-item> 
-                              <el-form-item :label="t('danmakuWakeWord')">
-                                <el-input
-                                  v-model="liveConfig.wakeWord"
-                                  :placeholder="t('botWakeWordPlaceholder')"
-                                  class="full-width-input"
-                                  @change="autoSaveSettings"
-                                />
-                              </el-form-item>
+                                <el-form-item :label="t('danmakuWakeWord')">
+                                  <el-input
+                                    v-model="liveConfig.wakeWord"
+                                    :placeholder="t('botWakeWordPlaceholder')"
+                                    class="full-width-input"
+                                    @change="autoSaveSettings"
+                                    type="textarea" 
+                                    :rows="3"
+                                  />
+                                </el-form-item>
                             </div>
                           </div>
                         </el-form>
