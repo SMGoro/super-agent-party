@@ -1895,10 +1895,38 @@ let vue_methods = {
                                     currentMsg.content += '</div>\n\n';
                                     this.isThinkOpen = false;
                                 }
-                                if (parsed.choices?.[0]?.delta?.tool_link && this.toolsSettings.toolMemorandum.enabled) {
-                                    this.fileLinks.push(parsed.choices[0].delta.tool_link);
+
+                                const tool = parsed.choices[0].delta.tool_content;
+                                const toolLink = parsed.choices[0].delta.tool_link;
+                                
+                                // --- 解决样式问题的关键：根据 type 决定 CSS 类名 ---
+                                let className = 'highlight-block';
+                                if (typeof tool === 'object' && tool.type === 'error') {
+                                    className = 'highlight-block-error';
                                 }
-                                currentMsg.content += parsed.choices[0].delta.tool_content + '\n\n';
+
+                                let html = `<div class="${className}">`;
+                                
+                                if (typeof tool === 'object') {
+                                    if (tool.title) {
+                                        html += `<div style="font-weight: bold; margin-bottom: 5px;">${tool.title}</div>`;
+                                    }
+                                    if (tool.content) {
+                                        html += `<div>${tool.content}</div>`;
+                                    }
+                                } else {
+                                    html += `<div>${tool}</div>`;
+                                }
+
+                                if (toolLink) {
+                                    if (this.toolsSettings.toolMemorandum.enabled) {
+                                        this.fileLinks.push(toolLink);
+                                    }
+                                }
+
+                                html += '</div>\n\n';
+                                
+                                currentMsg.content += html;
                                 this.scrollToBottom();
                             }
 

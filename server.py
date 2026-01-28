@@ -1757,7 +1757,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f"""<div class="highlight-block"><div style="margin-bottom: 10px;">{tid}{await t("tool_result")}</div><div>{str(response["result"])}</div></div>""",
+                                        "tool_content": {"title": f"{tid}{await t('tool_result')}", "content": str(response["result"])},
                                         "async_tool_id": tid,
                                         "tool_link": fileLink,
                                     }
@@ -1799,7 +1799,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f"""<div class="highlight-block"><div style="margin-bottom: 10px;">{tid}{await t("tool_result")}</div><div>{str(response["result"])}</div></div>""",
+                                        "tool_content": {"title": f"{tid}{await t('tool_result')}", "content": f"Error: {str(response['result'])}"},
                                         "async_tool_id": tid,
                                         "tool_link": fileLink,
                                     }
@@ -1853,7 +1853,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "delta": {
                                         "role":"assistant",
                                         "content": "",
-                                        "tool_content": f'\n\n<div class="highlight-block">\n{await t("KB_search")}</div>\n\n',
+                                        "tool_content": {"title": await t("KB_search"), "content": ""},
                                     }
                                 }
                             ]
@@ -1883,7 +1883,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f"""<div class="highlight-block"><div style="margin-bottom: 10px;">{await t("search_result")}</div><div>{str(all_kb_content)}</div></div>""",
+                                        "tool_content": {"title": await t("search_result"), "content": str(all_kb_content)},
                                         "tool_link": fileLink,
                                     }
                                 }]
@@ -1906,7 +1906,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "delta": {
                                         "role":"assistant",
                                         "content": "",
-                                        "tool_content": f'\n\n<div class="highlight-block">\n{await t("web_search")}</div>\n\n',
+                                        "tool_content": {"title": await t("web_search"), "content": ""},
                                     }
                                 }
                             ]
@@ -1945,7 +1945,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f"""<div class="highlight-block"><div style="margin-bottom: 10px;">{await t("search_result")}</div><div>{str(results)}</div></div>""",
+                                        "tool_content": {"title": await t("search_result"), "content": str(results)},
                                         "tool_link": fileLink,
                                     }
                                 }]
@@ -1990,7 +1990,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     deepsearch_chunk = {
                         "choices": [{
                             "delta": {
-                                "tool_content": f'\n\n<div class="highlight-block">\n💖{await t("start_task")}{user_prompt}</div>\n\n',
+                                "tool_content": {"title": f"💖{await t('start_task')}", "content": user_prompt},
                             }
                         }]
                     }
@@ -2285,7 +2285,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n❌{await t("task_error")}</div>\n\n',
+                                    "tool_content": {"title": f"❌{await t('task_error')}", "content": ""}
                                 }
                             }]
                         }
@@ -2294,7 +2294,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n✅{await t("task_done")}</div>\n\n',
+                                   "tool_content": {"title": f"✅{await t('task_done')}", "content": ""},
                                 }
                             }]
                         }
@@ -2304,7 +2304,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n❎{await t("task_not_done")}</div>\n\n',
+                                    "tool_content": {"title": f"❎{await t('task_not_done')}", "content": ""},
                                 }
                             }]
                         }
@@ -2329,7 +2329,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n❓{await t("task_need_more_info")}</div>\n\n'
+                                    "tool_content": {"title": f"❓{await t('task_need_more_info')}", "content": ""}
                                 }
                             }]
                         }
@@ -2340,7 +2340,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n🔍{await t("enter_search_stage")}</div>\n\n'
+                                    "tool_content": {"title": f"🔍{await t('enter_search_stage')}", "content": ""}
                                 }
                             }]
                         }
@@ -2364,7 +2364,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n🔍{await t("need_more_work")}</div>\n\n'
+                                    "tool_content": {"title": f"🔍{await t('need_more_work')}", "content": ""}
                                 }
                             }]
                         }
@@ -2389,7 +2389,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         search_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n⭐{await t("enter_answer_stage")}</div>\n\n'
+                                    "tool_content": {"title": f"⭐{await t('enter_answer_stage')}", "content": ""}
                                 }
                             }]
                         }
@@ -2424,7 +2424,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": f'\n\n<div class="highlight-block">\n{await t("web_search")}</div>\n\n'
+                                            "tool_content": {"title": await t("web_search"), "content": ""}
                                         }
                                     }
                                 ]
@@ -2440,7 +2440,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": f'\n\n<div class="highlight-block">\n{await t("web_search_more")}</div>\n\n'
+                                            "tool_content": {"title": await t("web_search_more"), "content": ""}
                                         }
                                     }
                                 ]
@@ -2456,7 +2456,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": f'\n\n<div class="highlight-block">\n{await t("knowledge_base")}</div>\n\n'
+                                            "tool_content": {"title": await t("knowledge_base"), "content": ""}
                                         }
                                     }
                                 ]
@@ -2472,7 +2472,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": f'\n\n<div class="highlight-block">\n{await t("call")}{response_content.name}{await t("tool")}</div>\n\n'
+                                            "tool_content": {"title": f"{await t('call')}{response_content.name}{await t('tool')}", "content": ""}
                                         }
                                     }
                                 ]
@@ -2485,7 +2485,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         tool_call_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": f'\n\n<div class="highlight-block">\n{modified_tool}\n</div></div>\n\n',
+                                    "tool_content": {"title": await t("sendArg"), "content": str(data_list[0])}
                                 }
                             }]
                         }
@@ -2595,13 +2595,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 # 老逻辑：一次性写完、一次性发
                                 async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
                                     await f.write(str(results))
-                                html = (
-                                    '<div class="highlight-block">'
-                                    f'<div style="margin-bottom: 10px;">{tool_name_text}</div>'
-                                    f'<div>{results}</div>'
-                                    '</div></div>'
-                                )
-                                yield make_sse(html)
+                                yield make_sse({"title": tool_name_text, "content": str(results)})
                             else:  # AsyncIterator[str]
                                 buffer = []
                                 first = True
@@ -2611,16 +2605,11 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         await f.flush()
                                         buffer.append(chunk)
                                         if first:                       # 第一次：带头部
-                                            html = (
-                                                '<div class="highlight-block">'
-                                                f'<div style="margin-bottom: 10px;">{stream_tool_name_text}</div>'
-                                                f'<div>{chunk}'
-                                            )
+                                            yield make_sse({"title": stream_tool_name_text, "content": chunk})
                                             first = False
-                                        else:                           # 中间：只拼裸文本
-                                            html = chunk
 
-                                        yield make_sse(html)
+                                        yield make_sse({"title": "", "content": chunk})
+
 
                                     # 迭代结束：补尾部
                                     yield make_sse('</div></div></div>')
@@ -2910,7 +2899,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n❌{await t("task_error")}</div>\n\n',
+                                        "tool_content": {"title": f"❌{await t('task_error')}", "content": ""}
                                     }
                                 }]
                             }
@@ -2919,7 +2908,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n✅{await t("task_done")}</div>\n\n',
+                                        "tool_content": {"title": f"✅{await t('task_done')}", "content": ""}
                                     }
                                 }]
                             }
@@ -2929,7 +2918,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n❎{await t("task_not_done")}</div>\n\n',
+                                        "tool_content": {"title": f"❎{await t('task_not_done')}", "content": ""}
                                     }
                                 }]
                             }
@@ -2954,7 +2943,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n❓{await t("task_need_more_info")}</div>\n\n'
+                                        "tool_content": {"title": f"❓{await t('task_need_more_info')}", "content": ""}
                                     }
                                 }]
                             }
@@ -2965,7 +2954,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n🔍{await t("enter_search_stage")}</div>\n\n'
+                                        "tool_content": {"title": f"🔍{await t('enter_search_stage')}", "content": ""}
                                     }
                                 }]
                             }
@@ -2989,7 +2978,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n🔍{await t("need_more_work")}</div>\n\n'
+                                        "tool_content": {"title": f"🔍{await t('need_more_work')}", "content": ""}
                                     }
                                 }]
                             }
@@ -3014,7 +3003,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             search_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": f'\n\n<div class="highlight-block">\n⭐{await t("enter_answer_stage")}</div>\n\n'
+                                        "tool_content": {"title": f"⭐{await t('enter_answer_stage')}", "content": ""}
                                     }
                                 }]
                             }
@@ -3052,18 +3041,22 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     print("知识库更新任务已提交")
                 return
             except Exception as e:
-                logger.error(f"Error occurred: {e}")
-                # 捕获异常并返回错误信息
-                error_chunk = {
-                    "choices": [{
-                        "delta": {
-                            "tool_content": f'\n\n<div class="highlight-block-error">\n❎ {str(e)}</div>\n\n',
+                        logger.error(f"Error occurred: {e}")
+                        # 捕获异常并返回结构化错误信息
+                        error_chunk = {
+                            "choices": [{
+                                "delta": {
+                                    "tool_content": {
+                                        "title": "❎ Error", # 统一标题
+                                        "content": str(e),   # 错误详情
+                                        "type": "error"      # 标记类型，方便前端切换样式
+                                    }
+                                }
+                            }]
                         }
-                    }]
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
-                yield "data: [DONE]\n\n"  # 确保最终结束
-                return
+                        yield f"data: {json.dumps(error_chunk)}\n\n"
+                        yield "data: [DONE]\n\n"  # 确保最终结束
+                        return
         
         return StreamingResponse(
             stream_generator(user_prompt, DRS_STAGE),
