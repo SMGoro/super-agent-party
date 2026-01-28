@@ -2013,6 +2013,68 @@ let vue_methods = {
         }
     },
 
+
+    async handleInputPaste(event) {
+      const items = (event.clipboardData || window.clipboardData).items;
+      
+      const imageFiles = []; // 待上传的图片列表
+      const docFiles = [];   // 待上传的普通文件列表
+      let hasValidContent = false;
+
+      // 1. 遍历剪贴板项目
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          // 获取文件后缀（小写）
+          const ext = (file.name.split('.').pop() || '').toLowerCase();
+          // 判断 MIME 类型是否为图片
+          const isImageMime = item.type.startsWith('image/');
+
+          // --- 情况 A: 是图片 (MIME是图片 或 后缀在图片白名单中) ---
+          if (isImageMime || ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+            // 如果文件名是通用的 "image.png" (通常是截图)，或者是无后缀的，给它重命名
+            // 这样可以避免多次截图文件名冲突
+            if (file.name === 'image.png' || !file.name.includes('.')) {
+              const fileExtension = file.type.split('/')[1] || 'png';
+              const namedFile = new File([file], `pasted_image_${Date.now()}.${fileExtension}`, { type: file.type });
+              imageFiles.push(namedFile);
+            } else {
+              // 如果是从文件夹复制的已有图片，保留原文件名
+              imageFiles.push(file);
+            }
+            hasValidContent = true;
+          } 
+          // --- 情况 B: 是普通文件 (后缀在文件白名单中) ---
+          else if (ALLOWED_EXTENSIONS.includes(ext)) {
+            // 普通文件直接添加，保留原名
+            docFiles.push(file);
+            hasValidContent = true;
+          }
+        }
+      }
+
+      // 2. 如果找到了有效内容 (图片或文件)
+      if (hasValidContent) {
+        // 3. 阻止默认粘贴行为 (防止文件名或乱码进入输入框)
+        event.preventDefault();
+
+        // 4. 分别处理图片和文件
+        if (imageFiles.length > 0) {
+          this.addFiles(imageFiles, 'image');
+        }
+
+        if (docFiles.length > 0) {
+          this.addFiles(docFiles, 'file');
+        }
+        
+        // 5. 交互优化：如果有文件进入，拉高输入框（可选）
+        // if (this.images.length > 0 || this.files.length > 0) {
+        //   this.isInputExpanded = true;
+        // }
+      }
+    },
     getRoleAvatar(name) {
         // 尝试从记忆列表查找
         const mem = this.memories.find(m => m.name === name);
