@@ -1747,19 +1747,11 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     for response in responses_to_send:
                         tid = response["tool_id"]
                         if response["status"] == "completed":
-                            # 构造文件名
-                            filename = f"{tid}.txt"
-                            # 将搜索结果写入uploaded_file文件夹下的filename文件
-                            with open(os.path.join(TOOL_TEMP_DIR, filename), "w", encoding='utf-8') as f:
-                                f.write(str(response["result"]))            
-                            # 将文件链接更新为新的链接
-                            fileLink=f"{fastapi_base_url}tool_temp/{filename}"
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": {"title": f"{tid}{await t('tool_result')}", "content": str(response["result"])},
+                                        "tool_content": {"title": response["name"], "content": str(response["result"]), "type": "tool_result"},
                                         "async_tool_id": tid,
-                                        "tool_link": fileLink,
                                     }
                                 }]
                             }
@@ -1789,19 +1781,11 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 }
                             )
                         if response["status"] == "error":
-                            # 构造文件名
-                            filename = f"{tid}.txt"
-                            # 将搜索结果写入uploaded_file文件夹下的filename文件
-                            with open(os.path.join(TOOL_TEMP_DIR, filename), "w", encoding='utf-8') as f:
-                                f.write(str(response["result"]))            
-                            # 将文件链接更新为新的链接
-                            fileLink=f"{fastapi_base_url}tool_temp/{filename}"
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
                                         "tool_content": {"title": f"{tid}{await t('tool_result')}", "content": f"Error: {str(response['result'])}"},
-                                        "async_tool_id": tid,
-                                        "tool_link": fileLink,
+                                        "async_tool_id": tid
                                     }
                                 }]
                             }
@@ -1853,7 +1837,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "delta": {
                                         "role":"assistant",
                                         "content": "",
-                                        "tool_content": {"title": await t("KB_search"), "content": ""},
+                                        "tool_content": {"title": "query_knowledge_base", "content": "", "type": "call"},
                                     }
                                 }
                             ]
@@ -1870,21 +1854,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             all_kb_content = json.dumps(all_kb_content, ensure_ascii=False, indent=4)
                             kb_message = f"\n\n可参考的知识库内容：{all_kb_content}"
                             content_append(request.messages, 'user',  f"{kb_message}\n\n用户：{user_prompt}")
-                                                    # 获取时间戳和uuid
-                            timestamp = time.time()
-                            uid = str(uuid.uuid4())
-                            # 构造文件名
-                            filename = f"{timestamp}_{uid}.txt"
-                            # 将搜索结果写入UPLOAD_FILES_DIR文件夹下的filename文件
-                            with open(os.path.join(TOOL_TEMP_DIR, filename), "w", encoding='utf-8') as f:
-                                f.write(str(all_kb_content))           
-                            # 将文件链接更新为新的链接
-                            fileLink=f"{fastapi_base_url}tool_temp/{filename}"
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": {"title": await t("search_result"), "content": str(all_kb_content)},
-                                        "tool_link": fileLink,
+                                        "tool_content": {"title": "query_knowledge_base", "content": str(all_kb_content), "type": "tool_result"},
                                     }
                                 }]
                             }
@@ -1906,7 +1879,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "delta": {
                                         "role":"assistant",
                                         "content": "",
-                                        "tool_content": {"title": await t("web_search"), "content": ""},
+                                        "tool_content": {"title": "web_search", "content": "", "type": "call"},
                                     }
                                 }
                             ]
@@ -1932,21 +1905,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             results = await bochaai_search_async(user_prompt)
                         if results:
                             content_append(request.messages, 'user',  f"\n\n联网搜索结果：{results}\n\n请根据联网搜索结果组织你的回答，并确保你的回答是准确的。")
-                            # 获取时间戳和uuid
-                            timestamp = time.time()
-                            uid = str(uuid.uuid4())
-                            # 构造文件名
-                            filename = f"{timestamp}_{uid}.txt"
-                            # 将搜索结果写入uploaded_file文件夹下的filename文件
-                            with open(os.path.join(TOOL_TEMP_DIR, filename), "w", encoding='utf-8') as f:
-                                f.write(str(results))           
-                            # 将文件链接更新为新的链接
-                            fileLink=f"{fastapi_base_url}tool_temp/{filename}"
                             tool_chunk = {
                                 "choices": [{
                                     "delta": {
-                                        "tool_content": {"title": await t("search_result"), "content": str(results)},
-                                        "tool_link": fileLink,
+                                        "tool_content": {"title": "web_search", "content": str(results), "type": "tool_result"},
                                     }
                                 }]
                             }
@@ -1990,7 +1952,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     deepsearch_chunk = {
                         "choices": [{
                             "delta": {
-                                "tool_content": {"title": f"💖{await t('start_task')}", "content": user_prompt},
+                                "tool_content": {"title": "deep_research", "content": user_prompt, "type": "call"},
                             }
                         }]
                     }
@@ -2424,7 +2386,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": {"title": await t("web_search"), "content": ""}
+                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
                                         }
                                     }
                                 ]
@@ -2440,7 +2402,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": {"title": await t("web_search_more"), "content": ""}
+                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
                                         }
                                     }
                                 ]
@@ -2456,7 +2418,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": {"title": await t("knowledge_base"), "content": ""}
+                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
                                         }
                                     }
                                 ]
@@ -2472,7 +2434,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_content": {"title": f"{await t('call')}{response_content.name}{await t('tool')}", "content": ""}
+                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
                                         }
                                     }
                                 ]
@@ -2485,7 +2447,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         tool_call_chunk = {
                             "choices": [{
                                 "delta": {
-                                    "tool_content": {"title": await t("sendArg"), "content": str(data_list[0])}
+                                    "tool_content": {"title": "arguments", "content": str(data_list[0]), "type": "call"},
                                 }
                             }]
                         }
@@ -2570,49 +2532,36 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         if settings['tools']['asyncTools']['enabled']:
                             pass
                         else:
-                            timestamp = time.time()
-                            uid     = str(uuid.uuid4())
-                            filename = f"{timestamp}_{uid}.txt"
-                            file_path = os.path.join(TOOL_TEMP_DIR, filename)
 
                             # 工具名国际化
                             tool_name_text = f"{response_content.name}{await t('tool_result')}"
                             stream_tool_name_text = f"{response_content.name}{await t('stream_tool_result')}"
                             # ---------- 统一 SSE 封装 ----------
-                            def make_sse(tool_html: str) -> str:
+                            def make_sse(tool_data: dict) -> str:
                                 chunk = {
                                     "choices": [{
                                         "delta": {
-                                            "tool_content": tool_html,
-                                            "tool_link": f"{fastapi_base_url}tool_temp/{filename}",
+                                            "tool_content": tool_data, # 这里直接传字典
                                         }
                                     }]
                                 }
                                 return f"data: {json.dumps(chunk)}\n\n"
 
+
                             # ---------- 分情况处理 ----------
                             if not isinstance(results, AsyncIterator):
-                                # 老逻辑：一次性写完、一次性发
-                                async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-                                    await f.write(str(results))
-                                yield make_sse({"title": tool_name_text, "content": str(results)})
+                                yield make_sse({"title": response_content.name, "content": str(results), "type": "tool_result"})
                             else:  # AsyncIterator[str]
                                 buffer = []
                                 first = True
-                                async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-                                    async for chunk in results:
-                                        await f.write(chunk)
-                                        await f.flush()
-                                        buffer.append(chunk)
-                                        if first:                       # 第一次：带头部
-                                            yield make_sse({"title": stream_tool_name_text, "content": chunk})
-                                            first = False
+                                async for chunk in results:
+                                    buffer.append(chunk)
+                                    if first:                       # 第一次：带头部
+                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result"}) # type标记为结果
+                                        first = False
 
-                                        yield make_sse({"title": "", "content": chunk})
+                                    yield make_sse({"title": "", "content": chunk})
 
-
-                                    # 迭代结束：补尾部
-                                    yield make_sse('</div></div></div>')
                                 results = "".join(buffer)
                         request.messages.append(
                             {
