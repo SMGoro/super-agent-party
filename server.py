@@ -999,7 +999,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         latex_message = "\n\n当你想使用latex公式时，你必须是用 ['$', '$'] 作为行内公式定界符，以及 ['$$', '$$'] 作为行间公式定界符。\n\n"
         content_append(request.messages, 'system', latex_message)
     if settings['tools']['language']['enabled']:
-        language_message = f"请使用{settings['tools']['language']['language']}语言推理分析思考，不要使用其他语言推理分析，语气风格为{settings['tools']['language']['tone']}\n\n"
+        language_message = f"请使用{settings['tools']['language']['language']}语言说话！，不要使用其他语言，语气风格为{settings['tools']['language']['tone']}\n\n"
         content_append(request.messages, 'system', language_message)
     if settings["stickerPacks"]:
         for stickerPack in settings["stickerPacks"]:
@@ -1645,16 +1645,14 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{char}}", cur_memory["name"])
-                print("添加系统提示：\n\n" + cur_memory["systemPrompt"] + "\n\n系统提示结束\n\n")
-                content_append(request.messages, 'system', "系统提示：\n\n" + cur_memory["systemPrompt"] + "\n\n系统提示结束\n\n")
+                content_append(request.messages, 'system', "\n\n" + cur_memory["systemPrompt"] + "\n\n")
             if settings["memorySettings"]["genericSystemPrompt"]:
                 if settings["memorySettings"]["userName"]:
                     # 替换settings["memorySettings"]["genericSystemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
                     settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
-                print("添加系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
-                content_append(request.messages, 'system', "系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
+                content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
             if m0:
                 memoryLimit = settings["memorySettings"]["memoryLimit"]
                 try:
