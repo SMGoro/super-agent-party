@@ -465,10 +465,8 @@ class TelegramClient:
     def _clean_text(self, text: str) -> str:
         # 1. 移除 Markdown 图片 ![alt](url) -> 空
         text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        # 2. (可选) 如果你想保留链接显示为 [标题](链接)，就不要执行下面这行
-        # text = re.sub(r"\[.*?\]\(.*?\)", "", text) 
-        # 3. (可选) 移除纯 http 链接，看你需求
-        # text = re.sub(r"https?://\S+", "", text)
+        # 移除html标签
+        text = re.sub(r'<.*?>', '', text)
         return text.strip()
 
     def _extract_images(self, full_text: str, state: dict):

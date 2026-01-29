@@ -1588,6 +1588,15 @@ app.whenReady().then(async () => {
         `);
       }
     });
+    ipcMain.handle('request-stop-dingtalk', async (event) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        // 执行渲染进程(Vue)中挂载的清理方法
+        await win.webContents.executeJavaScript(`
+          window.stopDingtalkBotHandler && window.stopDingtalkBotHandler()
+        `);
+      }
+    });
     ipcMain.handle('request-stop-telegrambot', async (event) => {
       const win = BrowserWindow.getAllWindows()[0]; // 获取主窗口
       if (win && !win.isDestroyed()) {
@@ -1684,20 +1693,12 @@ app.on('before-quit', async (event) => {
     // 1. 尝试停止QQ机器人
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.webContents.executeJavaScript(`
-        if (window.stopQQBotHandler) {
-          window.stopQQBotHandler();
-        }
-      `);
-      
-      await mainWindow.webContents.executeJavaScript(`
-        if (window.stopFeishuBotHandler) {
-          window.stopFeishuBotHandler();
-        }
-      `);
-      await mainWindow.webContents.executeJavaScript(`
-        if (window.stopDiscordBotHandler) {
-          window.stopDiscordBotHandler();
-        }
+        if (window.stopQQBotHandler) window.stopQQBotHandler();
+        if (window.stopFeishuBotHandler) window.stopFeishuBotHandler();
+        if (window.stopDingtalkBotHandler) window.stopDingtalkBotHandler(); // 核心
+        if (window.stopDiscordBotHandler) window.stopDiscordBotHandler();
+        if (window.stopTelegramBotHandler) window.stopTelegramBotHandler();
+        if (window.stopSlackBotHandler) window.stopSlackBotHandler();
       `);
 
       // 等待机器人停止（最多1秒）

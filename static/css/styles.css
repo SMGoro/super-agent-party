@@ -4415,7 +4415,6 @@ body {
 .messages-container {
   border: none !important;
   box-shadow: none !important;
-  background-image: radial-gradient(var(--el-border-color-lighter) 1px, transparent 1px);
   background-size: 30px 30px; /* 点阵背景 */
 }
 

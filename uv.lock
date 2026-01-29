@@ -729,6 +729,19 @@ wheels = [
 ]
 
 [[package]]
+name = "dingtalk-stream"
+version = "0.24.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "requests" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/44/102dede3f371277598df6aa9725b82e3add068c729333c7a5dbc12764579/dingtalk_stream-0.24.3-py3-none-any.whl", hash = "sha256:2160403656985962878bf60cdf5adf41619f21067348e06f07a7c7eebf5943ad", size = 27813, upload-time = "2025-10-24T09:36:57.497Z" },
+]
+
+[[package]]
 name = "discord-py"
 version = "2.6.4"
 source = { registry = "https://pypi.org/simple" }
@@ -6523,6 +6536,7 @@ dependencies = [
     { name = "bs4" },
     { name = "claude-agent-sdk" },
     { name = "ddgs" },
+    { name = "dingtalk-stream" },
     { name = "discord-py" },
     { name = "docstring-parser" },
     { name = "duckduckgo-search" },
@@ -6591,6 +6605,7 @@ requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "claude-agent-sdk", specifier = ">=0.1.3" },
     { name = "ddgs", specifier = ">=9.5.4" },
+    { name = "dingtalk-stream", specifier = ">=0.24.3" },
     { name = "discord-py", specifier = ">=2.6.4" },
     { name = "docstring-parser", specifier = ">=0.16" },
     { name = "duckduckgo-search", specifier = ">=8.0.3" },

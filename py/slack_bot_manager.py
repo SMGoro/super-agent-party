@@ -216,6 +216,8 @@ class SlackBotManager:
             state["image_cache"].append(m.group(1))
 
     def _clean_text(self, text: str) -> str:
+        # 移除html标签
+        text = re.sub(r'<.*?>', '', text)
         return re.sub(r"!\[.*?\]\(.*?\)", "", text).strip()
 
     async def _send_image(self, cid: str, url: str, web_client: AsyncWebClient):

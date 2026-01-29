@@ -811,6 +811,7 @@ const app = Vue.createApp({
     if (isElectron) {
       window.stopQQBotHandler = this.requestStopQQBotIfRunning;
       window.stopFeishuBotHandler = this.requestFeishuBotStopIfRunning;
+      window.stopDingtalkBotHandler = this.requestDingtalkBotStopIfRunning;
       window.stopDiscordBotHandler = this.requestDiscordBotStopIfRunning;
       window.stopTelegramBotHandler = this.requestTelegramBotStopIfRunning;
       window.stopSlackBotHandler = this.requestSlackBotStopIfRunning;
@@ -898,6 +899,7 @@ const app = Vue.createApp({
     if (isElectron) {
       delete window.stopQQBotHandler;
       delete window.stopFeishuBotHandler;
+      delete window.stopDingtalkBotHandler;
       delete window.stopDiscordBotHandler;
       delete window.stopTelegramBotHandler;
       delete window.stopSlackBotHandler;
@@ -1265,8 +1267,25 @@ const app = Vue.createApp({
         }));
       return [...this.defaultSeparators, ...custom];
     },
+  // 校验配置是否填写完整
+  isdingtalkBotConfigValid() {
+    return this.dingtalkBotConfig.appKey && this.dingtalkBotConfig.appSecret;
+  },
+  
+  // 处理分隔符列表展示
+  filteredDingtalkSeparators() {
+    const current = this.dingtalkBotConfig.separators || [];
+    const defaults = this.defaultSeparators || []; // 假设你有默认分隔符定义
+    const custom = current
+      .filter(s => !defaults.some(d => d.value === s))
+      .map(s => ({
+        label: `(${this.formatSeparator(s)})`,
+        value: s
+      }));
+    return [...defaults, ...custom];
+  },
     isTelegramBotConfigValid() {
-      return this.feishuBotConfig.appid && this.feishuBotConfig.secret;
+      return this.telegramBotConfig.bot_token;
     },
     filteredTelegramSeparators() {
       const current = this.telegramBotConfig.separators;
