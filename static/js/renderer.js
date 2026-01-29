@@ -1502,6 +1502,25 @@ const app = Vue.createApp({
     currentTab() {
         return this.browserTabs.find(t => t.id === this.currentTabId);
     },
+    allItems() {
+      // 1. 给文件列表添加 type 标识
+      const filesWithType = (this.files || []).map(f => ({
+        ...f,
+        type: 'file'
+      }));
+
+      // 2. 给图片列表添加 type 标识
+      const imagesWithType = (this.images || []).map(img => ({
+        ...img,
+        type: 'image'
+      }));
+
+      // 3. 合并：文件在前，图片在后（对应你的 removeItem 逻辑）
+      return [...filesWithType, ...imagesWithType];
+    },
+    hasAttachments() {
+      return this.allItems && this.allItems.length > 0;
+    },
   },
   methods: {
     ...vue_methods,

@@ -32,7 +32,7 @@ duckduckgo_tool = {
     "type": "function",
     "function": {
         "name": "DDGsearch_async",
-        "description": f"通过关键词获得DuckDuckGo搜索上的信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": f"通过关键词获得DuckDuckGo搜索上的信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -98,7 +98,7 @@ searxng_tool = {
     "type": "function",
     "function": {
         "name": "searxng_async",
-        "description": "通过SearXNG开源元搜索引擎获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过SearXNG开源元搜索引擎获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -174,7 +174,7 @@ bochaai_tool = {
     "type": "function",
     "function": {
         "name": "bochaai_search_async",
-        "description": "通过博查得智能搜索API获取网络信息，支持深度语义理解。回答时，在回答的最下方按照以下格式标注信息来源：[网站名称](链接地址)，注意：1.链接地址直接使用原始URL 2.不要添加任何空格 3.多个来源换行排列。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过博查得智能搜索API获取网络信息，支持深度语义理解。回答时，在回答的最下方按照以下格式标注信息来源：[网站名称](链接地址)，注意：1.链接地址直接使用原始URL 2.不要添加任何空格 3.多个来源换行排列。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -215,7 +215,7 @@ tavily_tool = {
     "type": "function",
     "function": {
         "name": "Tavily_search_async",
-        "description": "通过Tavily专业搜索API获取高质量的网络信息，特别适合获取实时数据和专业分析。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Tavily专业搜索API获取高质量的网络信息，特别适合获取实时数据和专业分析。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -257,7 +257,7 @@ bing_tool = {
     "type": "function",
     "function": {
         "name": "Bing_search_async",
-        "description": "通过Bing搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Bing搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -299,7 +299,7 @@ google_tool = {
     "type": "function",
     "function": {
         "name": "Google_search_async",
-        "description": "通过Google搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Google搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -339,7 +339,7 @@ brave_tool = {
     "type": "function",
     "function": {
         "name": "Brave_search_async",
-        "description": "通过Brave搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Brave搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -385,7 +385,7 @@ exa_tool = {
     "type": "function", 
     "function": {
         "name": "Exa_search_async",
-        "description": "通过Exa搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Exa搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -425,7 +425,7 @@ serper_tool = {
     "type": "function",
     "function": {
         "name": "Serper_search_async",
-        "description": "通过Serper搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Serper搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -473,7 +473,7 @@ jina_crawler_tool = {
     "type": "function",
     "function": {
         "name": "jina_crawler_async",
-        "description": "通过Jina AI的网页爬取API获取指定URL的网页内容。指定URL可以为其他搜索引擎搜索出来的网页链接，也可以是用户给出的网站链接。但不要将本机地址或内网地址开头的URL作为参数传入，因为jina将无法访问到这些URL。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Jina AI的网页爬取API获取指定URL的网页内容。指定URL可以为其他搜索引擎搜索出来的网页链接，也可以是用户给出的网站链接。但不要将本机地址或内网地址开头的URL作为参数传入，因为jina将无法访问到这些URL。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -540,7 +540,7 @@ Crawl4Ai_tool = {
     "type": "function",
     "function": {
         "name": "Crawl4Ai_search_async",
-        "description": "通过Crawl4Ai服务爬取指定URL的网页内容，返回Markdown格式的文本。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。如果需要实现引用位置到跳转脚注链接的功能，请用句末用`[^1]`加脚注用`[^1]: [网站名称](链接地址)`的markdown语法。",
+        "description": "通过Crawl4Ai服务爬取指定URL的网页内容，返回Markdown格式的文本。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
         "parameters": {
             "type": "object",
             "properties": {

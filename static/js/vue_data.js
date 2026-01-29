@@ -199,8 +199,8 @@ let vue_data = {
       arxiv: {
         enabled: false,
       },
-      toolMemorandum: {
-        enabled: true,
+      hideToolResults: {
+        enabled: false,
       },
       getFile: {
         enabled: false,

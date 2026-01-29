@@ -7731,3 +7731,196 @@ hr.footnotes-sep {
     max-width: calc(100% - 40px);
   }
 }
+
+/* =========================================
+   Unified Input & Attachment (Seamless & Thumbnail Files)
+   ========================================= */
+
+/* 1. 外层包裹器：伪装成一个完整的输入框 */
+.unified-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--el-input-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 0 1px transparent inset;
+  overflow: hidden;
+}
+
+/* 聚焦高亮 */
+.unified-input-wrapper:focus-within {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+  background-color: var(--el-bg-color);
+}
+
+/* 2. 附件列表：透明、无边框、横向滚动 */
+.attachment-preview-list {
+  display: flex;
+  gap: 8px;
+  padding: 12px 12px 0 12px;
+  background-color: transparent !important;
+  border: none !important;
+  height: auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.attachment-preview-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* 3. 附件项通用容器 */
+.attachment-item {
+  flex-shrink: 0;
+  height: 80px; /* 统一高度 */
+  position: relative;
+  margin-bottom: 4px;
+}
+
+/* 4. 图片预览盒子 (自适应宽度，保持比例) */
+.preview-image-box {
+  height: 100%;
+  width: auto;       /* 宽度自适应 */
+  min-width: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--el-border-color-lighter);
+  background-color: rgba(128, 128, 128, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-image-box img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* 5. 文件卡片盒子 (样式重制：改为缩略图风格) */
+.file-card-box {
+  height: 100%;
+  width: 80px;        /* 固定宽度，做成正方形或竖长方形 */
+  
+  /* 布局改为纵向：图标在上，文字在下 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  
+  background-color: rgba(128, 128, 128, 0.05); /* 统一底色 */
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 6px;
+  box-sizing: border-box;
+  position: relative; /* 为遮罩层定位 */
+  transition: all 0.2s;
+}
+
+/* 文件图标调整 */
+.file-card-box .file-icon {
+  font-size: 28px;
+  color: var(--el-color-primary);
+  margin-right: 0; /* 去掉之前的右边距 */
+  margin-bottom: 2px;
+  height: auto;
+  width: auto;
+}
+
+/* 文件名调整 */
+.file-card-box .file-info {
+  width: 100%;
+  text-align: center;
+  display: block; /* 覆盖之前的 flex */
+}
+
+.file-card-box .file-name {
+  font-size: 10px; /* 字体缩小 */
+  color: var(--el-text-color-regular);
+  line-height: 1.2;
+  
+  /* 限制显示两行，超出省略 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal; /* 允许换行 */
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+/* 6. 统一的遮罩层 (Overlay) 样式 */
+/* 图片的遮罩层 */
+.preview-image-box .overlay,
+/* 文件的遮罩层 (复用之前的 .remove-btn div) */
+.file-card-box .remove-btn {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  
+  background: rgba(0, 0, 0, 0.5); /* 半透明黑色背景 */
+  backdrop-filter: blur(2px);     /* 可选：轻微模糊背景 */
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  opacity: 0; /* 默认隐藏 */
+  transition: opacity 0.2s ease;
+  z-index: 10;
+  border-radius: 8px; /* 跟随父级圆角 */
+  
+  /* 覆盖之前 remove-btn 可能存在的文字样式 */
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* 悬停显示遮罩 */
+.preview-image-box:hover .overlay,
+.file-card-box:hover .remove-btn {
+  opacity: 1;
+}
+
+/* 7. 删除按钮图标样式优化 */
+/* 让文件卡片里的 xmark 图标看起来像一个红色按钮 */
+.file-card-box .remove-btn i {
+  background-color: var(--el-color-danger);
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+
+.file-card-box .remove-btn:hover i {
+  transform: scale(1.1);
+}
+
+/* 8. 输入框本身：彻底透明化 */
+.input-box-transparent {
+  width: 100%;
+}
+.input-box-transparent .el-textarea__inner {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: var(--el-text-color-primary) !important;
+  padding: 8px 12px 12px 12px !important;
+}
+
+/* 如果有附件，调整输入框上边距 */
+.attachment-preview-list + .input-box-transparent .el-textarea__inner {
+  padding-top: 4px !important;
+}

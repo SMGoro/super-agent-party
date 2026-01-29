@@ -995,30 +995,62 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </el-button>
                 </el-tooltip>
               </div>
-              <div class="input-container"  v-if="!isCapsuleMode">
-                <!-- 紧凑型文件列表 -->
-                <div class="compact-file-list" v-if="allItems.length">
-                  <div v-for="(item, index) in allItems" :key="index" class="compact-file-item">
-                    <span class="file-name">@{{ item.name }}</span>
-                    <el-button
-                      @click.stop="removeItem(index, item.type)"
-                      class="delete-icon"
-                      circle
-                    >
-                      <i class="fa-solid fa-trash"></i>
-                    </el-button>
+              <div class="input-container" v-if="!isCapsuleMode">
+                
+                <!-- ✨✨✨ 新增：统一的外层包裹器 ✨✨✨ -->
+                <!-- tabindex="-1" 是为了让 focus-within 生效更稳定 -->
+                <div class="unified-input-wrapper">
+                  
+                  <!-- 1. 附件预览区域 -->
+                  <div class="attachment-preview-list" v-show="allItems.length > 0">
+                    <div v-for="(item, index) in allItems" :key="index" class="attachment-item">
+                      
+                      <!-- 图片类型 -->
+                      <div v-if="item.type === 'image'" class="preview-image-box">
+                        <img :src="item.path" alt="preview" />
+                        <div class="overlay">
+                          <el-button 
+                            type="danger" 
+                            circle 
+                            size="small" 
+                            @click.stop="removeItem(index, item.type)"
+                          >
+                            <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </div>
+                      </div>
+
+                      <!-- 文件类型 -->
+                      <div v-else class="file-card-box">
+                        <div class="file-icon">
+                          <i class="fa-solid fa-file-lines"></i>
+                        </div>
+                        <div class="file-info">
+                          <span class="file-name" :title="item.name">{{ item.name }}</span>
+                        </div>
+                        <div class="remove-btn" @click.stop="removeItem(index, item.type)">
+                          <i class="fa-solid fa-xmark"></i>
+                        </div>
+                      </div>
+
+                    </div>
                   </div>
-                </div>
-                <el-input
+
+                  <!-- 2. 输入框 -->
+                  <!-- 注意：这里的 class 是 input-box-transparent -->
+                  <el-input
                     v-model="userInput"
                     type="textarea"
                     :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
                     :placeholder="t('inputMessage')"
                     resize="none"
-                    @keydown="isInputting=true;handleKeyDown()"
+                    @keydown="isInputting=true;handleKeyDown($event)" 
                     @keyup="isInputting=false"
-                    class="input-box">
-                </el-input>
+                    @paste.native="handleInputPaste"
+                    class="input-box-transparent">
+                  </el-input>
+                  
+                </div> <!-- 结束 unified-input-wrapper -->
               </div>
             </div>
             <!-- 可拖拽的分割条 -->
