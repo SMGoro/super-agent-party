@@ -110,21 +110,21 @@ class DingtalkClientLogic:
         cid = incoming_message.conversation_id
         msg_type = incoming_message.message_type
         
-        user_text = ""
-        user_content_items = []
+        user_text_parts = []  # 收集所有文本片段
+        user_content_items = []  # 构造 OpenAI 格式的 content
         has_image = False
-
+        
         # --- A. 增强型消息解析 ---
         
-        # 提取文字 (无论什么类型，先看 text 字段)
-        if hasattr(incoming_message, 'text') and incoming_message.text:
-            user_text = incoming_message.text.content.strip()
-
-        # 处理图片
-        if msg_type == "picture":
+        # 1. 处理纯文本消息
+        if msg_type == "text":
+            if hasattr(incoming_message, 'text') and incoming_message.text:
+                user_text_parts.append(incoming_message.text.content.strip())
+        
+        # 2. 处理纯图片消息
+        elif msg_type == "picture":
             download_code = incoming_message.image_content.download_code
             if download_code:
-                # 获取钉钉内部临时下载地址
                 img_url = handler.get_image_download_url(download_code)
                 if img_url:
                     base64_str = await self._get_image_base64(img_url)
@@ -134,27 +134,69 @@ class DingtalkClientLogic:
                             "type": "image_url",
                             "image_url": {"url": f"data:image/jpeg;base64,{base64_str}"}
                         })
-            
-            # 钉钉在 picture 类型消息里，文字可能藏在 raw_data 中
-            if not user_text:
-                user_text = raw_data.get("content", {}).get("text", "").strip()
-
-        # 处理富文本
+            # 尝试获取图片附带文字
+            if hasattr(incoming_message, 'text') and incoming_message.text:
+                user_text_parts.append(incoming_message.text.content.strip())
+            elif raw_data.get("content", {}).get("text"):
+                user_text_parts.append(raw_data["content"]["text"].strip())
+        
+        # 3. 处理富文本消息（同时包含文字和图片）
         elif msg_type == "richText":
-            if hasattr(incoming_message, 'rich_text') and incoming_message.rich_text:
-                user_text = incoming_message.rich_text.text.strip()
+            # 关键修正：SDK 中定义的是 rich_text_content
+            if hasattr(incoming_message, 'rich_text_content') and incoming_message.rich_text_content:
+                rich_list = incoming_message.rich_text_content.rich_text_list
+                
+                if rich_list:
+                    for item in rich_list:
+                        # 提取文本
+                        if 'text' in item and item['text']:
+                            user_text_parts.append(item['text'])
+                        
+                        # 提取图片
+                        if 'downloadCode' in item and item['downloadCode']:
+                            download_code = item['downloadCode']
+                            img_url = handler.get_image_download_url(download_code)
+                            if img_url:
+                                base64_str = await self._get_image_base64(img_url)
+                                if base64_str:
+                                    has_image = True
+                                    user_content_items.append({
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_str}"}
+                                    })
+            
+            # 备用：如果 SDK 解析失败，尝试从 raw_data 解析
+            if not user_text_parts and not user_content_items:
+                content = raw_data.get('content', {})
+                if 'richText' in content:
+                    for item in content['richText']:
+                        if 'text' in item:
+                            user_text_parts.append(item['text'])
+                        if 'downloadCode' in item:
+                            # 同样的图片处理逻辑...
+                            download_code = item['downloadCode']
+                            img_url = handler.get_image_download_url(download_code)
+                            if img_url:
+                                base64_str = await self._get_image_base64(img_url)
+                                if base64_str:
+                                    has_image = True
+                                    user_content_items.append({
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_str}"}
+                                    })
 
-        # --- B. 指令与过滤 ---
+        # 合并所有文本
+        user_text = "\n".join(user_text_parts).strip()
+        
+        # --- B. 指令与过滤（保持原逻辑）---
         if not user_text and not has_image:
             return
 
-        # 快速重启指令
         if self.config.quickRestart and user_text and ("/重启" in user_text or "/restart" in user_text):
             self.memoryList[cid] = []
             handler.reply_text("对话记录已重置。", incoming_message)
             return
         
-        # 唤醒词检查 (如果是图片，通常默认允许处理，或者你也可以加上唤醒词限制)
         if self.config.wakeWord and self.config.wakeWord not in user_text and not has_image:
             return
 
@@ -162,13 +204,13 @@ class DingtalkClientLogic:
         if cid not in self.memoryList: 
             self.memoryList[cid] = []
         
-        # 构造当前轮次的内容
         current_content = []
         if user_text:
             current_content.append({"type": "text", "text": user_text})
+        
+        # 插入图片（OpenAI 格式要求图片在文本之前或混合插入，这里放在文本后也可以）
         if has_image:
             current_content.extend(user_content_items)
-            # 如果有图无字，补一个引导语
             if not user_text:
                 current_content.insert(0, {"type": "text", "text": "请分析这张图片"})
 
