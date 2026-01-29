@@ -7444,6 +7444,45 @@ async def reload_feishu_bot(config: FeishuBotConfig):
             content={"success": False, "message": str(e)}
         )
     
+from py.dingtalk_bot_manager import DingtalkBotConfig, DingtalkBotManager
+
+# 全局钉钉机器人管理器
+dingtalk_bot_manager = DingtalkBotManager()
+
+# 路由 1: 启动
+@app.post("/start_dingtalk_bot")
+async def start_dingtalk_bot(config: DingtalkBotConfig):
+    try:
+        dingtalk_bot_manager.start_bot(config)
+        return {"success": True, "message": "钉钉机器人已成功启动"}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
+
+# 路由 2: 停止
+@app.post("/stop_dingtalk_bot")
+async def stop_dingtalk_bot():
+    try:
+        dingtalk_bot_manager.stop_bot()
+        return {"success": True, "message": "钉钉机器人已停止"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
+
+# 路由 3: 状态检查
+@app.get("/dingtalk_bot_status")
+async def dingtalk_bot_status():
+    return dingtalk_bot_manager.get_status()
+
+# 路由 4: 重载配置
+@app.post("/reload_dingtalk_bot")
+async def reload_dingtalk_bot(config: DingtalkBotConfig):
+    try:
+        dingtalk_bot_manager.stop_bot()
+        time.sleep(1)
+        dingtalk_bot_manager.start_bot(config)
+        return {"success": True, "message": "钉钉机器人配置已重载"}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
+
 from py.discord_bot_manager import DiscordBotManager, DiscordBotConfig
 
 discord_bot_manager = DiscordBotManager()

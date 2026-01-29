@@ -418,6 +418,17 @@
       "enableTTS":false,
       "wakeWord": ""
     },
+    "dingtalkBotConfig": {
+      "DingtalkAgent": "super-model",
+      "memoryLimit": 30,
+      "appKey":"", 
+      "appSecret": "", 
+      "separators": ["。", "\n", "？", "！"],
+      "reasoningVisible": true,
+      "quickRestart": true,
+      "enableTTS": false,
+      "wakeWord": ""
+    },
     "telegramBotConfig": {
       "TelegramAgent": "super-model",
       "memoryLimit": 20,

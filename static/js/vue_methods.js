@@ -1238,6 +1238,7 @@ let vue_methods = {
           this.mainAgent = data.data.mainAgent || this.mainAgent;
           this.qqBotConfig = data.data.qqBotConfig || this.qqBotConfig;
           this.feishuBotConfig = data.data.feishuBotConfig || this.feishuBotConfig;
+          this.dingtalkBotConfig = data.data.dingtalkBotConfig || this.dingtalkBotConfig;
           this.discordBotConfig = data.data.discordBotConfig || this.discordBotConfig;
           this.telegramBotConfig = data.data.telegramBotConfig || this.telegramBotConfig;
           this.slackBotConfig = data.data.slackBotConfig || this.slackBotConfig;
@@ -1702,9 +1703,8 @@ let vue_methods = {
         
         // --- 内部辅助：准备发送给API的消息列表 ---
         const prepareMessages = (msgs) => {
-            const humanName = this.memorySettings.userName || 'User';
             return msgs.flatMap(msg => {
-                // 如果 assistant 消息有 backend_content，直接展开，不发带 HTML 的内容
+                // 1. 如果 assistant 消息有 backend_content，直接展开（处理工具调用等复杂情况）
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
                     return msg.backend_content.filter(m => 
                         (m.content && String(m.content).trim() !== '') || 
@@ -1712,10 +1712,36 @@ let vue_methods = {
                         m.role === 'tool'
                     );
                 }
-                // User / System 处理
+
+                // 2. 处理 User / System 消息
                 let apiRole = msg.role === 'system' ? 'system' : (msg.role === 'assistant' ? 'assistant' : 'user');
-                let baseContent = (msg.pure_content ?? msg.content);
-                return [{ role: apiRole, content: baseContent }];
+                
+                // 拼接基础文本内容（包含文件链接描述等）
+                let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
+
+                // ✨ 核心修复：检查是否有图片链接
+                if (msg.imageLinks && msg.imageLinks.length > 0) {
+                    // 构建 OpenAI 规范的 Vision 消息数组
+                    const contentArray = [
+                        {
+                            type: "text",
+                            text: textContent
+                        }
+                    ];
+
+                    // 将所有图片加入数组
+                    msg.imageLinks.forEach(imageLink => {
+                        contentArray.push({
+                            type: "image_url",
+                            image_url: { url: imageLink.path }
+                        });
+                    });
+
+                    return [{ role: apiRole, content: contentArray }];
+                } else {
+                    // 没有图片，按原样发送字符串内容
+                    return [{ role: apiRole, content: textContent }];
+                }
             });
         };
 
@@ -2232,6 +2258,7 @@ let vue_methods = {
           mainAgent: this.mainAgent,
           qqBotConfig : this.qqBotConfig,
           feishuBotConfig: this.feishuBotConfig,
+          dingtalkBotConfig: this.dingtalkBotConfig,
           discordBotConfig: this.discordBotConfig,
           slackBotConfig: this.slackBotConfig,
           telegramBotConfig: this.telegramBotConfig,
@@ -4502,6 +4529,100 @@ async requestTelegramBotStopIfRunning() {
     console.error('检查或停止 Telegram 机器人失败:', e);
   }
 },
+
+  // 1. 启动钉钉机器人
+  async startDingtalkBot() {
+    this.isDingtalkStarting = true;
+    try {
+      showNotification('正在建立钉钉 Stream 连接...', 'info');
+      const res = await fetch('/start_dingtalk_bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.dingtalkBotConfig),
+      });
+      const json = await res.json();
+      if (json.success) {
+        this.isDingtalkBotRunning = true;
+        showNotification('钉钉机器人启动成功 (Stream模式)', 'success');
+      } else {
+        showNotification(`启动失败：${json.message}`, 'error');
+      }
+    } catch (e) {
+      showNotification('网络错误：钉钉服务未响应', 'error');
+    } finally {
+      this.isDingtalkStarting = false;
+    }
+  },
+
+  // 2. 停止钉钉机器人
+  async stopDingtalkBot() {
+    this.isDingtalkStopping = true;
+    try {
+      const res = await fetch('/stop_dingtalk_bot', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        this.isDingtalkBotRunning = false;
+        showNotification('钉钉机器人连接已断开', 'success');
+      } else {
+        showNotification(`停止失败：${json.message}`, 'error');
+      }
+    } catch (e) {
+      showNotification('网络错误', 'error');
+    } finally {
+      this.isDingtalkStopping = false;
+    }
+  },
+
+  // 3. 重载钉钉机器人配置
+  async reloadDingtalkBot() {
+    this.isDingtalkReloading = true;
+    try {
+      const res = await fetch('/reload_dingtalk_bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.dingtalkBotConfig),
+      });
+      const json = await res.json();
+      if (json.success) {
+        showNotification('钉钉机器人配置已实时重载', 'success');
+      } else {
+        showNotification(`重载失败：${json.message}`, 'error');
+      }
+    } catch (e) {
+      showNotification('网络错误', 'error');
+    } finally {
+      this.isDingtalkReloading = false;
+    }
+  },
+
+  // 4. 检查钉钉机器人状态 (常用于 mounted 钩子)
+  async checkDingtalkBotStatus() {
+    try {
+      const res = await fetch('/dingtalk_bot_status');
+      const st = await res.json();
+      this.isDingtalkBotRunning = st.is_running;
+    } catch (e) {
+      console.error('检查钉钉机器人状态失败', e);
+    }
+  },
+
+  // 其他辅助方法
+  handleCreateDingtalkSeparator(val) {
+    if (!this.dingtalkBotConfig.separators) this.dingtalkBotConfig.separators = [];
+    this.dingtalkBotConfig.separators.push(val);
+  },
+
+  // 联动停止：当其他机器人启动时，确保停止当前的钉钉机器人
+  async requestDingtalkBotStopIfRunning() {
+    try {
+      const res = await fetch('/dingtalk_bot_status');
+      const st = await res.json();
+      if (st.is_running) await this.stopDingtalkBot();
+    } catch (e) {
+      console.error('停止钉钉机器人失败:', e);
+    }
+  },
+
 async startTelegramBot() {
   this.isTelegramStarting = true;
   try {

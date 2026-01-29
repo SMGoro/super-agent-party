@@ -70,4 +70,5 @@ dependencies = [
     "tetos>=0.4.2",
     "langchain-classic>=1.0.1",
     "slack-sdk>=3.39.0",
+    "dingtalk-stream>=0.24.3",
 ]

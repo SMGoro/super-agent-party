@@ -1351,6 +1351,26 @@ let vue_data = {
     isFeishuStarting: false,
     isFeishuStopping: false,
     isFeishuReloading: false,
+
+    // 钉钉机器人状态控制
+    isDingtalkStarting: false,
+    isDingtalkStopping: false,
+    isDingtalkReloading: false,
+    isDingtalkBotRunning: false,
+    
+    // 钉钉配置对象 (一比一复刻飞书结构)
+    dingtalkBotConfig: {
+      DingtalkAgent: 'super-model',
+      memoryLimit: 30,
+      appKey: '',     // 钉钉专用
+      appSecret: '',  // 钉钉专用
+      separators: ["。", "\n", "？", "！"],
+      reasoningVisible: true,
+      quickRestart: true,
+      enableTTS: false,
+      wakeWord: '',
+    },
+
     telegramBotConfig: {
       TelegramAgent: 'super-model',
       memoryLimit: 20,
@@ -1410,6 +1430,7 @@ let vue_data = {
       { id: 'live_stream', title: 'live_stream_bot', icon: "fa-solid fa-video"},
       { id: 'qq_bot', title: 'qqBot', icon: 'fa-brands fa-qq' },
       { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-paper-plane' },
+      { id: 'dingtalk_bot', title: 'dingtalkBot', icon: 'fa-solid fa-bolt' },
       { id: 'discord_bot', title: 'discordBot', icon: 'fa-brands fa-discord' },
       { id: 'telegram_bot', title: 'telegramBot', icon: 'fa-brands fa-telegram' },
       { id: 'slack_bot', title: 'slackBot', icon: 'fa-brands fa-slack' },
