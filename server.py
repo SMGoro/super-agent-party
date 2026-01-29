@@ -101,6 +101,8 @@ def fix_macos_environment():
 fix_macos_environment()
 
 def _fix_onnx_dll():
+    if sys.platform == 'darwin':
+        return
     # 1. 找到 uv 虚拟环境里的 onnxruntime
     spec = importlib.util.find_spec("onnxruntime")
     if spec is None or spec.origin is None:
