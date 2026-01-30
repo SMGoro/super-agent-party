@@ -2133,6 +2133,21 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     tool_calls[idx].function.arguments += tool.function.arguments
                                 else:
                                     tool_calls[idx].function.arguments = tool.function.arguments
+                            current_tool = tool_calls[idx]
+                            if current_tool.function and current_tool.function.name:
+                                progress_chunk = {
+                                    "choices": [{
+                                        "delta": {
+                                            "tool_progress": {  # 新增字段，区别于最终的 tool_content
+                                                "name": current_tool.function.name,
+                                                "arguments": current_tool.function.arguments or "",
+                                                "index": idx,
+                                                "id": current_tool.id or f"call_{idx}"
+                                            }
+                                        }
+                                    }]
+                                }
+                                yield f"data: {json.dumps(progress_chunk)}\n\n"
                     else:
                         if hasattr(choice.delta, "audio") and choice.delta.audio and is_tool_call == False:
                             # 只把 Base64 音频数据留在 delta 里，别动它
@@ -2447,14 +2462,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         # 使用json.loads来解析修改后的字符串为列表
                         data_list = json.loads(modified_data)
                         modified_tool = f"{await t("sendArg")}{data_list[0]}"
-                        tool_call_chunk = {
-                            "choices": [{
-                                "delta": {
-                                    "tool_content": {"title": "arguments", "content": str(data_list[0]), "type": "call"},
-                                }
-                            }]
-                        }
-                        yield f"data: {json.dumps(tool_call_chunk)}\n\n"
                         if settings['tools']['asyncTools']['enabled']:
                             tool_id = uuid.uuid4()
                             async_tool_id = f"{response_content.name}_{tool_id}"
@@ -2741,6 +2748,21 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                             tool_calls[idx].function.arguments += tool.function.arguments
                                         else:
                                             tool_calls[idx].function.arguments = tool.function.arguments
+                                current_tool = tool_calls[idx]
+                                if current_tool.function and current_tool.function.name:
+                                    progress_chunk = {
+                                        "choices": [{
+                                            "delta": {
+                                                "tool_progress": {  # 新增字段，区别于最终的 tool_content
+                                                    "name": current_tool.function.name,
+                                                    "arguments": current_tool.function.arguments or "",
+                                                    "index": idx,
+                                                    "id": current_tool.id or f"call_{idx}"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(progress_chunk)}\n\n"
                             else:
                                 # 创建原始chunk的拷贝
                                 chunk_dict = chunk.model_dump()

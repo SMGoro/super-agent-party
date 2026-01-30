@@ -1854,6 +1854,49 @@ let vue_methods = {
                             }
                         }
 
+                        // 新增：处理工具调用实时进度（流式显示参数）
+                        if (delta.tool_progress) {
+                            const progress = delta.tool_progress;
+                            const blockId = `tool-call-${progress.id}`;
+                            
+                            // 检查是否已存在该工具块
+                            const existingBlock = currentMsg.content.includes(`id="${blockId}"`);
+                            
+                            if (!existingBlock) {
+                                // 首次创建：使用原来的 highlight-block 样式
+                                if (this.isThinkOpen) { 
+                                    currentMsg.content += '</div>\n\n'; 
+                                    this.isThinkOpen = false; 
+                                }
+                                
+                                // 使用原有样式，不是新的蓝色样式！
+                                let html = `\n<div class="highlight-block" id="${blockId}">`;
+                                html += `<div style="font-weight: bold; margin-bottom: 5px;">${this.t('call')}${progress.name}${this.t('tool')}</div>`;
+                                // 使用 <pre> 包裹参数，保持格式
+                                html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;">${progress.arguments}</pre>`;
+                                html += '</div>\n';
+                                
+                                currentMsg.content += html;
+                            } else {
+                                // 更新现有块：只更新 <pre> 里的内容，实现流式效果
+                                const blockStart = currentMsg.content.indexOf(`id="${blockId}"`);
+                                const preStart = currentMsg.content.indexOf('<pre', blockStart);
+                                const contentStart = currentMsg.content.indexOf('>', preStart) + 1;
+                                const preEnd = currentMsg.content.indexOf('</pre>', contentStart);
+                                
+                                if (contentStart > 0 && preEnd > 0) {
+                                    // 替换参数内容
+                                    currentMsg.content = 
+                                        currentMsg.content.substring(0, contentStart) + 
+                                        progress.arguments + 
+                                        currentMsg.content.substring(preEnd);
+                                }
+                            }
+                            
+                            this.scrollToBottom();
+                            continue; // 跳过后续处理，这只是进度更新
+                        }
+
                         // III. 处理标准工具调用
                         if (delta.tool_calls) {
                             let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
