@@ -1693,13 +1693,13 @@ let vue_methods = {
 
 
     // ==========================================
-    // 2. AI 生成与流式处理函数（修复版，可直接替换）
+    // 2. AI 生成与流式处理函数（完全修复版）
     // ==========================================
     async generateAIResponse(targetAgentId, agentDisplayName = null) {
         // 1. 初始化统计与状态
         this.startTimer(); 
         
-        // ✨ TTS 关键变量初始化（修复）
+        // TTS 关键变量初始化
         this.voiceStack = ['default']; 
         let tts_buffer = '';
         let isCodeBlock = false;
@@ -1710,7 +1710,6 @@ let vue_methods = {
         // --- 内部辅助：准备发送给API的消息列表 ---
         const prepareMessages = (msgs) => {
             return msgs.flatMap(msg => {
-                // 1. 如果 assistant 消息有 backend_content，直接展开
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
                     return msg.backend_content.filter(m => 
                         (m.content && String(m.content).trim() !== '') || 
@@ -1719,13 +1718,9 @@ let vue_methods = {
                     );
                 }
 
-                // 2. 处理 User / System 消息
                 let apiRole = msg.role === 'system' ? 'system' : (msg.role === 'assistant' ? 'assistant' : 'user');
-                
-                // 拼接基础文本内容
                 let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
 
-                // 检查是否有图片链接
                 if (msg.imageLinks && msg.imageLinks.length > 0) {
                     const contentArray = [{ type: "text", text: textContent }];
                     msg.imageLinks.forEach(imageLink => {
@@ -1753,8 +1748,8 @@ let vue_methods = {
             backend_content: [{ role: 'assistant', content: '' }],
             isOmni: this.settings.enableOmniTTS, 
             omniAudioChunks: [], 
-            ttsChunks: [],        // TTS文本块队列
-            chunks_voice: [],     // TTS语音标记队列
+            ttsChunks: [],        
+            chunks_voice: [],     
             audioChunks: [], 
             isPlaying: false,
             total_tokens: 0, 
@@ -1767,12 +1762,15 @@ let vue_methods = {
         const currentMsg = this.messages[this.messages.length - 1]; 
         this.$nextTick(() => { this.scrollToBottom(); });
 
-        // 音频控制
+        // 音频控制 - ✨ 修复：补全 audioProcess 定义
         let audioResolve = null;
+        let audioProcess = null;  // 新增：用于 finally 中等待
         const audioPromise = new Promise((resolve) => { audioResolve = resolve; });
+        
         if (this.ttsSettings.enabled) {
             this.startTTSProcess(currentMsg);
             this.startAudioPlayProcess(currentMsg, audioResolve);
+            audioProcess = audioPromise;  // 新增：赋值给 audioProcess
         }
 
         // --- 3. 流式请求 ---
@@ -1820,7 +1818,7 @@ let vue_methods = {
                             currentMsg.first_token_latency = this.elapsedTime;
                         }
 
-                        // II. 处理普通文本 (delta.content) + ✨TTS修复
+                        // II. 处理普通文本 + TTS修复
                         if (delta.content) {
                             if (this.isThinkOpen) { 
                                 currentMsg.content += '</div>\n\n'; 
@@ -1837,16 +1835,14 @@ let vue_methods = {
                             }
                             this.scrollToBottom();
                             
-                            // ✨✨✨ 关键修复：TTS缓冲区处理 ✨✨✨
+                            // TTS缓冲区处理
                             if (this.ttsSettings.enabled) {
-                                // 跳过代码块逻辑
                                 const parts = delta.content.split('```');
                                 for (let i = 0; i < parts.length; i++) {
                                     if (!isCodeBlock) { tts_buffer += parts[i]; }
                                     if (i < parts.length - 1) { isCodeBlock = !isCodeBlock; }
                                 }
 
-                                // 分块并送入队列
                                 const { chunks, chunks_voice, remaining, remaining_voice } = this.splitTTSBuffer(tts_buffer);
                                 if (chunks.length > 0) {
                                     currentMsg.chunks_voice.push(...chunks_voice);
@@ -1857,7 +1853,7 @@ let vue_methods = {
                             }
                         }
 
-                        // III. 处理标准工具调用 (delta.tool_calls)
+                        // III. 处理标准工具调用
                         if (delta.tool_calls) {
                             let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
                             if (last.role !== 'assistant') {
@@ -1880,7 +1876,7 @@ let vue_methods = {
                             });
                         }
 
-                        // IV. 处理后端传来的 tool_content 数据
+                        // IV. 处理 tool_content
                         if (delta.tool_content) {
                             if (this.isThinkOpen) { 
                                 currentMsg.content += '</div>\n\n'; 
@@ -1921,7 +1917,6 @@ let vue_methods = {
                                 currentMsg.backend_content.push({ role: 'assistant', content: '' });
                             }
 
-                            // 前端展示渲染
                             let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
                             let uiTitle = "";
                             if (tool.type === 'call') {
@@ -1940,7 +1935,7 @@ let vue_methods = {
                             this.scrollToBottom();
                         }
 
-                        // V. 推理内容处理
+                        // V. 推理内容
                         if (delta.reasoning_content) {
                             if (!this.isThinkOpen) {
                                 currentMsg.content += '<div class="highlight-block-reasoning">';
@@ -1950,7 +1945,7 @@ let vue_methods = {
                             this.scrollToBottom();
                         }
 
-                        // VI. 其他数据处理 (Omni语音/Token等)
+                        // VI. Omni语音/Token等
                         if (delta.audio?.data) {
                             this.playPCMChunk(delta.audio.data, currentMsg.pure_content, currentMsg);
                         }
@@ -1963,7 +1958,7 @@ let vue_methods = {
                 }
             }
             
-            // ✨✨✨ 关键修复：Flush剩余TTS缓冲 ✨✨✨
+            // Flush剩余TTS缓冲
             if (tts_buffer.trim() && this.ttsSettings.enabled) {
                 currentMsg.chunks_voice.push(this.cur_voice);
                 currentMsg.ttsChunks.push(tts_buffer);
@@ -1971,7 +1966,7 @@ let vue_methods = {
             
             currentMsg.generationFinished = true;
             
-            // ✨✨✨ 关键修复：通知VRM所有块已完成 ✨✨✨
+            // 通知VRM所有块已完成
             if (this.ttsSettings.enabled) {
                 if (this.audioStartTime > this.audioCtx.currentTime) {
                     const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
@@ -1985,10 +1980,54 @@ let vue_methods = {
 
         } catch (error) {
             console.error(error);
-        } finally {
-            this.isThinkOpen = false;
-            // 确保音频Promise被resolve（出错时）
+            if (error.name !== 'AbortError') {
+                showNotification(error.message, 'error');
+            }
             if (audioResolve) audioResolve();
+        } finally {
+            // ✨✨✨ 完全恢复老版本的 finally 逻辑 ✨✨✨
+            
+            this.voiceStack = ['default'];
+            
+            if (this.allBriefly) currentMsg.briefly = true;
+            
+            // === 对话记录保存逻辑（已恢复）===
+            if (this.conversationId === null) {
+                // 新建对话
+                this.conversationId = uuid.v4();
+                const newConv = {
+                    id: this.conversationId,
+                    title: this.generateConversationTitle(messagesPayload),
+                    mainAgent: this.mainAgent,
+                    timestamp: Date.now(),
+                    messages: this.messages,
+                    fileLinks: this.fileLinks,
+                    system_prompt: this.system_prompt,
+                };
+                this.conversations.unshift(newConv);
+            } else {
+                // 更新现有对话
+                const conv = this.conversations.find(conv => conv.id === this.conversationId);
+                if (conv) {
+                    conv.messages = this.messages;
+                    conv.timestamp = Date.now();
+                    conv.fileLinks = this.fileLinks;
+                }
+            }
+
+            // === 等待TTS播放完成（已恢复）===
+            if (this.ttsSettings.enabled && audioProcess) {
+                await audioProcess;
+            }
+
+            this.isThinkOpen = false;
+            
+            // 延迟确保VRM状态重置
+            setTimeout(() => {
+                if (!this.isSending && this.audioStartTime <= this.audioCtx.currentTime) {
+                    this.sendTTSStatusToVRM('allChunksCompleted', {});
+                }
+            }, 1000);
         }
     },
 

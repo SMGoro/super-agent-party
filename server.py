@@ -2557,10 +2557,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 async for chunk in results:
                                     buffer.append(chunk)
                                     if first:                       # 第一次：带头部
-                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result"}) # type标记为结果
+                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result"})
                                         first = False
-
-                                    yield make_sse({"title": "", "content": chunk})
+                                    else:                           # 后续：不带头部
+                                        yield make_sse({"title": "", "content": chunk})
 
                                 results = "".join(buffer)
                         request.messages.append(
