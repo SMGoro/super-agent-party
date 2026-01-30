@@ -175,6 +175,11 @@
       "model":"",
       "permissionMode": "default"
     },
+    "dsSettings": {
+      "enabled": false,
+      "template": "docker/sandbox-templates:latest",
+      "permissionMode": "default"
+    },
     "ocSettings": {
       "enabled": false,
       "selectedProvider": null,

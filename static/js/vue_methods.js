@@ -1756,6 +1756,7 @@ let vue_methods = {
             first_token_latency: 0, 
             elapsedTime: 0, 
             generationFinished: false, 
+            toolBlocks: {},
         };
 
         this.messages.push(newMsgData);
@@ -1876,62 +1877,140 @@ let vue_methods = {
                             });
                         }
 
-                        // IV. 处理 tool_content
+                        // V. 处理 tool_content (Stream Merging Fixed Version)
                         if (delta.tool_content) {
-                            if (this.isThinkOpen) { 
-                                currentMsg.content += '</div>\n\n'; 
-                                this.isThinkOpen = false; 
-                            }
-                            
                             const tool = delta.tool_content;
-                            const toolId = delta.async_tool_id || `call_${Date.now()}`;
                             
-                            if (tool.type === 'call') {
-                                let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
-                                if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
-                                    currentMsg.backend_content.push({ 
-                                        role: 'assistant', 
-                                        content: null, 
-                                        tool_calls: [{ 
+                            // 判断是否为流式延续块
+                            const isStreamingContinuationChunk = tool.type === 'tool_result_stream' && 
+                                                                tool.title === "tool_result_stream"
+                            
+                            console.log("isStreamingContinuationChunk:", isStreamingContinuationChunk);
+                            
+                            if (isStreamingContinuationChunk) {
+                                console.log(">>> Entering CONTINUATION branch");
+                                
+                                // 修复：使用更宽松的匹配（可能换行符不一致）
+                                const blockEndTag = '</div>';
+                                let lastBlockEndIndex = currentMsg.content.lastIndexOf(blockEndTag);
+                                
+                                console.log("lastBlockEndIndex:", lastBlockEndIndex, "content_ends_with:", currentMsg.content.slice(-20));
+                                
+                                if (lastBlockEndIndex > -1) {
+                                    // 修复：确保我们找到的是最后一个完整块的结尾（包括后面的\n）
+                                    // 向后查找直到非空白字符或字符串结束，确保定位准确
+                                    let insertPosition = lastBlockEndIndex + blockEndTag.length;
+                                    // 跳过可能的 \n 或空格，确保插入在容器闭合之前
+                                    while (insertPosition < currentMsg.content.length && 
+                                          (currentMsg.content[insertPosition] === '\n' || currentMsg.content[insertPosition] === ' ')) {
+                                        insertPosition++;
+                                    }
+                                    
+                                    const contentToAppend = '<br>' + tool.content.replace(/\n/g, '<br>');
+                                    
+                                    // 执行插入：在 </div> 之前插入新内容
+                                    currentMsg.content = currentMsg.content.substring(0, lastBlockEndIndex) 
+                                                        + contentToAppend 
+                                                        + currentMsg.content.substring(lastBlockEndIndex);
+                                    
+                                    console.log("Content appended successfully, new length:", currentMsg.content.length);
+                                } else {
+                                    console.warn(">>> WARNING: Could not find '</div>' in content! Fallback to direct append.");
+                                    // 兜底：如果找不到，直接追加（但这也可能导致布局问题）
+                                    currentMsg.content += ' ' + tool.content.replace(/\n/g, '<br>');
+                                }
+
+                                // 更新 backend_content（保持不变）
+                                const lastToolIndex = currentMsg.backend_content.length - 1;
+                                for (let i = lastToolIndex; i >= 0; i--) {
+                                    if (currentMsg.backend_content[i].role === 'tool') {
+                                        currentMsg.backend_content[i].content += tool.content;
+                                        console.log("Updated backend_content tool at index:", i);
+                                        break;
+                                    }
+                                }
+                                
+                            } else {
+                                console.log(">>> Entering NEW BLOCK branch");
+                                
+                                // --- 确保关闭思考块 ---
+                                if (this.isThinkOpen) { 
+                                    currentMsg.content += '</div>\n\n'; 
+                                    this.isThinkOpen = false; 
+                                }
+
+                                // --- 生成工具 ID ---
+                                const toolId = delta.async_tool_id || tool.title || `call_${Date.now()}`;
+
+                                // --- 更新 backend_content ---
+                                if (tool.type === 'call') {
+                                    let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
+                                    if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
+                                        currentMsg.backend_content.push({ 
+                                            role: 'assistant', 
+                                            content: null, 
+                                            tool_calls: [{ 
+                                                id: toolId, 
+                                                type: 'function', 
+                                                function: { name: tool.title, arguments: "{}" } 
+                                            }] 
+                                        });
+                                    } else {
+                                        last.tool_calls = [{ 
                                             id: toolId, 
                                             type: 'function', 
                                             function: { name: tool.title, arguments: "{}" } 
-                                        }] 
+                                        }];
+                                    }
+                                } 
+                                else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream' || tool.type === 'error') {
+                                    const toolResultType = tool.type === 'error' ? 'error' : 'tool_result';
+                                    const toolContent = (this.toolsSettings.hideToolResults.enabled && toolResultType === 'tool_result') 
+                                        ? '<hide to save token>' 
+                                        : (tool.content || '');
+                                    
+                                    currentMsg.backend_content.push({
+                                        role: 'tool',
+                                        tool_call_id: toolId,
+                                        name: (tool.title === 'tool_result_stream' || !tool.title) ? (delta.async_tool_id || 'unknown') : tool.title,
+                                        content: toolContent
                                     });
-                                } else {
-                                    last.tool_calls = [{ 
-                                        id: toolId, 
-                                        type: 'function', 
-                                        function: { name: tool.title, arguments: "{}" } 
-                                    }];
+                                    
+                                    currentMsg.backend_content.push({ role: 'assistant', content: '' });
                                 }
-                            } else if (tool.type === 'tool_result') {
-                                let tool_result = this.toolsSettings.hideToolResults.enabled ? 
-                                    '<hide to save token>' : tool.content;
-                                currentMsg.backend_content.push({
-                                    role: 'tool',
-                                    tool_call_id: toolId,
-                                    name: tool.title,
-                                    content: tool_result
-                                });
-                                currentMsg.backend_content.push({ role: 'assistant', content: '' });
+                                
+                                // --- 生成 UI HTML ---
+                                let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
+                                let uiTitle = "";
+                                
+                                if (tool.type === 'call') {
+                                    uiTitle = tool.title === "arguments" ? this.t('sendArg') : `${this.t('call')}${tool.title}${this.t('tool')}`;
+                                } 
+                                else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream') {
+                                    // 修复：优先使用 async_tool_id 作为显示名，其次才是 title
+                                    const displayName = delta.async_tool_id || 
+                                                      (tool.title !== 'tool_result_stream' ? tool.title : 'Tool');
+                                    uiTitle = `${displayName}${this.t('tool_result')}`;
+                                } 
+                                else if (tool.type === 'error') {
+                                    uiTitle = tool.title; 
+                                }
+
+                                // 关键修复：为首块添加特殊标记，方便后续查找（可选但推荐）
+                                // 如果第一个 chunk 就是 tool_result_stream（即首块），我们仍然创建新块，但确保它有明确的结尾
+                                let html = `\n<div class="${className}">`;
+                                html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
+                                
+                                if (tool.content) {
+                                    html += tool.content.replace(/\n/g, '<br>');
+                                }
+                                
+                                html += '</div>\n';
+                                currentMsg.content += html;
+                                
+                                console.log("New block created, content now ends with:", currentMsg.content.slice(-30));
                             }
 
-                            let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
-                            let uiTitle = "";
-                            if (tool.type === 'call') {
-                                if (tool.title === "arguments") uiTitle = this.t('sendArg');
-                                else uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
-                            } else if (tool.type === 'tool_result') {
-                                uiTitle = `${tool.title}${this.t('tool_result')}`;
-                            }
-
-                            let html = `\n<div class="${className}">`;
-                            html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
-                            if (tool.content) html += `<div>${tool.content}</div>`;
-                            html += '</div>\n';
-                            
-                            currentMsg.content += html;
                             this.scrollToBottom();
                         }
 
@@ -10680,65 +10759,6 @@ stopTTSActivities() {
         console.error('选择目录出错:', error);
         showNotification('选择目录失败', 'error');
       }
-    }
-  },
-  async installClaudeCode() {
-    try {
-      const scriptUrl = `${this.partyURL}/sh/claude_code_install.sh`;
-      const platform = await window.electronAPI.getPlatform();
-
-      if (platform === 'win32') {
-        // 一条命令：先 curl 拉取远程 bat，再立即执行；/k 保持窗口
-        const batUrl = `${this.partyURL}/sh/claude_code_install.bat`;
-        window.electronAPI.execCommand(
-          `start "" cmd /k "curl -fsSL ${batUrl} -o \"%TEMP%\\claude_install.bat\" && \"%TEMP%\\claude_install.bat\""`
-        );
-      } else if (platform === 'darwin') {
-        // macOS
-        window.electronAPI.execCommand(
-          `osascript -e 'tell app "Terminal" to do script "bash -c \\\"$(curl -fsSL ${scriptUrl}) \\\""'`
-        );
-      } else {
-        // Linux
-        window.electronAPI.execCommand(
-          `gnome-terminal -- bash -c "curl -fsSL ${scriptUrl} | bash; exec bash"`
-        );
-      }
-      showNotification(this.t('scriptExecuting'));
-    } catch (error) {
-      showNotification(`failed to install Claude Code: ${error.message}`, 'error');
-    } finally {
-
-    }
-  },
-
-  async installQwenCode() {
-    try {
-      const scriptUrl = `${this.partyURL}/sh/qwen_code_install.sh`;
-      const platform = await window.electronAPI.getPlatform();
-
-      if (platform === 'win32') {
-        // 一条命令：先 curl 拉取远程 bat，再立即执行；/k 保持窗口
-        const batUrl = `${this.partyURL}/sh/qwen_code_install.bat`;
-        window.electronAPI.execCommand(
-          `start "" cmd /k "curl -fsSL ${batUrl} -o \"%TEMP%\\qwen_install.bat\" && \"%TEMP%\\qwen_install.bat\""`
-        );
-      } else if (platform === 'darwin') {
-        // macOS
-        window.electronAPI.execCommand(
-          `osascript -e 'tell app "Terminal" to do script "bash -c \\\"$(curl -fsSL ${scriptUrl}) \\\""'`
-        );
-      } else {
-        // Linux
-        window.electronAPI.execCommand(
-          `gnome-terminal -- bash -c "curl -fsSL ${scriptUrl} | bash; exec bash"`
-        );
-      }
-      showNotification(this.t('scriptExecuting'));
-    } catch (error) {
-      showNotification(`failed to install Qwen Code: ${error.message}`, 'error');
-    } finally {
-
     }
   },
   

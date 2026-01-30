@@ -671,7 +671,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         search_arxiv_papers
     )
     from py.autoBehavior import auto_behavior
-    from py.cli_tool import claude_code_async,qwen_code_async
+    from py.cli_tool import claude_code_async,qwen_code_async,docker_sandbox_async
     from py.cdp_tool import (
         list_pages,
         navigate_page,
@@ -742,7 +742,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "drag": drag,
         "handle_dialog": handle_dialog,
         "get_random_topics":get_random_topics,
-        "get_categories":get_categories
+        "get_categories":get_categories,
+        "docker_sandbox_async":docker_sandbox_async,
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
@@ -1400,7 +1401,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         arxiv_tool 
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
     m0 = None
@@ -1488,6 +1489,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 tools.append(claude_code_tool)
             elif settings['CLISettings']['engine'] == 'qc':
                 tools.append(qwen_code_tool)
+            elif settings['CLISettings']['engine'] == 'ds':
+                tools.append(docker_sandbox_tool)
         if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
             tools.append(time_tool)
         if settings["tools"]["weather"]['enabled']:
@@ -2557,10 +2560,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 async for chunk in results:
                                     buffer.append(chunk)
                                     if first:                       # 第一次：带头部
-                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result"})
+                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result_stream"})
                                         first = False
                                     else:                           # 后续：不带头部
-                                        yield make_sse({"title": "", "content": chunk})
+                                        yield make_sse({"title": "tool_result_stream", "content": chunk, "type": "tool_result_stream"})
 
                                 results = "".join(buffer)
                         request.messages.append(
@@ -3070,7 +3073,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         arxiv_tool
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
     from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -3160,6 +3163,8 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             tools.append(claude_code_tool)
         elif settings['CLISettings']['engine'] == 'qc':
             tools.append(qwen_code_tool)
+        elif settings['CLISettings']['engine'] == 'ds':
+            tools.append(docker_sandbox_tool)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
         tools.append(time_tool)
     if settings["tools"]["weather"]['enabled']:
