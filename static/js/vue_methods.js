@@ -1515,7 +1515,7 @@ let vue_methods = {
       await this.autoSaveSettings();
     },
     // ==========================================
-    // 1. 用户动作入口与调度函数
+    // 1. 用户动作入口与调度函数（可直接替换）
     // ==========================================
     async sendMessage(role = 'user') { 
         // 基础校验
@@ -1533,7 +1533,7 @@ let vue_methods = {
         }
 
         this.isTyping = true;
-        this.startTimer(); // 记录用户点击发送的时间（第一条消息以此为准，后续消息会在内部重置）
+        this.startTimer();
 
         // 如果开启了打断，停止当前播放
         if (this.ttsSettings.enabledInterruption) {
@@ -1645,14 +1645,14 @@ let vue_methods = {
                 if (this.isGroupMode && this.selectedGroupAgents && this.selectedGroupAgents.length > 0) {
                     // == 群聊模式：随机串行调用 ==
                     
-                    // ✨ 1. 创建副本并随机打乱 (Fisher-Yates Shuffle)
+                    // 创建副本并随机打乱 (Fisher-Yates Shuffle)
                     let executionList = [...this.selectedGroupAgents];
                     for (let i = executionList.length - 1; i > 0; i--) {
                         const j = Math.floor(Math.random() * (i + 1));
                         [executionList[i], executionList[j]] = [executionList[j], executionList[i]];
                     }
 
-                    // ✨ 2. 遍历打乱后的列表
+                    // 遍历打乱后的列表
                     for (const targetId of executionList) {
                         if (this.abortController.signal.aborted) break;
 
@@ -1693,18 +1693,24 @@ let vue_methods = {
 
 
     // ==========================================
-    // 2. AI 生成与流式处理函数
+    // 2. AI 生成与流式处理函数（修复版，可直接替换）
     // ==========================================
     async generateAIResponse(targetAgentId, agentDisplayName = null) {
         // 1. 初始化统计与状态
         this.startTimer(); 
+        
+        // ✨ TTS 关键变量初始化（修复）
         this.voiceStack = ['default']; 
+        let tts_buffer = '';
+        let isCodeBlock = false;
+        this.cur_voice = 'default';
+        
         let max_rounds = this.settings.max_rounds || 0;
         
         // --- 内部辅助：准备发送给API的消息列表 ---
         const prepareMessages = (msgs) => {
             return msgs.flatMap(msg => {
-                // 1. 如果 assistant 消息有 backend_content，直接展开（处理工具调用等复杂情况）
+                // 1. 如果 assistant 消息有 backend_content，直接展开
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
                     return msg.backend_content.filter(m => 
                         (m.content && String(m.content).trim() !== '') || 
@@ -1716,30 +1722,20 @@ let vue_methods = {
                 // 2. 处理 User / System 消息
                 let apiRole = msg.role === 'system' ? 'system' : (msg.role === 'assistant' ? 'assistant' : 'user');
                 
-                // 拼接基础文本内容（包含文件链接描述等）
+                // 拼接基础文本内容
                 let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
 
-                // ✨ 核心修复：检查是否有图片链接
+                // 检查是否有图片链接
                 if (msg.imageLinks && msg.imageLinks.length > 0) {
-                    // 构建 OpenAI 规范的 Vision 消息数组
-                    const contentArray = [
-                        {
-                            type: "text",
-                            text: textContent
-                        }
-                    ];
-
-                    // 将所有图片加入数组
+                    const contentArray = [{ type: "text", text: textContent }];
                     msg.imageLinks.forEach(imageLink => {
                         contentArray.push({
                             type: "image_url",
                             image_url: { url: imageLink.path }
                         });
                     });
-
                     return [{ role: apiRole, content: contentArray }];
                 } else {
-                    // 没有图片，按原样发送字符串内容
                     return [{ role: apiRole, content: textContent }];
                 }
             });
@@ -1752,14 +1748,19 @@ let vue_methods = {
             id: Date.now() + Math.random(),
             role: 'assistant',
             agentName: agentDisplayName, 
-            content: '',      // 前端展示 HTML
+            content: '',
             pure_content: '', 
-            backend_content: [
-                { role: 'assistant', content: '' } // 初始 assistant 槽位
-            ],
+            backend_content: [{ role: 'assistant', content: '' }],
             isOmni: this.settings.enableOmniTTS, 
-            omniAudioChunks: [], ttsChunks: [], chunks_voice:[], audioChunks: [], isPlaying:false,
-            total_tokens: 0, first_token_latency: 0, elapsedTime: 0, generationFinished: false, 
+            omniAudioChunks: [], 
+            ttsChunks: [],        // TTS文本块队列
+            chunks_voice: [],     // TTS语音标记队列
+            audioChunks: [], 
+            isPlaying: false,
+            total_tokens: 0, 
+            first_token_latency: 0, 
+            elapsedTime: 0, 
+            generationFinished: false, 
         };
 
         this.messages.push(newMsgData);
@@ -1819,20 +1820,41 @@ let vue_methods = {
                             currentMsg.first_token_latency = this.elapsedTime;
                         }
 
-                        // II. 处理普通文本 (delta.content)
+                        // II. 处理普通文本 (delta.content) + ✨TTS修复
                         if (delta.content) {
-                            if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
+                            if (this.isThinkOpen) { 
+                                currentMsg.content += '</div>\n\n'; 
+                                this.isThinkOpen = false; 
+                            }
                             currentMsg.content += delta.content;
                             currentMsg.pure_content += delta.content;
 
                             let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
-                            // 如果当前块不是 assistant 或者已经有了工具调用，则新开一个 assistant 块
                             if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
                                 currentMsg.backend_content.push({ role: 'assistant', content: delta.content });
                             } else {
                                 last.content += delta.content;
                             }
                             this.scrollToBottom();
+                            
+                            // ✨✨✨ 关键修复：TTS缓冲区处理 ✨✨✨
+                            if (this.ttsSettings.enabled) {
+                                // 跳过代码块逻辑
+                                const parts = delta.content.split('```');
+                                for (let i = 0; i < parts.length; i++) {
+                                    if (!isCodeBlock) { tts_buffer += parts[i]; }
+                                    if (i < parts.length - 1) { isCodeBlock = !isCodeBlock; }
+                                }
+
+                                // 分块并送入队列
+                                const { chunks, chunks_voice, remaining, remaining_voice } = this.splitTTSBuffer(tts_buffer);
+                                if (chunks.length > 0) {
+                                    currentMsg.chunks_voice.push(...chunks_voice);
+                                    currentMsg.ttsChunks.push(...chunks);
+                                }
+                                tts_buffer = remaining;
+                                this.cur_voice = remaining_voice;
+                            }
                         }
 
                         // III. 处理标准工具调用 (delta.tool_calls)
@@ -1846,52 +1868,64 @@ let vue_methods = {
 
                             delta.tool_calls.forEach(tc => {
                                 if (!last.tool_calls[tc.index]) {
-                                    last.tool_calls[tc.index] = { id: tc.id, type: 'function', function: { name: tc.function.name, arguments: '' } };
+                                    last.tool_calls[tc.index] = { 
+                                        id: tc.id, 
+                                        type: 'function', 
+                                        function: { name: tc.function.name, arguments: '' } 
+                                    };
                                 }
-                                if (tc.function?.arguments) last.tool_calls[tc.index].function.arguments += tc.function.arguments;
+                                if (tc.function?.arguments) {
+                                    last.tool_calls[tc.index].function.arguments += tc.function.arguments;
+                                }
                             });
                         }
 
-                        // IV. 【重中之重】处理后端传来的 tool_content 数据
+                        // IV. 处理后端传来的 tool_content 数据
                         if (delta.tool_content) {
-                            if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
+                            if (this.isThinkOpen) { 
+                                currentMsg.content += '</div>\n\n'; 
+                                this.isThinkOpen = false; 
+                            }
                             
-                            const tool = delta.tool_content; // 包含 {title, content, type}
+                            const tool = delta.tool_content;
                             const toolId = delta.async_tool_id || `call_${Date.now()}`;
                             
-                            // 1. backend_content 纯净数据处理
                             if (tool.type === 'call') {
-                                // 发起调用阶段：确保 backend_content 有一个 assistant 消息记录了这次调用
                                 let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
                                 if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
                                     currentMsg.backend_content.push({ 
                                         role: 'assistant', 
                                         content: null, 
-                                        tool_calls: [{ id: toolId, type: 'function', function: { name: tool.title, arguments: "{}" } }] 
+                                        tool_calls: [{ 
+                                            id: toolId, 
+                                            type: 'function', 
+                                            function: { name: tool.title, arguments: "{}" } 
+                                        }] 
                                     });
                                 } else {
-                                    last.tool_calls = [{ id: toolId, type: 'function', function: { name: tool.title, arguments: "{}" } }];
+                                    last.tool_calls = [{ 
+                                        id: toolId, 
+                                        type: 'function', 
+                                        function: { name: tool.title, arguments: "{}" } 
+                                    }];
                                 }
                             } else if (tool.type === 'tool_result') {
-                                let tool_result = this.toolsSettings.hideToolResults.enabled ? '<hide to save token>' : tool.content;
-                                // 结果返回阶段：插入一条 tool 角色消息
+                                let tool_result = this.toolsSettings.hideToolResults.enabled ? 
+                                    '<hide to save token>' : tool.content;
                                 currentMsg.backend_content.push({
                                     role: 'tool',
                                     tool_call_id: toolId,
                                     name: tool.title,
-                                    content: tool_result // ！！只存原始数据，不存 UI 文本
+                                    content: tool_result
                                 });
-                                // 结果插入后，立即开启一个新的空 assistant 块接收后续总结
                                 currentMsg.backend_content.push({ role: 'assistant', content: '' });
                             }
 
-                            // 2. 前端展示渲染 (在这里加上 UI 文本)
+                            // 前端展示渲染
                             let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
                             let uiTitle = "";
                             if (tool.type === 'call') {
-                                // 如果是参数展示
                                 if (tool.title === "arguments") uiTitle = this.t('sendArg');
-                                // 如果是调用开始
                                 else uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
                             } else if (tool.type === 'tool_result') {
                                 uiTitle = `${tool.title}${this.t('tool_result')}`;
@@ -1917,19 +1951,44 @@ let vue_methods = {
                         }
 
                         // VI. 其他数据处理 (Omni语音/Token等)
-                        if (delta.audio?.data) this.playPCMChunk(delta.audio.data, currentMsg.pure_content, currentMsg);
-                        if (parsed.usage?.total_tokens) currentMsg.total_tokens = parsed.usage.total_tokens;
+                        if (delta.audio?.data) {
+                            this.playPCMChunk(delta.audio.data, currentMsg.pure_content, currentMsg);
+                        }
+                        if (parsed.usage?.total_tokens) {
+                            currentMsg.total_tokens = parsed.usage.total_tokens;
+                        }
                         
                         this.sendMessagesToExtension();
                     }
                 }
             }
+            
+            // ✨✨✨ 关键修复：Flush剩余TTS缓冲 ✨✨✨
+            if (tts_buffer.trim() && this.ttsSettings.enabled) {
+                currentMsg.chunks_voice.push(this.cur_voice);
+                currentMsg.ttsChunks.push(tts_buffer);
+            }
+            
             currentMsg.generationFinished = true;
+            
+            // ✨✨✨ 关键修复：通知VRM所有块已完成 ✨✨✨
+            if (this.ttsSettings.enabled) {
+                if (this.audioStartTime > this.audioCtx.currentTime) {
+                    const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
+                    setTimeout(() => {
+                        this.sendTTSStatusToVRM('allChunksCompleted', {});
+                    }, remainingTime);
+                } else {
+                    this.sendTTSStatusToVRM('allChunksCompleted', {});
+                }
+            }
+
         } catch (error) {
             console.error(error);
         } finally {
             this.isThinkOpen = false;
-            // 保存对话逻辑...
+            // 确保音频Promise被resolve（出错时）
+            if (audioResolve) audioResolve();
         }
     },
 
@@ -10209,8 +10268,9 @@ stopTTSActivities() {
     this.QuickGenAbortController = controller;
 
     const systemPrompt = `你是一名专业的角色设计师。  
-  生成的角色卡内容必须与用户输入的语言保持一致。  
+  生成的角色卡内容必须与用户输入的语言保持一致。 比如，用户输入的是中文，那么角色卡内容也必须是中文。如果用户输入的是英文，那么角色卡内容也必须是英文。以此类推！
   用户会提供一个简短的创意，你必须仅回复一段**有效的 JSON**，并放在一个标准的Markdown 代码块中。  
+  JSON的值必须用双引号括起来，而值内部的内容如果需要引号，一律改成单引号。
   JSON 结构必须为：
 
     {
