@@ -1703,8 +1703,7 @@ let vue_methods = {
         this.cur_voice = 'default';
         let max_rounds = this.settings.max_rounds || 0;
         
-        const toolCallIdMap = {};
-
+        const toolCallStack = [];
         // 内部函数：准备发送给 API 的消息历史
         const prepareMessages = (msgs) => {
             const rawMessages = msgs.flatMap(msg => {
@@ -1886,10 +1885,35 @@ let vue_methods = {
                         // 2. 处理工具 Loading 状态 (保持原样)
                         if (delta.tool_progress) {
                             const progress = delta.tool_progress;
-                            if (!toolCallIdMap[progress.name]) {
-                                toolCallIdMap[progress.name] = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                            let toolCallId = progress.tool_call_id; // 优先使用后端提供的 ID
+                            
+                            // 【修复】使用栈管理，替代原来的 toolCallIdMap[progress.name]
+                            if (!toolCallId) {
+                                // 查找该工具是否有未解决的调用（用于匹配后续的 result/approval）
+                                const existingCall = toolCallStack.find(c => c.name === progress.name && !c.resolved);
+                                if (existingCall) {
+                                    toolCallId = existingCall.id;
+                                } else {
+                                    // 全新的调用，生成 ID 并入栈
+                                    toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                                    toolCallStack.push({ 
+                                        id: toolCallId, 
+                                        name: progress.name, 
+                                        resolved: false 
+                                    });
+                                }
+                            } else {
+                                // 如果后端提供了 ID，但栈中没有，也入栈（防重复）
+                                if (!toolCallStack.find(c => c.id === toolCallId)) {
+                                    toolCallStack.push({ 
+                                        id: toolCallId, 
+                                        name: progress.name, 
+                                        resolved: false 
+                                    });
+                                }
                             }
-                            const blockId = `tool-call-${toolCallIdMap[progress.name]}`;
+                            
+                            const blockId = `tool-call-${toolCallId}`;
                             const existingBlock = currentMsg.content.includes(`id="${blockId}"`);
                             const displayArgs = escapeHtml(progress.arguments);
                             
@@ -1904,6 +1928,7 @@ let vue_methods = {
                                 html += '</div>\n';
                                 currentMsg.content += html;
                             } else {
+                                // 更新已有块的参数
                                 const blockStart = currentMsg.content.indexOf(`id="${blockId}"`);
                                 const preStart = currentMsg.content.indexOf('<pre', blockStart);
                                 const contentStart = currentMsg.content.indexOf('>', preStart) + 1;
@@ -1921,25 +1946,34 @@ let vue_methods = {
                             const tool = delta.tool_content;
                             const toolName = tool.title || 'unknown';
 
-                            // 获取 ID
-                            let toolCallId = toolCallIdMap[toolName] || delta.tool_call_id || delta.async_tool_id;
+                            // 获取 ID - 优先使用后端提供的 ID，否则生成新的
+                            let toolCallId = delta.tool_call_id || delta.async_tool_id;
+
                             if (tool.type === 'call') {
                                 if (!toolCallId) {
                                     toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                                 }
-                                toolCallIdMap[toolName] = toolCallId; 
-                            } else {
+                                // 将新调用压入栈，标记为未解决（unresolved）
+                                toolCallStack.push({ 
+                                    id: toolCallId, 
+                                    name: toolName, 
+                                    resolved: false 
+                                });
+                            } 
+                            else {
+                                // result/error/approval 类型：查找第一个未解决的同名调用
                                 if (!toolCallId) {
-                                    const lastAssistant = [...currentMsg.backend_content].reverse().find(m => m.role === 'assistant' && m.tool_calls);
-                                    if (lastAssistant && lastAssistant.tool_calls) {
-                                        const match = lastAssistant.tool_calls.find(tc => tc.function.name === toolName);
-                                        if (match) {
-                                            toolCallId = match.id;
-                                            toolCallIdMap[toolName] = toolCallId; 
-                                        }
+                                    const pendingCall = toolCallStack.find(c => c.name === toolName && !c.resolved);
+                                    if (pendingCall) {
+                                        toolCallId = pendingCall.id;
+                                        pendingCall.resolved = true; // 标记为已解决，下次同名调用会找下一个
                                     }
                                 }
-                                if (!toolCallId) toolCallId = `call_${Date.now()}_fallback`;
+                                // 如果后端提供了 tool_call_id，也需要标记对应的栈项为 resolved
+                                if (toolCallId) {
+                                    const callItem = toolCallStack.find(c => c.id === toolCallId);
+                                    if (callItem) callItem.resolved = true;
+                                }
                             }
                             
                             // 异步 ID 清理
@@ -1948,7 +1982,9 @@ let vue_methods = {
                                     const index = this.asyncToolsID.indexOf(delta.async_tool_id);
                                     if (index > -1) {
                                         this.asyncToolsID.splice(index, 1);
-                                        delete toolCallIdMap[toolName];
+                                        // 从栈中移除对应的调用记录
+                                        const stackIndex = toolCallStack.findIndex(c => c.id === delta.async_tool_id);
+                                        if (stackIndex > -1) toolCallStack.splice(stackIndex, 1);
                                     }
                                 }
                             }
