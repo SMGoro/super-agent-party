@@ -1873,7 +1873,7 @@ let vue_methods = {
                                 let html = `\n<div class="highlight-block" id="${blockId}">`;
                                 html += `<div style="font-weight: bold; margin-bottom: 5px;">${this.t('call')}${progress.name}${this.t('tool')}</div>`;
                                 // 使用 <pre> 包裹参数，保持格式
-                                html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;">${progress.arguments}</pre>`;
+                                html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${progress.arguments}</pre>`;
                                 html += '</div>\n';
                                 
                                 currentMsg.content += html;
