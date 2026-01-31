@@ -1023,8 +1023,9 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
     cli_settings = settings.get("CLISettings", {})
     cwd = cli_settings.get("cc_path")
-    
-    if cwd and Path(cwd).exists():
+    dsSettings = settings.get("dsSettings", {})
+    permissionMode = dsSettings.get("permissionMode", "default")
+    if cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and cli_settings.get("engine", "") == "ds":
         try:
             # 生成容器名（与 cli_tool.py 中的逻辑保持一致）
             abs_path = str(Path(cwd).resolve())
@@ -1062,7 +1063,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
                         )
                     )
                     
-                    todo_lines = ["\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
+                    todo_lines = ["\n\n当你完成一个事项后，请记得使用todo_write_tool更新项目待办事项，所有事项结束后，可以删除本事项文件\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
                     pending_count = 0
                     
                     for todo in todos_sorted:
@@ -1089,6 +1090,13 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             # 文件不存在或读取失败时静默处理，不阻断主流程
             print(f"[Todo Loader] 跳过待办事项加载: {e}")
             pass
+
+        if permissionMode != "plan":
+            premission_message = "你当前处于执行阶段，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
+            content_append(request.messages, 'system',premission_message )
+        elif permissionMode == "plan":
+            premission_message = "你当前处于计划阶段，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
+            content_append(request.messages, 'system',premission_message )
 
     if settings["HASettings"]["enabled"]:
         HA_devices = await HA_client.call_tool("GetLiveContext", {})
