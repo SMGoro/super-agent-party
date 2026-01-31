@@ -91,7 +91,7 @@ if (window.markdownitContainer) {
                 return '<div class="highlight-block-reasoning">' + titleHtml;
             } else {
                 // 结束标签: </div>
-                return '</div>\n';
+                return '</div>\n\n';
             }
         }
     });
@@ -112,7 +112,7 @@ if (window.markdownitContainer) {
                 var titleHtml = title ? '<strong>' + title + '</strong><br>' : '';
                 return '<div class="highlight-block">' + titleHtml;
             } else {
-                return '</div>\n';
+                return '</div>\n\n';
             }
         }
     });
@@ -1257,6 +1257,7 @@ let vue_methods = {
           this.CLISettings = data.data.CLISettings || this.CLISettings;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
+          this.dsSettings = data.data.dsSettings || this.dsSettings;
           this.ocSettings = data.data.ocSettings || this.ocSettings;
           this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
           this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
@@ -1851,7 +1852,7 @@ let vue_methods = {
                         // 1. 处理文本
                         if (delta.content) {
                             if (this.isThinkOpen) { 
-                                currentMsg.content += '</div>\n\n'; 
+                                currentMsg.content += '</div>\n\n';
                                 this.isThinkOpen = false; 
                             }
                             currentMsg.content += delta.content;
@@ -1919,13 +1920,13 @@ let vue_methods = {
                             
                             if (!existingBlock) {
                                 if (this.isThinkOpen) { 
-                                    currentMsg.content += '</div>\n\n'; 
+                                    currentMsg.content += '</div>\n\n';
                                     this.isThinkOpen = false; 
                                 }
                                 let html = `\n<div class="highlight-block" id="${blockId}">`;
                                 html += `<div style="font-weight: bold; margin-bottom: 5px;">${this.t('call')}${progress.name}${this.t('tool')}</div>`;
                                 html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${displayArgs}</pre>`;
-                                html += '</div>\n';
+                                html += '</div>\n\n';
                                 currentMsg.content += html;
                             } else {
                                 // 更新已有块的参数
@@ -2079,10 +2080,10 @@ let vue_methods = {
                                     if (tool.type === 'call') {
                                          html += escapeHtml(tool.content).replace(/\n/g, '<br>'); 
                                     } else {
-                                        html += `<pre style="margin:0; white-space: pre-wrap; word-break: break-all; font-family: inherit;">${escapeHtml(tool.content)}</pre>`;
+                                        html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${escapeHtml(tool.content)}</pre>`;
                                     }
                                 }
-                                html += '</div>\n';
+                                html += '</div>\n\n';
                                 currentMsg.content += html;
 
                                 if (tool.type === 'call') {
@@ -2275,7 +2276,7 @@ let vue_methods = {
                     const title = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
                     const resultHtml = `\n<div class="${className}">
                         <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(title)}</div>
-                        ${this.escapeHtml(resultText)}
+                        <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${this.escapeHtml(resultText)}</pre>
                     </div>\n`;
 
                     // 替换整个字符串区间
@@ -2674,6 +2675,7 @@ let vue_methods = {
           CLISettings: this.CLISettings,
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
+          dsSettings: this.dsSettings,
           ocSettings: this.ocSettings,
           prefrontalCortexSettings: this.prefrontalCortexSettings,
           NeocortexSettings: this.NeocortexSettings,
