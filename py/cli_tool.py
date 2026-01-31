@@ -332,13 +332,17 @@ async def docker_sandbox_async(command: str) -> str | AsyncIterator[str]:
     # 加载配置（假设你有类似的配置加载函数）
     settings = await load_settings()
     CLISettings = settings.get("CLISettings", {})
+    # 注意：实际使用时请确保 cc_path 存在且有效
     cwd = CLISettings.get("cc_path")
+    if not cwd:
+        return "Error: No workspace directory specified in settings."
     dsSettings = settings.get("dsSettings", {})
     
     image_name = "docker/sandbox-templates:latest"  # 或从配置读取
     
     # 验证路径
     if not cwd or not Path(cwd).is_dir():
+        # 在实际环境中，如果目录不存在，可能需要先创建它
         return f"Error: Invalid workspace directory: {cwd}"
     
     try:
@@ -350,22 +354,21 @@ async def docker_sandbox_async(command: str) -> str | AsyncIterator[str]:
     # 返回异步生成器用于流式执行
     async def _stream() -> AsyncIterator[str]:
         # 使用 docker exec 在运行中的容器内执行命令
-        # -i: 交互式（可选，如果不需要输入可去掉）
-        # 使用 sh -c 来支持复杂的管道和重定向
         exec_cmd = [
             "docker", "exec",
-            "-i",  # 保持 stdin 打开（支持交互式程序）
+            "-i",  # 保持 stdin 打开
             container_name,
             "sh", "-c",
             f"cd /workspace && {command}"  # 确保在 workspace 目录执行
         ]
+        
+        output_yielded = False  # <--- 新增：用于跟踪是否有任何输出被生成
         
         try:
             process = await asyncio.create_subprocess_exec(
                 *exec_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                # 如果你想支持输入，需要设置 stdin=asyncio.subprocess.PIPE
             )
             
             # 合并输出流
@@ -374,12 +377,18 @@ async def docker_sandbox_async(command: str) -> str | AsyncIterator[str]:
                 read_stream(process.stderr, is_error=True),
             ):
                 yield line
+                output_yielded = True  # <--- 任何输出都会设置此标志
             
             await process.wait()
             
-            # 可选：返回退出码提示
+            # 检查退出码
             if process.returncode != 0:
+                # 失败：返回退出码提示
                 yield f"[EXIT CODE] {process.returncode}"
+            
+            # 兜底逻辑：如果成功 (returncode == 0) 且没有任何输出 (output_yielded == False)
+            elif process.returncode == 0 and not output_yielded:
+                yield "[SUCCESS] 命令已成功执行未报错" # <--- 成功且静默时的提示
                 
         except Exception as e:
             yield f"[ERROR] 执行失败: {str(e)}"
