@@ -1965,4 +1965,5 @@ main();`,
     voiceStack : ['default'], // 存储语音播放队列
     receivedMsgIds: new Set(), 
     lastProcessedContent: '', 
+    approvalMap: {},
 };

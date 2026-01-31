@@ -6,6 +6,8 @@ import sys
 import traceback
 
 import requests
+
+from py.agent import add_tool_to_project_config, is_tool_allowed_by_project_config
 sys.stdout.reconfigure(encoding='utf-8')
 import base64
 from datetime import datetime
@@ -636,9 +638,11 @@ async def get_image_content(image_url: str) -> str:
                 f.write(str(response.choices[0].message.content))
     return content
 
-async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str | List | AsyncIterator[str] | None :
+async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> str | List | AsyncIterator[str] | None :
     global mcp_client_list,_TOOL_HOOKS,HA_client,ChromeMCP_client,sql_client
     print("dispatch_tool",tool_name,tool_params)
+    
+    # ==================== 1. 导入所有工具函数 ====================
     from py.web_search import (
         DDGsearch_async, 
         searxng_async, 
@@ -671,7 +675,16 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         search_arxiv_papers
     )
     from py.autoBehavior import auto_behavior
-    from py.cli_tool import claude_code_async,qwen_code_async,docker_sandbox_async
+    from py.cli_tool import (
+        claude_code_async,
+        qwen_code_async,
+        docker_sandbox_async,
+        # 确保细粒度工具也被导入
+        list_files_tool,
+        read_file_tool,
+        search_files_tool,
+        edit_file_tool
+    )
     from py.cdp_tool import (
         list_pages,
         navigate_page,
@@ -691,6 +704,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         handle_dialog
     )
     from py.random_topic import get_random_topics,get_categories
+
+    # ==================== 2. 定义工具映射表 ====================
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
         "searxng_async": searxng_async,
@@ -743,10 +758,76 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "handle_dialog": handle_dialog,
         "get_random_topics":get_random_topics,
         "get_categories":get_categories,
-        "docker_sandbox_async":docker_sandbox_async,
+        
+        # Docker Sandbox 相关工具
+        "docker_sandbox_async": docker_sandbox_async,
+        "list_files": list_files_tool,
+        "read_file": read_file_tool,
+        "search_files": search_files_tool,
+        "edit_file": edit_file_tool,
     }
+
+    # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
+    # 定义受控的敏感工具列表
+    # 这些工具在执行前需要检查权限配置 (.party/config.json 或 全局设置)
+    DOCKER_SENSITIVE_TOOLS = [
+        "docker_sandbox_async", 
+        "claude_code_async", 
+        "qwen_code_async", 
+        "bash",
+        "edit_file" 
+    ]
+    
+    # 只有当调用的工具属于 Docker 体系时才进行拦截检查
+    if tool_name in DOCKER_SENSITIVE_TOOLS:
+        
+        # 获取相关配置
+        ds_settings = settings.get("dsSettings", {})
+        cli_settings = settings.get("CLISettings", {})
+        permission_mode = ds_settings.get("permissionMode", "default")
+        cwd = cli_settings.get("cc_path") # 当前项目路径
+        
+        is_allowed = False
+
+        # --- 规则 A: 全局 YOLO 模式 (Bypass Permissions) ---
+        if permission_mode == "yolo":
+            is_allowed = True
+            
+        # --- 规则 B: 自动批准模式 (Accept Edits) ---
+        # 允许编辑文件，但依然拦截终端命令
+        elif permission_mode == "auto-approve":
+            if tool_name == "edit_file":
+                is_allowed = True
+            # docker/bash 等危险命令在此模式下依然默认拦截，除非在项目白名单中
+        
+        # --- 规则 C: 默认模式 (Default) ---
+        # 默认全部拦截
+        
+        # --- 规则 D: 项目级白名单覆盖 (Project Config Override) ---
+        # 如果以上规则未通过，检查 .party/config.json
+        # 如果用户之前点击过 "Allow Always"，这里会返回 True
+        if not is_allowed and cwd:
+            if is_tool_allowed_by_project_config(cwd, tool_name):
+                is_allowed = True
+                print(f"[Permission] Tool '{tool_name}' allowed by project config.")
+
+        # --- 最终判定 ---
+        if not is_allowed:
+            # 返回前端特定的 JSON 结构，触发审批 UI
+            print(f"[Permission] Blocked '{tool_name}', requesting approval.")
+            return json.dumps({
+                "type": "approval_required",
+                "tool_name": tool_name,
+                "tool_params": tool_params,
+                "permission_mode": permission_mode,
+                "cwd": cwd
+            }, ensure_ascii=False)
+
+    # ==================== 4. 常规工具处理逻辑 (原有代码) ====================
+
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
+        
     if "custom_http_" in tool_name:
         tool_name = tool_name.replace("custom_http_", "")
         print(tool_name)
@@ -760,6 +841,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         headers = tool_custom_http['headers']
         result = await fetch_custom_http(method, url, headers, tool_params)
         return str(result)
+        
     if "comfyui_" in tool_name:
         tool_name = tool_name.replace("comfyui_", "")
         text_input = tool_params.get('text_input', None)
@@ -769,6 +851,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         print(tool_name)
         result = await comfyui_tool_call(tool_name, text_input, image_input,text_input_2,image_input_2)
         return str(result)
+        
     if settings["HASettings"]["enabled"]:
         ha_tool_list = HA_client._tools
         if tool_name in ha_tool_list:
@@ -779,6 +862,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
                 return str(result.model_dump())
             else:
                 return str(result)
+                
     if settings['chromeMCPSettings']['enabled'] and settings['chromeMCPSettings']['type']=='external':
         Chrome_tool_list = ChromeMCP_client._tools
         if tool_name in Chrome_tool_list:
@@ -789,6 +873,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
                 return str(result.model_dump())
             else:
                 return str(result)
+                
     if settings["sqlSettings"]["enabled"]:
         sql_tool_list = sql_client._tools
         if tool_name in sql_tool_list:
@@ -799,6 +884,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
                 return str(result.model_dump())
             else:
                 return str(result)
+                
     if tool_name not in _TOOL_HOOKS:
         for server_name, mcp_client in mcp_client_list.items():
             if tool_name in mcp_client._conn.tools:
@@ -810,6 +896,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
             else:
                 return str(result)
         return None
+        
     tool_call = _TOOL_HOOKS[tool_name]
     try:
         ret_out = await tool_call(**tool_params)
@@ -821,7 +908,6 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
         return f"Error calling tool {tool_name}: {e}"
-
 
 class ChatRequest(BaseModel):
     messages: List[Dict]
@@ -1710,6 +1796,16 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         else:
             extra_params = {}
         async def stream_generator(user_prompt,DRS_STAGE):
+            # ---------- 统一 SSE 封装 ----------
+            def make_sse(tool_data: dict) -> str:
+                chunk = {
+                    "choices": [{
+                        "delta": {
+                            "tool_content": tool_data, # 这里直接传字典
+                        }
+                    }]
+                }
+                return f"data: {json.dumps(chunk)}\n\n"
             try:
                 extra = {}
                 reasoner_extra = {}
@@ -2437,6 +2533,18 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             results = f"{response_content.name}工具已成功启动，获取结果需要花费很久的时间。请不要再次调用该工具，因为工具结果将生成后自动发送，再次调用也不能更快的获取到结果。请直接告诉用户，你会在获得结果后回答他的问题。"
                         else:
                             results = await dispatch_tool(response_content.name, data_list[0],settings)
+                        
+                        if isinstance(results, str) and '"type": "approval_required"' in results:
+                            # 1. 构造 SSE 消息发送给前端
+                            yield make_sse({
+                                "title": response_content.name, 
+                                "content": results, # 这是 dispatch_tool 返回的审批 JSON
+                                "type": "tool_approval", # 新类型：审批
+                                "tool_call_id": tool_calls[0].id
+                            })
+                            # 2. 终止生成器，释放连接
+                            # 此时 AI 还没有收到结果，它处于“等待工具返回”的状态
+                            return 
                         if results is None:
                             chunk = {
                                 "id": "extra_tools",
@@ -2482,16 +2590,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             # 工具名国际化
                             tool_name_text = f"{response_content.name}{await t('tool_result')}"
                             stream_tool_name_text = f"{response_content.name}{await t('stream_tool_result')}"
-                            # ---------- 统一 SSE 封装 ----------
-                            def make_sse(tool_data: dict) -> str:
-                                chunk = {
-                                    "choices": [{
-                                        "delta": {
-                                            "tool_content": tool_data, # 这里直接传字典
-                                        }
-                                    }]
-                                }
-                                return f"data: {json.dumps(chunk)}\n\n"
 
 
                             # ---------- 分情况处理 ----------
@@ -3872,6 +3970,181 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         return JSONResponse(
             content={"error": {"message": str(e), "type": "api_error"}}
         )
+
+@app.post("/execute_tool_manually")
+async def execute_tool_manually(request: Request):
+    """
+    前端点击审批按钮后调用的接口
+    """
+    data = await request.json()
+    tool_name = data.get("tool_name")
+    tool_params = data.get("tool_params")
+    approval_type = data.get("approval_type") # 'once' 或 'always'
+    
+    # 获取当前配置
+    settings = await load_settings()
+    cwd = settings.get("CLISettings", {}).get("cc_path")
+    
+    # ==================== 核心逻辑：处理 "Always" ====================
+    if approval_type == "always":
+        # 如果用户选择“不再询问”，则将该工具写入当前项目的 .party/config.json
+        if cwd:
+            try:
+                add_tool_to_project_config(cwd, tool_name)
+                print(f"[Permission] Added {tool_name} to whitelist for project {cwd}")
+            except Exception as e:
+                return {"result": f"[System Error] Failed to save permission: {str(e)}"}
+        else:
+             return {"result": "[System Error] No working directory found to save config."}
+
+    # ==================== 执行工具 ====================
+    # ==================== 1. 导入所有工具函数 ====================
+    from py.web_search import (
+        DDGsearch_async, 
+        searxng_async, 
+        Tavily_search_async,
+        Bing_search_async,
+        Google_search_async,
+        Brave_search_async,
+        Exa_search_async,
+        Serper_search_async,
+        bochaai_search_async,
+        jina_crawler_async,
+        Crawl4Ai_search_async, 
+    )
+    from py.know_base import query_knowledge_base
+    from py.agent_tool import agent_tool_call
+    from py.a2a_tool import a2a_tool_call
+    from py.llm_tool import custom_llm_tool
+    from py.pollinations import pollinations_image,openai_image,openai_chat_image
+    from py.load_files import get_file_content
+    from py.code_interpreter import e2b_code_async,local_run_code_async
+    from py.custom_http import fetch_custom_http
+    from py.comfyui_tool import comfyui_tool_call
+    from py.utility_tools import (
+        time_async,
+        get_weather_async,
+        get_location_coordinates_async,
+        get_weather_by_city_async,
+        get_wikipedia_summary_and_sections,
+        get_wikipedia_section_content,
+        search_arxiv_papers
+    )
+    from py.autoBehavior import auto_behavior
+    from py.cli_tool import (
+        claude_code_async,
+        qwen_code_async,
+        docker_sandbox_async,
+        # 确保细粒度工具也被导入
+        list_files_tool,
+        read_file_tool,
+        search_files_tool,
+        edit_file_tool
+    )
+    from py.cdp_tool import (
+        list_pages,
+        navigate_page,
+        new_page,
+        close_page,
+        select_page,
+        take_snapshot,
+        wait_for,
+        click,
+        fill,
+        hover,
+        press_key,
+        evaluate_script,
+        take_screenshot,
+        fill_form,
+        drag,
+        handle_dialog
+    )
+    from py.random_topic import get_random_topics,get_categories
+
+    # ==================== 2. 定义工具映射表 ====================
+    _TOOL_HOOKS = {
+        "DDGsearch_async": DDGsearch_async,
+        "searxng_async": searxng_async,
+        "Tavily_search_async": Tavily_search_async,
+        "query_knowledge_base": query_knowledge_base,
+        "jina_crawler_async": jina_crawler_async,
+        "Crawl4Ai_search_async": Crawl4Ai_search_async,
+        "agent_tool_call": agent_tool_call,
+        "a2a_tool_call": a2a_tool_call,
+        "custom_llm_tool": custom_llm_tool,
+        "pollinations_image":pollinations_image,
+        "get_file_content":get_file_content,
+        "get_image_content": get_image_content,
+        "e2b_code_async": e2b_code_async,
+        "local_run_code_async": local_run_code_async,
+        "openai_image": openai_image,
+        "openai_chat_image":openai_chat_image,
+        "Bing_search_async": Bing_search_async,
+        "Google_search_async": Google_search_async,
+        "Brave_search_async": Brave_search_async,
+        "Exa_search_async": Exa_search_async,
+        "Serper_search_async": Serper_search_async,
+        "bochaai_search_async": bochaai_search_async,
+        "comfyui_tool_call": comfyui_tool_call,
+        "time_async": time_async,
+        "get_weather_async": get_weather_async,
+        "get_location_coordinates_async": get_location_coordinates_async,
+        "get_weather_by_city_async":get_weather_by_city_async,
+        "get_wikipedia_summary_and_sections": get_wikipedia_summary_and_sections,
+        "get_wikipedia_section_content": get_wikipedia_section_content,
+        "search_arxiv_papers": search_arxiv_papers,
+        "auto_behavior": auto_behavior,
+        "claude_code_async": claude_code_async,
+        "qwen_code_async": qwen_code_async,
+        "list_pages": list_pages,
+        "new_page": new_page,
+        "close_page": close_page,
+        "select_page": select_page,
+        "navigate_page": navigate_page,
+        "take_snapshot": take_snapshot,
+        "click": click,
+        "fill": fill,
+        "evaluate_script": evaluate_script,
+        "take_screenshot": take_screenshot,
+        "hover": hover,
+        "press_key": press_key,
+        "wait_for": wait_for,
+        "fill_form":fill_form,
+        "drag": drag,
+        "handle_dialog": handle_dialog,
+        "get_random_topics":get_random_topics,
+        "get_categories":get_categories,
+        
+        # Docker Sandbox 相关工具
+        "docker_sandbox_async": docker_sandbox_async,
+        "list_files": list_files_tool,
+        "read_file": read_file_tool,
+        "search_files": search_files_tool,
+        "edit_file": edit_file_tool,
+    }
+    
+    if tool_name not in _TOOL_HOOKS:
+        return {"result": f"Tool {tool_name} not found in backend registry."}
+    
+    tool_func = _TOOL_HOOKS[tool_name]
+    
+    try:
+        # 2. 执行工具
+        result = await tool_func(**tool_params)
+        
+        # 3. 处理流式输出 (AsyncIterator)
+        # 如果是流，我们需要将其消耗完合并成字符串返回给前端一次性显示
+        # 因为手动执行通常不再支持流式打字机效果（或者前端处理会比较复杂）
+        if hasattr(result, "__aiter__"):
+            output_buffer = []
+            async for chunk in result:
+                output_buffer.append(chunk)
+            return {"result": "".join(output_buffer)}
+        
+        return {"result": str(result)}
+        
+    except Exception as e:
+        return {"result": f"Error executing {tool_name}: {str(e)}"}
 
 # 在现有路由后添加以下代码
 @app.get("/v1/models")

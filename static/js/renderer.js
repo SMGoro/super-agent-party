@@ -712,6 +712,10 @@ const app = Vue.createApp({
       console.error('获取 Preload 路径失败:', e);
     }
 
+    window.handleToolApproval = (toolCallId, action) => {
+        console.log('Global approval triggered:', toolCallId, action); // 调试日志
+        this.processToolApproval(toolCallId, action);
+    };
     // ★ 监听主进程发来的“开新标签”指令
     if (window.electronAPI && window.electronAPI.onNewTab) {
         window.electronAPI.onNewTab((url) => {
