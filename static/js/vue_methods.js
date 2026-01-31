@@ -1923,7 +1923,18 @@ let vue_methods = {
                         // V. 处理 tool_content (Stream Merging Fixed Version)
                         if (delta.tool_content) {
                             const tool = delta.tool_content;
-                            
+                      
+                            if (delta.async_tool_id && (tool.type === 'tool_result' || tool.type === 'error')) {
+                                // 从待查询列表中移除已完成的工具ID
+                                if (this.asyncToolsID) {
+                                    const index = this.asyncToolsID.indexOf(delta.async_tool_id);
+                                    if (index > -1) {
+                                        this.asyncToolsID.splice(index, 1);
+                                        console.log('异步工具完成，移除ID:', delta.async_tool_id);
+                                    }
+                                }
+                            }
+
                             // 判断是否为流式延续块
                             const isStreamingContinuationChunk = tool.type === 'tool_result_stream' && 
                                                                 tool.title === "tool_result_stream"
@@ -2075,6 +2086,12 @@ let vue_methods = {
                             currentMsg.total_tokens = parsed.usage.total_tokens;
                         }
                         
+                        if (delta.async_tool_id) {
+                            if (!this.asyncToolsID) this.asyncToolsID = [];
+                            this.asyncToolsID.push(delta.async_tool_id);
+                            console.log('已保存异步工具ID:', delta.async_tool_id, '当前待查询列表:', this.asyncToolsID);
+                        }
+
                         this.sendMessagesToExtension();
                     }
                 }
