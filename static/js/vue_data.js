@@ -353,6 +353,11 @@ let vue_data = {
       model:'',
       permissionMode: 'default',
     },
+    dsSettings: {
+      enabled: false,
+      template: 'docker/sandbox-templates:latest', // 默认使用 latest
+      permissionMode: 'default',
+    },
     ocSettings: {
       enabled: false,
       selectedProvider: null,

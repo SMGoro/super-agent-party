@@ -671,7 +671,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         search_arxiv_papers
     )
     from py.autoBehavior import auto_behavior
-    from py.cli_tool import claude_code_async,qwen_code_async
+    from py.cli_tool import claude_code_async,qwen_code_async,docker_sandbox_async
     from py.cdp_tool import (
         list_pages,
         navigate_page,
@@ -742,7 +742,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict,settings: dict) -> str
         "drag": drag,
         "handle_dialog": handle_dialog,
         "get_random_topics":get_random_topics,
-        "get_categories":get_categories
+        "get_categories":get_categories,
+        "docker_sandbox_async":docker_sandbox_async,
     }
     if "multi_tool_use." in tool_name:
         tool_name = tool_name.replace("multi_tool_use.", "")
@@ -1400,7 +1401,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         arxiv_tool 
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
     m0 = None
@@ -1488,6 +1489,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 tools.append(claude_code_tool)
             elif settings['CLISettings']['engine'] == 'qc':
                 tools.append(qwen_code_tool)
+            elif settings['CLISettings']['engine'] == 'ds':
+                tools.append(docker_sandbox_tool)
         if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
             tools.append(time_tool)
         if settings["tools"]["weather"]['enabled']:
@@ -2130,6 +2133,21 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     tool_calls[idx].function.arguments += tool.function.arguments
                                 else:
                                     tool_calls[idx].function.arguments = tool.function.arguments
+                            current_tool = tool_calls[idx]
+                            if current_tool.function and current_tool.function.name:
+                                progress_chunk = {
+                                    "choices": [{
+                                        "delta": {
+                                            "tool_progress": {  # 新增字段，区别于最终的 tool_content
+                                                "name": current_tool.function.name,
+                                                "arguments": current_tool.function.arguments or "",
+                                                "index": idx,
+                                                "id": current_tool.id or f"call_{idx}"
+                                            }
+                                        }
+                                    }]
+                                }
+                                yield f"data: {json.dumps(progress_chunk)}\n\n"
                     else:
                         if hasattr(choice.delta, "audio") and choice.delta.audio and is_tool_call == False:
                             # 只把 Base64 音频数据留在 delta 里，别动它
@@ -2376,82 +2394,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     if tool_calls:
                         response_content = tool_calls[0].function
                         print(response_content)
-                        if response_content.name in  ["DDGsearch_async","searxng_async", "Bing_search_async", "Google_search_async", "Brave_search_async", "Exa_search_async", "Serper_search_async","bochaai_search_async","Tavily_search_async"]:
-                            chunk_dict = {
-                                "id": "agentParty",
-                                "choices": [
-                                    {
-                                        "finish_reason": None,
-                                        "index": 0,
-                                        "delta": {
-                                            "role":"assistant",
-                                            "content": "",
-                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
-                                        }
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(chunk_dict)}\n\n"
-                        elif response_content.name in  ["jina_crawler_async","Crawl4Ai_search_async"]:
-                            chunk_dict = {
-                                "id": "agentParty",
-                                "choices": [
-                                    {
-                                        "finish_reason": None,
-                                        "index": 0,
-                                        "delta": {
-                                            "role":"assistant",
-                                            "content": "",
-                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
-                                        }
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(chunk_dict)}\n\n"
-                        elif response_content.name in ["query_knowledge_base"]:
-                            chunk_dict = {
-                                "id": "agentParty",
-                                "choices": [
-                                    {
-                                        "finish_reason": None,
-                                        "index": 0,
-                                        "delta": {
-                                            "role":"assistant",
-                                            "content": "",
-                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
-                                        }
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(chunk_dict)}\n\n"
-                        else:
-                            chunk_dict = {
-                                "id": "agentParty",
-                                "choices": [
-                                    {
-                                        "finish_reason": None,
-                                        "index": 0,
-                                        "delta": {
-                                            "role":"assistant",
-                                            "content": "",
-                                            "tool_content": {"title": response_content.name, "content": "", "type": "call"}
-                                        }
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(chunk_dict)}\n\n"
                         modified_data = '[' + response_content.arguments.replace('}{', '},{') + ']'
                         # 使用json.loads来解析修改后的字符串为列表
                         data_list = json.loads(modified_data)
                         modified_tool = f"{await t("sendArg")}{data_list[0]}"
-                        tool_call_chunk = {
-                            "choices": [{
-                                "delta": {
-                                    "tool_content": {"title": "arguments", "content": str(data_list[0]), "type": "call"},
-                                }
-                            }]
-                        }
-                        yield f"data: {json.dumps(tool_call_chunk)}\n\n"
                         if settings['tools']['asyncTools']['enabled']:
                             tool_id = uuid.uuid4()
                             async_tool_id = f"{response_content.name}_{tool_id}"
@@ -2557,10 +2503,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 async for chunk in results:
                                     buffer.append(chunk)
                                     if first:                       # 第一次：带头部
-                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result"})
+                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result_stream"})
                                         first = False
                                     else:                           # 后续：不带头部
-                                        yield make_sse({"title": "", "content": chunk})
+                                        yield make_sse({"title": "tool_result_stream", "content": chunk, "type": "tool_result_stream"})
 
                                 results = "".join(buffer)
                         request.messages.append(
@@ -2738,6 +2684,21 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                             tool_calls[idx].function.arguments += tool.function.arguments
                                         else:
                                             tool_calls[idx].function.arguments = tool.function.arguments
+                                current_tool = tool_calls[idx]
+                                if current_tool.function and current_tool.function.name:
+                                    progress_chunk = {
+                                        "choices": [{
+                                            "delta": {
+                                                "tool_progress": {  # 新增字段，区别于最终的 tool_content
+                                                    "name": current_tool.function.name,
+                                                    "arguments": current_tool.function.arguments or "",
+                                                    "index": idx,
+                                                    "id": current_tool.id or f"call_{idx}"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(progress_chunk)}\n\n"
                             else:
                                 # 创建原始chunk的拷贝
                                 chunk_dict = chunk.model_dump()
@@ -3070,7 +3031,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         arxiv_tool
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
     from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -3160,6 +3121,8 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             tools.append(claude_code_tool)
         elif settings['CLISettings']['engine'] == 'qc':
             tools.append(qwen_code_tool)
+        elif settings['CLISettings']['engine'] == 'ds':
+            tools.append(docker_sandbox_tool)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
         tools.append(time_tool)
     if settings["tools"]["weather"]['enabled']:

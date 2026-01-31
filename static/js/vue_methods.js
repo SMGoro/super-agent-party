@@ -1696,20 +1696,22 @@ let vue_methods = {
     // 2. AI 生成与流式处理函数（完全修复版）
     // ==========================================
     async generateAIResponse(targetAgentId, agentDisplayName = null) {
-        // 1. 初始化统计与状态
         this.startTimer(); 
-        
-        // TTS 关键变量初始化
         this.voiceStack = ['default']; 
         let tts_buffer = '';
         let isCodeBlock = false;
         this.cur_voice = 'default';
-        
         let max_rounds = this.settings.max_rounds || 0;
         
-        // --- 内部辅助：准备发送给API的消息列表 ---
+        // 【关键修复1】维护工具ID映射表：{工具名: 统一ID}
+        // 确保同一个工具的 call 和 result 使用完全相同的 ID
+        const toolCallIdMap = {};
+
+        // 内部函数：准备发送给 API 的消息历史
         const prepareMessages = (msgs) => {
-            return msgs.flatMap(msg => {
+            // 1. 初步提取消息
+            const rawMessages = msgs.flatMap(msg => {
+                // 优先使用后端专用结构 backend_content
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
                     return msg.backend_content.filter(m => 
                         (m.content && String(m.content).trim() !== '') || 
@@ -1717,28 +1719,66 @@ let vue_methods = {
                         m.role === 'tool'
                     );
                 }
-
+                // 处理普通消息和多模态图片
                 let apiRole = msg.role === 'system' ? 'system' : (msg.role === 'assistant' ? 'assistant' : 'user');
                 let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
-
+                
                 if (msg.imageLinks && msg.imageLinks.length > 0) {
                     const contentArray = [{ type: "text", text: textContent }];
                     msg.imageLinks.forEach(imageLink => {
-                        contentArray.push({
-                            type: "image_url",
-                            image_url: { url: imageLink.path }
-                        });
+                        contentArray.push({ type: "image_url", image_url: { url: imageLink.path } });
                     });
                     return [{ role: apiRole, content: contentArray }];
                 } else {
                     return [{ role: apiRole, content: textContent }];
                 }
             });
+
+            // ============================================================
+            // 【关键修复2】Sanitizer: 强制修复历史记录中的 ID 断层
+            // 防止 "No tool calls but found tool output" 错误
+            // ============================================================
+            const sanitized = [];
+            for (let i = 0; i < rawMessages.length; i++) {
+                const current = rawMessages[i];
+                
+                // 只有当当前消息是 tool 结果时才需要检查
+                if (current.role === 'tool') {
+                    let prev = sanitized.length > 0 ? sanitized[sanitized.length - 1] : null;
+                    
+                    // 必须保证前一条是 assistant
+                    if (!prev || prev.role !== 'assistant') {
+                        // 如果前一条不是 assistant，强行插入一个 assistant 父节点
+                        prev = { role: 'assistant', content: null, tool_calls: [] };
+                        sanitized.push(prev);
+                    }
+
+                    if (!prev.tool_calls) prev.tool_calls = [];
+
+                    // 检查前一条 assistant 是否真的包含了这个 ID
+                    const hasMatchingId = prev.tool_calls.some(tc => tc.id === current.tool_call_id);
+                    
+                    if (!hasMatchingId) {
+                        // 【核心】如果没有找到匹配的 ID，强行补全一个假的调用记录
+                        // 这样 API 就会认为历史记录是合法的
+                        // console.warn(`[Auto-Fix] Patching missing tool_call_id: ${current.tool_call_id} for tool ${current.name}`);
+                        prev.tool_calls.push({
+                            id: current.tool_call_id,
+                            type: 'function',
+                            function: { 
+                                name: current.name || 'unknown_tool', 
+                                arguments: "{}" 
+                            }
+                        });
+                    }
+                }
+                sanitized.push(current);
+            }
+            return sanitized;
         };
 
         let messagesPayload = max_rounds === 0 ? prepareMessages(this.messages) : prepareMessages(this.messages.slice(-max_rounds));
 
-        // --- 2. 创建消息对象 ---
         const newMsgData = {
             id: Date.now() + Math.random(),
             role: 'assistant',
@@ -1756,24 +1796,28 @@ let vue_methods = {
             first_token_latency: 0, 
             elapsedTime: 0, 
             generationFinished: false, 
+            toolBlocks: {},
         };
 
         this.messages.push(newMsgData);
         const currentMsg = this.messages[this.messages.length - 1]; 
         this.$nextTick(() => { this.scrollToBottom(); });
 
-        // 音频控制 - ✨ 修复：补全 audioProcess 定义
         let audioResolve = null;
-        let audioProcess = null;  // 新增：用于 finally 中等待
+        let audioProcess = null;
         const audioPromise = new Promise((resolve) => { audioResolve = resolve; });
         
         if (this.ttsSettings.enabled) {
             this.startTTSProcess(currentMsg);
             this.startAudioPlayProcess(currentMsg, audioResolve);
-            audioProcess = audioPromise;  // 新增：赋值给 audioProcess
+            audioProcess = audioPromise;
         }
 
-        // --- 3. 流式请求 ---
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        };
+
         try {
             const response = await fetch(`/v1/chat/completions`, {
                 method: 'POST',
@@ -1783,7 +1827,7 @@ let vue_methods = {
                     messages: messagesPayload,
                     stream: true,
                     fileLinks: this.fileLinks,
-                    asyncToolsID: this.asyncToolsID,
+                    asyncToolsID: this.asyncToolsID || [],
                     reasoning_effort: this.reasoning_effort,
                 }),
                 signal: this.abortController.signal 
@@ -1812,13 +1856,12 @@ let vue_methods = {
                         const delta = parsed.choices?.[0]?.delta;
                         if (!delta) continue;
 
-                        // I. 统计延迟
                         if (currentMsg.content === '') {
                             this.stopTimer(); 
                             currentMsg.first_token_latency = this.elapsedTime;
                         }
 
-                        // II. 处理普通文本 + TTS修复
+                        // 处理普通文本内容
                         if (delta.content) {
                             if (this.isThinkOpen) { 
                                 currentMsg.content += '</div>\n\n'; 
@@ -1827,22 +1870,22 @@ let vue_methods = {
                             currentMsg.content += delta.content;
                             currentMsg.pure_content += delta.content;
 
+                            // 更新 backend_content (文本追加)
                             let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
                             if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
+                                // 如果上一条是 tool 或者 已经有 tool_calls 的 assistant，则新建一条纯文本 assistant
                                 currentMsg.backend_content.push({ role: 'assistant', content: delta.content });
                             } else {
                                 last.content += delta.content;
                             }
                             this.scrollToBottom();
                             
-                            // TTS缓冲区处理
                             if (this.ttsSettings.enabled) {
                                 const parts = delta.content.split('```');
                                 for (let i = 0; i < parts.length; i++) {
                                     if (!isCodeBlock) { tts_buffer += parts[i]; }
                                     if (i < parts.length - 1) { isCodeBlock = !isCodeBlock; }
                                 }
-
                                 const { chunks, chunks_voice, remaining, remaining_voice } = this.splitTTSBuffer(tts_buffer);
                                 if (chunks.length > 0) {
                                     currentMsg.chunks_voice.push(...chunks_voice);
@@ -1853,89 +1896,169 @@ let vue_methods = {
                             }
                         }
 
-                        // III. 处理标准工具调用
-                        if (delta.tool_calls) {
-                            let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
-                            if (last.role !== 'assistant') {
-                                currentMsg.backend_content.push({ role: 'assistant', content: '', tool_calls: [] });
-                                last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
+                        // 处理流式工具参数显示（Loading状态）
+                        if (delta.tool_progress) {
+                            const progress = delta.tool_progress;
+                            // 为新工具生成 ID 并记录，以便后续对齐
+                            if (!toolCallIdMap[progress.name]) {
+                                toolCallIdMap[progress.name] = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                             }
-                            if (!last.tool_calls) last.tool_calls = [];
-
-                            delta.tool_calls.forEach(tc => {
-                                if (!last.tool_calls[tc.index]) {
-                                    last.tool_calls[tc.index] = { 
-                                        id: tc.id, 
-                                        type: 'function', 
-                                        function: { name: tc.function.name, arguments: '' } 
-                                    };
+                            
+                            const blockId = `tool-call-${toolCallIdMap[progress.name]}`;
+                            const existingBlock = currentMsg.content.includes(`id="${blockId}"`);
+                            const displayArgs = escapeHtml(progress.arguments);
+                            
+                            if (!existingBlock) {
+                                if (this.isThinkOpen) { 
+                                    currentMsg.content += '</div>\n\n'; 
+                                    this.isThinkOpen = false; 
                                 }
-                                if (tc.function?.arguments) {
-                                    last.tool_calls[tc.index].function.arguments += tc.function.arguments;
+                                let html = `\n<div class="highlight-block" id="${blockId}">`;
+                                html += `<div style="font-weight: bold; margin-bottom: 5px;">${this.t('call')}${progress.name}${this.t('tool')}</div>`;
+                                html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${displayArgs}</pre>`;
+                                html += '</div>\n';
+                                currentMsg.content += html;
+                            } else {
+                                const blockStart = currentMsg.content.indexOf(`id="${blockId}"`);
+                                const preStart = currentMsg.content.indexOf('<pre', blockStart);
+                                const contentStart = currentMsg.content.indexOf('>', preStart) + 1;
+                                const preEnd = currentMsg.content.indexOf('</pre>', contentStart);
+                                if (contentStart > 0 && preEnd > 0) {
+                                    currentMsg.content = currentMsg.content.substring(0, contentStart) + displayArgs + currentMsg.content.substring(preEnd);
                                 }
-                            });
+                            }
+                            this.scrollToBottom();
+                            continue;
                         }
 
-                        // IV. 处理 tool_content
+                        // ==========================================
+                        // 【关键修复3】流式工具调用与结果处理 (ID对齐)
+                        // ==========================================
                         if (delta.tool_content) {
-                            if (this.isThinkOpen) { 
-                                currentMsg.content += '</div>\n\n'; 
-                                this.isThinkOpen = false; 
-                            }
-                            
                             const tool = delta.tool_content;
-                            const toolId = delta.async_tool_id || `call_${Date.now()}`;
-                            
+                            const toolName = tool.title || 'unknown';
+
+                            // 1. 获取 ID：优先从 Map 取，确保 call 和 result 一致
+                            let toolCallId = toolCallIdMap[toolName] || delta.tool_call_id || delta.async_tool_id;
+
                             if (tool.type === 'call') {
-                                let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
-                                if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
-                                    currentMsg.backend_content.push({ 
-                                        role: 'assistant', 
-                                        content: null, 
-                                        tool_calls: [{ 
-                                            id: toolId, 
-                                            type: 'function', 
-                                            function: { name: tool.title, arguments: "{}" } 
-                                        }] 
-                                    });
-                                } else {
-                                    last.tool_calls = [{ 
-                                        id: toolId, 
-                                        type: 'function', 
-                                        function: { name: tool.title, arguments: "{}" } 
-                                    }];
+                                // 如果是发起调用，且还没有 ID，生成一个并存入 Map
+                                if (!toolCallId) {
+                                    toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                                 }
-                            } else if (tool.type === 'tool_result') {
-                                let tool_result = this.toolsSettings.hideToolResults.enabled ? 
-                                    '<hide to save token>' : tool.content;
-                                currentMsg.backend_content.push({
-                                    role: 'tool',
-                                    tool_call_id: toolId,
-                                    name: tool.title,
-                                    content: tool_result
-                                });
-                                currentMsg.backend_content.push({ role: 'assistant', content: '' });
+                                toolCallIdMap[toolName] = toolCallId; 
+                            } else {
+                                // 如果是结果 (result/error)，必须找到之前 call 用的 ID
+                                if (!toolCallId) {
+                                    // 回溯查找最近一次该工具的调用
+                                    const lastAssistant = [...currentMsg.backend_content].reverse().find(m => m.role === 'assistant' && m.tool_calls);
+                                    if (lastAssistant && lastAssistant.tool_calls) {
+                                        const match = lastAssistant.tool_calls.find(tc => tc.function.name === toolName);
+                                        if (match) {
+                                            toolCallId = match.id;
+                                            toolCallIdMap[toolName] = toolCallId; // 恢复到 Map
+                                        }
+                                    }
+                                }
+                                // 最终兜底，prepareMessages 会修复这个 ID
+                                if (!toolCallId) toolCallId = `call_${Date.now()}_fallback`;
                             }
 
-                            let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
-                            let uiTitle = "";
-                            if (tool.type === 'call') {
-                                if (tool.title === "arguments") uiTitle = this.t('sendArg');
-                                else uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
-                            } else if (tool.type === 'tool_result') {
-                                uiTitle = `${tool.title}${this.t('tool_result')}`;
+                            // 清理异步工具 ID
+                            if (delta.async_tool_id && (tool.type === 'tool_result' || tool.type === 'error')) {
+                                if (this.asyncToolsID) {
+                                    const index = this.asyncToolsID.indexOf(delta.async_tool_id);
+                                    if (index > -1) {
+                                        this.asyncToolsID.splice(index, 1);
+                                        delete toolCallIdMap[toolName];
+                                    }
+                                }
                             }
 
-                            let html = `\n<div class="${className}">`;
-                            html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
-                            if (tool.content) html += `<div>${tool.content}</div>`;
-                            html += '</div>\n';
-                            
-                            currentMsg.content += html;
+                            // 处理流式结果 (Streaming Continuation)
+                            const isStreamingContinuationChunk = tool.type === 'tool_result_stream' && tool.title === "tool_result_stream";
+                            if (isStreamingContinuationChunk) {
+                                const blockEndTag = '</div>';
+                                let lastBlockEndIndex = currentMsg.content.lastIndexOf(blockEndTag);
+                                if (lastBlockEndIndex > -1) {
+                                    const contentToAppend = '<br>' + escapeHtml(tool.content).replace(/\n/g, '<br>');
+                                    currentMsg.content = currentMsg.content.substring(0, lastBlockEndIndex) + contentToAppend + currentMsg.content.substring(lastBlockEndIndex);
+                                } else {
+                                    currentMsg.content += ' ' + escapeHtml(tool.content).replace(/\n/g, '<br>');
+                                }
+                                // 更新 backend_content
+                                const lastToolIndex = currentMsg.backend_content.length - 1;
+                                for (let i = lastToolIndex; i >= 0; i--) {
+                                    if (currentMsg.backend_content[i].role === 'tool' && currentMsg.backend_content[i].tool_call_id === toolCallId) {
+                                        currentMsg.backend_content[i].content += tool.content;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // 处理标准的 Call/Result/Error 块
+                                if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
+                                let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
+                                let uiTitle = "";
+                                if (tool.type === 'call') {
+                                    uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
+                                } else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream') {
+                                    const displayName = delta.async_tool_id || (tool.title !== 'tool_result_stream' ? tool.title : 'Tool');
+                                    uiTitle = `${displayName}${this.t('tool_result')}`;
+                                } else if (tool.type === 'error') {
+                                    uiTitle = tool.title || 'Error'; 
+                                }
+
+                                let html = `\n<div class="${className}">`;
+                                html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
+                                if (tool.content) { html += escapeHtml(tool.content).replace(/\n/g, '<br>'); }
+                                html += '</div>\n';
+                                currentMsg.content += html;
+
+                                // 【关键构造逻辑】backend_content 结构化存储
+                                if (tool.type === 'call') {
+                                    let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
+                                    
+                                    // 如果上一条是 assistant，则合并 tool_calls，不新建消息
+                                    if (last.role === 'assistant') {
+                                        if (!last.tool_calls) last.tool_calls = [];
+                                        // 防止重复添加
+                                        if (!last.tool_calls.some(tc => tc.id === toolCallId)) {
+                                            last.tool_calls.push({ 
+                                                id: toolCallId, 
+                                                type: 'function', 
+                                                function: { name: tool.title, arguments: "{}" } 
+                                            });
+                                        }
+                                    } else {
+                                        // 上一条不是 assistant（可能是 tool 结果），新建 assistant
+                                        currentMsg.backend_content.push({ 
+                                            role: 'assistant', 
+                                            content: null, 
+                                            tool_calls: [{ 
+                                                id: toolCallId,  
+                                                type: 'function', 
+                                                function: { name: tool.title, arguments: "{}" } 
+                                            }] 
+                                        });
+                                    }
+                                } else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream' || tool.type === 'error') {
+                                    const toolContent = (this.toolsSettings.hideToolResults.enabled && tool.type === 'tool_result') 
+                                        ? '<hide to save token>' 
+                                        : (tool.content || '');
+                                    
+                                    currentMsg.backend_content.push({
+                                        role: 'tool',
+                                        tool_call_id: toolCallId,  // 此时这里一定和上面的 call 对齐
+                                        name: toolName,
+                                        content: toolContent
+                                    });
+                                    // 结果后追加一个新的 assistant 占位，为后续对话做准备
+                                    currentMsg.backend_content.push({ role: 'assistant', content: '' });
+                                }
+                            }
                             this.scrollToBottom();
                         }
 
-                        // V. 推理内容
                         if (delta.reasoning_content) {
                             if (!this.isThinkOpen) {
                                 currentMsg.content += '<div class="highlight-block-reasoning">';
@@ -1945,7 +2068,6 @@ let vue_methods = {
                             this.scrollToBottom();
                         }
 
-                        // VI. Omni语音/Token等
                         if (delta.audio?.data) {
                             this.playPCMChunk(delta.audio.data, currentMsg.pure_content, currentMsg);
                         }
@@ -1953,12 +2075,18 @@ let vue_methods = {
                             currentMsg.total_tokens = parsed.usage.total_tokens;
                         }
                         
+                        if (delta.async_tool_id) {
+                            if (!this.asyncToolsID) this.asyncToolsID = [];
+                            if (!this.asyncToolsID.includes(delta.async_tool_id)) {
+                                this.asyncToolsID.push(delta.async_tool_id);
+                            }
+                        }
+
                         this.sendMessagesToExtension();
                     }
                 }
             }
             
-            // Flush剩余TTS缓冲
             if (tts_buffer.trim() && this.ttsSettings.enabled) {
                 currentMsg.chunks_voice.push(this.cur_voice);
                 currentMsg.ttsChunks.push(tts_buffer);
@@ -1966,7 +2094,6 @@ let vue_methods = {
             
             currentMsg.generationFinished = true;
             
-            // 通知VRM所有块已完成
             if (this.ttsSettings.enabled) {
                 if (this.audioStartTime > this.audioCtx.currentTime) {
                     const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
@@ -1985,15 +2112,10 @@ let vue_methods = {
             }
             if (audioResolve) audioResolve();
         } finally {
-            // ✨✨✨ 完全恢复老版本的 finally 逻辑 ✨✨✨
-            
             this.voiceStack = ['default'];
-            
             if (this.allBriefly) currentMsg.briefly = true;
             
-            // === 对话记录保存逻辑（已恢复）===
             if (this.conversationId === null) {
-                // 新建对话
                 this.conversationId = uuid.v4();
                 const newConv = {
                     id: this.conversationId,
@@ -2006,7 +2128,6 @@ let vue_methods = {
                 };
                 this.conversations.unshift(newConv);
             } else {
-                // 更新现有对话
                 const conv = this.conversations.find(conv => conv.id === this.conversationId);
                 if (conv) {
                     conv.messages = this.messages;
@@ -2015,14 +2136,12 @@ let vue_methods = {
                 }
             }
 
-            // === 等待TTS播放完成（已恢复）===
             if (this.ttsSettings.enabled && audioProcess) {
                 await audioProcess;
             }
 
             this.isThinkOpen = false;
             
-            // 延迟确保VRM状态重置
             setTimeout(() => {
                 if (!this.isSending && this.audioStartTime <= this.audioCtx.currentTime) {
                     this.sendTTSStatusToVRM('allChunksCompleted', {});
@@ -10680,65 +10799,6 @@ stopTTSActivities() {
         console.error('选择目录出错:', error);
         showNotification('选择目录失败', 'error');
       }
-    }
-  },
-  async installClaudeCode() {
-    try {
-      const scriptUrl = `${this.partyURL}/sh/claude_code_install.sh`;
-      const platform = await window.electronAPI.getPlatform();
-
-      if (platform === 'win32') {
-        // 一条命令：先 curl 拉取远程 bat，再立即执行；/k 保持窗口
-        const batUrl = `${this.partyURL}/sh/claude_code_install.bat`;
-        window.electronAPI.execCommand(
-          `start "" cmd /k "curl -fsSL ${batUrl} -o \"%TEMP%\\claude_install.bat\" && \"%TEMP%\\claude_install.bat\""`
-        );
-      } else if (platform === 'darwin') {
-        // macOS
-        window.electronAPI.execCommand(
-          `osascript -e 'tell app "Terminal" to do script "bash -c \\\"$(curl -fsSL ${scriptUrl}) \\\""'`
-        );
-      } else {
-        // Linux
-        window.electronAPI.execCommand(
-          `gnome-terminal -- bash -c "curl -fsSL ${scriptUrl} | bash; exec bash"`
-        );
-      }
-      showNotification(this.t('scriptExecuting'));
-    } catch (error) {
-      showNotification(`failed to install Claude Code: ${error.message}`, 'error');
-    } finally {
-
-    }
-  },
-
-  async installQwenCode() {
-    try {
-      const scriptUrl = `${this.partyURL}/sh/qwen_code_install.sh`;
-      const platform = await window.electronAPI.getPlatform();
-
-      if (platform === 'win32') {
-        // 一条命令：先 curl 拉取远程 bat，再立即执行；/k 保持窗口
-        const batUrl = `${this.partyURL}/sh/qwen_code_install.bat`;
-        window.electronAPI.execCommand(
-          `start "" cmd /k "curl -fsSL ${batUrl} -o \"%TEMP%\\qwen_install.bat\" && \"%TEMP%\\qwen_install.bat\""`
-        );
-      } else if (platform === 'darwin') {
-        // macOS
-        window.electronAPI.execCommand(
-          `osascript -e 'tell app "Terminal" to do script "bash -c \\\"$(curl -fsSL ${scriptUrl}) \\\""'`
-        );
-      } else {
-        // Linux
-        window.electronAPI.execCommand(
-          `gnome-terminal -- bash -c "curl -fsSL ${scriptUrl} | bash; exec bash"`
-        );
-      }
-      showNotification(this.t('scriptExecuting'));
-    } catch (error) {
-      showNotification(`failed to install Qwen Code: ${error.message}`, 'error');
-    } finally {
-
     }
   },
   
