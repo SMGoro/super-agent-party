@@ -91,7 +91,7 @@ if (window.markdownitContainer) {
                 return '<div class="highlight-block-reasoning">' + titleHtml;
             } else {
                 // 结束标签: </div>
-                return '</div>\n';
+                return '</div>\n\n';
             }
         }
     });
@@ -112,7 +112,7 @@ if (window.markdownitContainer) {
                 var titleHtml = title ? '<strong>' + title + '</strong><br>' : '';
                 return '<div class="highlight-block">' + titleHtml;
             } else {
-                return '</div>\n';
+                return '</div>\n\n';
             }
         }
     });
@@ -1852,7 +1852,7 @@ let vue_methods = {
                         // 1. 处理文本
                         if (delta.content) {
                             if (this.isThinkOpen) { 
-                                currentMsg.content += '</div>\n\n'; 
+                                currentMsg.content += '</div>\n\n';
                                 this.isThinkOpen = false; 
                             }
                             currentMsg.content += delta.content;
@@ -1920,13 +1920,13 @@ let vue_methods = {
                             
                             if (!existingBlock) {
                                 if (this.isThinkOpen) { 
-                                    currentMsg.content += '</div>\n\n'; 
+                                    currentMsg.content += '</div>\n\n';
                                     this.isThinkOpen = false; 
                                 }
                                 let html = `\n<div class="highlight-block" id="${blockId}">`;
                                 html += `<div style="font-weight: bold; margin-bottom: 5px;">${this.t('call')}${progress.name}${this.t('tool')}</div>`;
                                 html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${displayArgs}</pre>`;
-                                html += '</div>\n';
+                                html += '</div>\n\n';
                                 currentMsg.content += html;
                             } else {
                                 // 更新已有块的参数
@@ -2083,7 +2083,7 @@ let vue_methods = {
                                         html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${escapeHtml(tool.content)}</pre>`;
                                     }
                                 }
-                                html += '</div>\n';
+                                html += '</div>\n\n';
                                 currentMsg.content += html;
 
                                 if (tool.type === 'call') {
