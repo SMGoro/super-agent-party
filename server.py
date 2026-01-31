@@ -1487,7 +1487,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         arxiv_tool 
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
     m0 = None
@@ -1576,7 +1576,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
             elif settings['CLISettings']['engine'] == 'qc':
                 tools.append(qwen_code_tool)
             elif settings['CLISettings']['engine'] == 'ds':
-                tools.append(docker_sandbox_tool)
+                tools.extend(get_tools_for_mode('yolo'))
         if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
             tools.append(time_tool)
         if settings["tools"]["weather"]['enabled']:
@@ -3129,7 +3129,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         arxiv_tool
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -3220,7 +3220,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         elif settings['CLISettings']['engine'] == 'qc':
             tools.append(qwen_code_tool)
         elif settings['CLISettings']['engine'] == 'ds':
-            tools.append(docker_sandbox_tool)
+            tools.extend(get_tools_for_mode('yolo'))
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
         tools.append(time_tool)
     if settings["tools"]["weather"]['enabled']:
