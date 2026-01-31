@@ -1,4 +1,5 @@
 # -- coding: utf-8 --
+import hashlib
 import importlib
 import mimetypes
 import pathlib
@@ -679,11 +680,14 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         claude_code_async,
         qwen_code_async,
         docker_sandbox_async,
-        # 确保细粒度工具也被导入
+        # 细粒度工具 - 新增三个工具
         list_files_tool,
         read_file_tool,
         search_files_tool,
-        edit_file_tool
+        edit_file_tool,
+        edit_file_patch_tool,  # 新增：精确字符串替换
+        glob_files_tool,       # 新增：递归 glob 查找
+        todo_write_tool        # 新增：任务管理
     )
     from py.cdp_tool import (
         list_pages,
@@ -761,21 +765,25 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         
         # Docker Sandbox 相关工具
         "docker_sandbox_async": docker_sandbox_async,
-        "list_files": list_files_tool,
-        "read_file": read_file_tool,
-        "search_files": search_files_tool,
-        "edit_file": edit_file_tool,
+        "list_files_tool": list_files_tool,
+        "read_file_tool": read_file_tool,
+        "search_files_tool": search_files_tool,
+        "edit_file_tool": edit_file_tool,
+        # 新增三个核心工具
+        "edit_file_patch_tool": edit_file_patch_tool,  # 精确字符串替换（Claude Code 风格）
+        "glob_files_tool": glob_files_tool,            # 递归 glob 文件查找
+        "todo_write_tool": todo_write_tool,            # 任务管理系统
     }
 
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
     # 定义受控的敏感工具列表
     # 这些工具在执行前需要检查权限配置 (.party/config.json 或 全局设置)
     DOCKER_SENSITIVE_TOOLS = [
-        "docker_sandbox_async", 
-        "claude_code_async", 
-        "qwen_code_async", 
-        "bash",
-        "edit_file" 
+        "docker_sandbox_async",
+        "edit_file_tool",
+        "edit_file_patch_tool",    # 新增：精确编辑涉及文件写入，需要权限控制
+        "todo_write_tool"          # 新增：任务管理涉及文件写入，需要权限控制
+        # 注意：glob_files 是只读工具，不加入此列表，默认允许使用
     ]
     
     # 只有当调用的工具属于 Docker 体系时才进行拦截检查
@@ -794,9 +802,10 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
             is_allowed = True
             
         # --- 规则 B: 自动批准模式 (Accept Edits) ---
-        # 允许编辑文件，但依然拦截终端命令
+        # 允许文件编辑类工具（包括全量写入、精确替换、任务管理）
+        # 但依然拦截终端命令（docker/bash）
         elif permission_mode == "auto-approve":
-            if tool_name == "edit_file":
+            if tool_name in ["edit_file_tool", "edit_file_patch_tool", "todo_write_tool"]:
                 is_allowed = True
             # docker/bash 等危险命令在此模式下依然默认拦截，除非在项目白名单中
         
@@ -908,7 +917,6 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
         return f"Error calling tool {tool_name}: {e}"
-
 class ChatRequest(BaseModel):
     messages: List[Dict]
     model: str = None
@@ -1012,6 +1020,76 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         basic_message = "你必须使用用户使用的语言与之交流，例如：当用户使用中文时，你也必须尽可能地使用中文！当用户使用英文时，你也必须尽可能地使用英文！以此类推！"
         if request.messages and request.messages[0]['role'] == 'system':
             request.messages[0]['content'] += basic_message
+
+    cli_settings = settings.get("CLISettings", {})
+    cwd = cli_settings.get("cc_path")
+    
+    if cwd and Path(cwd).exists():
+        try:
+            # 生成容器名（与 cli_tool.py 中的逻辑保持一致）
+            abs_path = str(Path(cwd).resolve())
+            path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
+            container_name = f"sandbox-{path_hash}"
+            
+            # 尝试从 Docker 容器中读取待办事项文件
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "exec", container_name, 
+                "cat", "/workspace/.party/ai_todos.json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode == 0:
+                todos = json.loads(stdout.decode())
+                if isinstance(todos, list) and len(todos) > 0:
+                    # 格式化待办事项列表
+                    priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                    status_icons = {
+                        "pending": "⏳", 
+                        "in_progress": "🔄", 
+                        "done": "✅", 
+                        "cancelled": "❌"
+                    }
+                    
+                    # 按优先级和状态排序
+                    priority_order = {"high": 0, "medium": 1, "low": 2}
+                    todos_sorted = sorted(
+                        todos, 
+                        key=lambda x: (
+                            priority_order.get(x.get('priority', 'medium'), 1),
+                            x.get('created_at', '')
+                        )
+                    )
+                    
+                    todo_lines = ["\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
+                    pending_count = 0
+                    
+                    for todo in todos_sorted:
+                        status = todo.get('status', 'pending')
+                        if status != 'done':  # 只显示未完成的任务
+                            pending_count += 1
+                            icon = status_icons.get(status, "⏳")
+                            priority = priority_icons.get(todo.get('priority', 'medium'), "🟡")
+                            content = todo.get('content', '无内容')[:50]  # 限制长度
+                            if len(todo.get('content', '')) > 50:
+                                content += "..."
+                            
+                            todo_lines.append(f"{icon} {priority} [{todo.get('id', 'unknown')}] {content}")
+                    
+                    if pending_count == 0:
+                        todo_lines.append("✨ 当前没有待办事项，所有任务已完成！")
+                    else:
+                        todo_lines.append(f"\n*共有 {pending_count} 个未完成任务*")
+                    
+                    todo_message = "\n".join(todo_lines)
+                    content_append(request.messages, 'system', todo_message)
+                    
+        except Exception as e:
+            # 文件不存在或读取失败时静默处理，不阻断主流程
+            print(f"[Todo Loader] 跳过待办事项加载: {e}")
+            pass
+
     if settings["HASettings"]["enabled"]:
         HA_devices = await HA_client.call_tool("GetLiveContext", {})
         HA_message = f"\n\n以下是home assistant连接的设备信息：{HA_devices}\n\n"
@@ -3997,7 +4075,6 @@ async def execute_tool_manually(request: Request):
         else:
              return {"result": "[System Error] No working directory found to save config."}
 
-    # ==================== 执行工具 ====================
     # ==================== 1. 导入所有工具函数 ====================
     from py.web_search import (
         DDGsearch_async, 
@@ -4035,11 +4112,14 @@ async def execute_tool_manually(request: Request):
         claude_code_async,
         qwen_code_async,
         docker_sandbox_async,
-        # 确保细粒度工具也被导入
+        # 细粒度工具 - 新增三个工具
         list_files_tool,
         read_file_tool,
         search_files_tool,
-        edit_file_tool
+        edit_file_tool,
+        edit_file_patch_tool,  # 新增：精确字符串替换
+        glob_files_tool,       # 新增：递归 glob 查找
+        todo_write_tool        # 新增：任务管理
     )
     from py.cdp_tool import (
         list_pages,
@@ -4117,12 +4197,16 @@ async def execute_tool_manually(request: Request):
         
         # Docker Sandbox 相关工具
         "docker_sandbox_async": docker_sandbox_async,
-        "list_files": list_files_tool,
-        "read_file": read_file_tool,
-        "search_files": search_files_tool,
-        "edit_file": edit_file_tool,
+        "list_files_tool": list_files_tool,
+        "read_file_tool": read_file_tool,
+        "search_files_tool": search_files_tool,
+        "edit_file_tool": edit_file_tool,
+        # 新增三个核心工具
+        "edit_file_patch_tool": edit_file_patch_tool,  # 精确字符串替换（Claude Code 风格）
+        "glob_files_tool": glob_files_tool,            # 递归 glob 文件查找
+        "todo_write_tool": todo_write_tool,            # 任务管理系统
     }
-    
+
     if tool_name not in _TOOL_HOOKS:
         return {"result": f"Tool {tool_name} not found in backend registry."}
     

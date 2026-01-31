@@ -4,8 +4,12 @@ import os
 import shutil
 import subprocess
 import sys
+import json
+import uuid
+import tempfile
 from pathlib import Path
 from typing import AsyncIterator, Union
+from datetime import datetime
 
 def get_shell_environment():
     """通过子进程获取完整的 shell 环境"""
@@ -67,27 +71,811 @@ async def _merge_streams(*streams):
             except StopAsyncIteration:
                 streams.remove(stream)
 
-# ==================== Claude Code 工具 ====================
+# ==================== Docker Sandbox 基础设施 ====================
 
-cli_info = """这是一个交互式命令行工具，专门帮助用户完成软件工程任务。
+import hashlib
 
-  可以协助您：
-  - 编写、调试和重构代码
-  - 搜索和分析文件内容
-  - 运行构建和测试
-  - 管理 Git 操作
-  - 代码审查和优化
-  - 以及其他编程相关的任务
+def get_safe_container_name(cwd: str) -> str:
+    """
+    根据路径生成合法容器名
+    规则：sandbox- + 路径MD5前12位（确保唯一且合法）
+    """
+    abs_path = str(Path(cwd).resolve())
+    path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
+    return f"sandbox-{path_hash}"
 
-  运行在您的本地环境中，可以访问文件系统并使用各种工具来帮助您完成工作。
+async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandbox-templates:latest") -> str:
+    """
+    获取或创建基于路径的持久化沙盒
+    返回: 容器名（同时也是沙盒ID）
+    """
+    container_name = get_safe_container_name(cwd)
+    
+    check_proc = await asyncio.create_subprocess_exec(
+        "docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "--format", "{{.Names}}|{{.Status}}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await check_proc.communicate()
+    output = stdout.decode().strip()
+    
+    if container_name in output:
+        status = output.split("|")[-1] if "|" in output else ""
+        
+        if "Up" in status:
+            print(f"[INFO] 使用已运行的沙盒: {container_name}")
+            return container_name
+        else:
+            print(f"[INFO] 启动已存在的沙盒: {container_name}")
+            start_proc = await asyncio.create_subprocess_exec(
+                "docker", "start", container_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await start_proc.communicate()
+            if start_proc.returncode != 0:
+                raise Exception(f"启动沙盒失败: {stderr.decode()}")
+            return container_name
+    
+    print(f"[INFO] 创建新沙盒: {container_name} (路径: {cwd})")
+    
+    create_cmd = [
+        "docker", "run", "-d",
+        "--name", container_name,
+        "-v", f"{cwd}:/workspace",
+        "-w", "/workspace",
+        "--restart", "unless-stopped",
+        "--label", f"sandbox.path={cwd}",
+        "--label", "sandbox.type=persistent",
+        image_name,
+        "tail", "-f", "/dev/null"
+    ]
+    
+    proc = await asyncio.create_subprocess_exec(
+        *create_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+    
+    if proc.returncode == 0:
+        container_id = stdout.decode().strip()[:12]
+        print(f"[INFO] 沙盒创建成功: {container_id}")
+        return container_name
+    else:
+        error_msg = stderr.decode()
+        if "is already in use by container" in error_msg:
+            await asyncio.sleep(0.5)
+            return await get_or_create_docker_sandbox(cwd, image_name)
+        raise Exception(f"创建沙盒失败: {error_msg}")
 
-  当你被要求写一些项目或者对工作区的项目进行操作时，请尽量使用自然语言描述你的需求，这样交互式命令行工具能更好地理解并执行你的指令。
-  
-  你只需要给出计划，而不是具体实现，控制CLI的智能体会根据你的计划自动生成代码并执行。
-"""
+async def _exec_docker_cmd_simple(cwd: str, cmd_list: list) -> str:
+    """
+    内部辅助函数：在容器内执行简单命令并获取一次性输出
+    """
+    container_name = await get_or_create_docker_sandbox(cwd)
+    
+    full_cmd = ["docker", "exec", "-w", "/workspace", container_name] + cmd_list
+    
+    proc = await asyncio.create_subprocess_exec(
+        *full_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+    
+    if proc.returncode != 0:
+        raise Exception(f"Command failed: {stderr.decode().strip()}")
+    return stdout.decode()
+
+async def _get_current_cwd() -> str:
+    """内部辅助：获取当前配置的工作目录"""
+    settings = await load_settings()
+    cwd = settings.get("CLISettings", {}).get("cc_path")
+    if not cwd:
+        raise ValueError("No workspace directory specified in settings (CLISettings.cc_path).")
+    return cwd
+
+async def docker_sandbox_async(command: str) -> str | AsyncIterator[str]:
+    """
+    在持久化 Docker 沙盒中执行命令
+    """
+    settings = await load_settings()
+    CLISettings = settings.get("CLISettings", {})
+    cwd = CLISettings.get("cc_path")
+    if not cwd:
+        return "Error: No workspace directory specified in settings."
+    dsSettings = settings.get("dsSettings", {})
+    
+    image_name = "docker/sandbox-templates:latest"
+    
+    if not cwd or not Path(cwd).is_dir():
+        return f"Error: Invalid workspace directory: {cwd}"
+    
+    try:
+        container_name = await get_or_create_docker_sandbox(cwd, image_name)
+    except Exception as e:
+        return f"Docker Sandbox Initialization Error: {str(e)}"
+
+    async def _stream() -> AsyncIterator[str]:
+        exec_cmd = [
+            "docker", "exec",
+            "-i",
+            container_name,
+            "sh", "-c",
+            f"cd /workspace && {command}"
+        ]
+        
+        output_yielded = False
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *exec_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            
+            async for line in _merge_streams(
+                read_stream(process.stdout, is_error=False),
+                read_stream(process.stderr, is_error=True),
+            ):
+                yield line
+                output_yielded = True
+            
+            await process.wait()
+            
+            if process.returncode != 0:
+                yield f"[EXIT CODE] {process.returncode}"
+            elif process.returncode == 0 and not output_yielded:
+                yield "[SUCCESS] 命令已成功执行未报错"
+                
+        except Exception as e:
+            yield f"[ERROR] 执行失败: {str(e)}"
+    
+    return _stream()
+
+# ==================== 1. 精确字符串替换工具 (edit_file_patch) ====================
+
+async def edit_file_patch_tool(path: str, old_string: str, new_string: str) -> str:
+    """
+    [工具] 精确字符串替换 - Claude Code 经典功能
+    查找特定代码块并替换，保留文件其余部分和格式
+    
+    特性：
+    - 精确匹配 old_string（去除行尾空格后进行匹配）
+    - 只替换第一个匹配项
+    - 如果匹配失败，返回详细错误信息帮助定位
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        container_name = await get_or_create_docker_sandbox(real_cwd)
+        
+        # 读取文件内容
+        content = await _exec_docker_cmd_simple(real_cwd, ["cat", path])
+        
+        # 规范化行尾空格用于匹配（但保留原文件格式）
+        normalized_content = "\n".join(line.rstrip() for line in content.split("\n"))
+        normalized_old = "\n".join(line.rstrip() for line in old_string.split("\n"))
+        
+        if normalized_old not in normalized_content:
+            # 提供诊断信息
+            lines = content.split("\n")
+            first_line = old_string.split("\n")[0] if "\n" in old_string else old_string
+            
+            # 尝试模糊查找第一行
+            similar_lines = [f"Line {i+1}: {line[:80]}" for i, line in enumerate(lines) 
+                           if first_line.strip() in line]
+            
+            error_msg = f"[Error] Old string not found in file '{path}'.\n"
+            if similar_lines:
+                error_msg += f"\nFound similar lines containing '{first_line[:30]}':\n" + "\n".join(similar_lines[:5])
+            else:
+                error_msg += f"\nFile has {len(lines)} lines. First line of your search: '{first_line[:50]}'"
+            return error_msg
+        
+        # 执行替换（使用原始内容）
+        new_content = content.replace(old_string, new_string, 1)
+        
+        # 写回文件
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+            tmp.write(new_content)
+            tmp_path = tmp.name
+        
+        dest_path = f"{container_name}:/workspace/{path}"
+        
+        cp_proc = await asyncio.create_subprocess_exec(
+            "docker", "cp", tmp_path, dest_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await cp_proc.communicate()
+        
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        
+        if cp_proc.returncode != 0:
+            return f"[Error] Patch failed: {stderr.decode()}"
+        
+        # 添加行数统计信息
+        old_lines = old_string.count('\n') + 1
+        new_lines = new_string.count('\n') + 1
+        return f"[Success] Patched '{path}' ({old_lines} lines -> {new_lines} lines)"
+        
+    except Exception as e:
+        return f"[Error] Patch failed: {str(e)}"
+
+# ==================== 2. Glob 文件匹配工具 (glob_files) ====================
+
+async def glob_files_tool(pattern: str, exclude: str = "**/node_modules/**,**/.git/**,**/__pycache__/**") -> str:
+    """
+    [工具] 真正的 Glob 模式匹配（递归查找）
+    支持 **/*.py 等递归模式，弥补了 list_files 只能列单层目录的不足
+    
+    参数:
+        pattern: glob 模式，如 "**/*.py", "src/**/*.ts", "*.md"
+        exclude: 排除模式，逗号分隔（默认排除 node_modules, .git, __pycache__）
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        
+        # 在容器内使用 Python 的 glob 模块（最准确）
+        exclude_list = [e.strip() for e in exclude.split(",") if e.strip()]
+        
+        python_script = f'''
+import glob
+import os
+import json
+
+files = glob.glob("/workspace/{pattern}", recursive=True)
+exclude_patterns = {exclude_list}
+
+filtered = []
+for f in files:
+    if not os.path.isfile(f):
+        continue
+    rel_path = f.replace("/workspace/", "")
+    # 检查排除模式
+    should_exclude = False
+    for ex in exclude_patterns:
+        if glob.fnmatch.fnmatch(rel_path, ex) or glob.fnmatch.fnmatch(f, ex):
+            should_exclude = True
+            break
+    if not should_exclude:
+        filtered.append(rel_path)
+
+print(json.dumps(filtered, indent=2))
+'''
+        
+        output = await _exec_docker_cmd_simple(real_cwd, ["python3", "-c", python_script])
+        
+        try:
+            files = json.loads(output)
+            if not files:
+                return "[Result] No files found matching the pattern."
+            
+            # 格式化输出，带序号和文件类型标识
+            result_lines = [f"[{len(files)} files matched]"]
+            for i, f in enumerate(files[:50], 1):  # 限制显示前50个
+                icon = "📄" if "." in f else "📁"
+                if f.endswith(".py"): icon = "🐍"
+                elif f.endswith(".js") or f.endswith(".ts"): icon = "📜"
+                elif f.endswith(".md"): icon = "📝"
+                elif f.endswith(".json"): icon = "⚙️"
+                result_lines.append(f"{icon} {f}")
+            
+            if len(files) > 50:
+                result_lines.append(f"\n... and {len(files) - 50} more files")
+            
+            return "\n".join(result_lines)
+            
+        except json.JSONDecodeError:
+            return f"[Result] {output}"
+            
+    except Exception as e:
+        return f"[Error] Glob failed: {str(e)}"
+
+# ==================== 3. 任务管理工具 (todo_write) ====================
+
+async def todo_write_tool(action: str, id: str = None, content: str = None, priority: str = "medium", status: str = None) -> str:
+    """
+    [工具] 完整的任务管理系统
+    持久化存储在 .party/ai_todos.json，支持优先级和状态跟踪
+    
+    操作:
+        create: 创建新任务 (需要 content, 可选 priority)
+        update: 更新任务 (需要 id, 可选 content/priority/status)
+        delete: 删除任务 (需要 id)
+        list: 列出所有任务
+        toggle: 切换任务完成状态 (需要 id)
+        
+    优先级: high, medium, low
+    状态: pending, in_progress, done, cancelled
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        container_name = await get_or_create_docker_sandbox(real_cwd)
+        
+        todo_dir = "/workspace/.party"
+        todo_file = f"{todo_dir}/ai_todos.json"
+        
+        # 读取现有 todos
+        try:
+            content_data = await _exec_docker_cmd_simple(real_cwd, ["cat", todo_file])
+            todos = json.loads(content_data)
+            if not isinstance(todos, list):
+                todos = []
+        except Exception:
+            todos = []
+        
+        # 执行操作
+        if action == "create":
+            if not content:
+                return "[Error] 'content' is required for create action"
+            
+            new_todo = {
+                "id": id or str(uuid.uuid4())[:8],
+                "content": content,
+                "priority": priority if priority in ["high", "medium", "low"] else "medium",
+                "status": "pending",
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "completed_at": None
+            }
+            todos.append(new_todo)
+            
+            # 写回文件
+            json_str = json.dumps(todos, indent=2, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+                tmp.write(json_str)
+                tmp_path = tmp.name
+            
+            # 确保目录存在
+            await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", todo_dir])
+            
+            dest_path = f"{container_name}:{todo_file}"
+            cp_proc = await asyncio.create_subprocess_exec(
+                "docker", "cp", tmp_path, dest_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await cp_proc.communicate()
+            os.unlink(tmp_path)
+            
+            return f"[Success] Created todo [{new_todo['id']}]: {content}"
+            
+        elif action == "list":
+            if not todos:
+                return "[Result] No todos found. Create one with action='create'"
+            
+            # 按优先级和状态排序
+            priority_order = {"high": 0, "medium": 1, "low": 2}
+            sorted_todos = sorted(todos, key=lambda x: (priority_order.get(x.get('priority', 'medium'), 1), 
+                                                        x.get('status', 'pending') != 'pending'))
+            
+            lines = ["📋 Task List:", "─" * 50]
+            for t in sorted_todos:
+                status_icon = {"pending": "⏳", "in_progress": "🔄", "done": "✅", "cancelled": "❌"}.get(t.get('status'), "⏳")
+                priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t.get('priority'), "🟡")
+                lines.append(f"{status_icon} [{t['id']}] {t['content'][:40]} {priority_icon}")
+                if len(t['content']) > 40:
+                    lines.append(f"    ...{t['content'][40:]}")
+            
+            lines.append("─" * 50)
+            lines.append(f"Total: {len(todos)} tasks ({sum(1 for t in todos if t.get('status') != 'done')} pending)")
+            return "\n".join(lines)
+            
+        elif action == "update":
+            if not id:
+                return "[Error] 'id' is required for update action"
+            
+            found = False
+            for todo in todos:
+                if todo["id"] == id:
+                    if content:
+                        todo["content"] = content
+                    if priority and priority in ["high", "medium", "low"]:
+                        todo["priority"] = priority
+                    if status and status in ["pending", "in_progress", "done", "cancelled"]:
+                        todo["status"] = status
+                        if status == "done" and not todo.get("completed_at"):
+                            todo["completed_at"] = datetime.now().isoformat()
+                    todo["updated_at"] = datetime.now().isoformat()
+                    found = True
+                    break
+            
+            if not found:
+                return f"[Error] Todo with id '{id}' not found. Use action='list' to see all ids."
+            
+            # 写回
+            json_str = json.dumps(todos, indent=2, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+                tmp.write(json_str)
+                tmp_path = tmp.name
+            
+            dest_path = f"{container_name}:{todo_file}"
+            await asyncio.create_subprocess_exec("docker", "cp", tmp_path, dest_path,
+                                                stdout=asyncio.subprocess.PIPE, 
+                                                stderr=asyncio.subprocess.PIPE)
+            os.unlink(tmp_path)
+            
+            return f"[Success] Updated todo [{id}]"
+            
+        elif action == "delete":
+            if not id:
+                return "[Error] 'id' is required for delete action"
+            
+            original_len = len(todos)
+            todos = [t for t in todos if t["id"] != id]
+            
+            if len(todos) == original_len:
+                return f"[Error] Todo with id '{id}' not found."
+            
+            # 写回
+            json_str = json.dumps(todos, indent=2, ensure_ascii=False)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+                tmp.write(json_str)
+                tmp_path = tmp.name
+            
+            dest_path = f"{container_name}:{todo_file}"
+            await asyncio.create_subprocess_exec("docker", "cp", tmp_path, dest_path,
+                                                stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.PIPE)
+            os.unlink(tmp_path)
+            
+            return f"[Success] Deleted todo [{id}]"
+            
+        elif action == "toggle":
+            if not id:
+                return "[Error] 'id' is required for toggle action"
+            
+            for todo in todos:
+                if todo["id"] == id:
+                    if todo.get("status") == "done":
+                        todo["status"] = "pending"
+                        todo["completed_at"] = None
+                        msg = "marked as pending"
+                    else:
+                        todo["status"] = "done"
+                        todo["completed_at"] = datetime.now().isoformat()
+                        msg = "completed"
+                    
+                    todo["updated_at"] = datetime.now().isoformat()
+                    
+                    # 写回
+                    json_str = json.dumps(todos, indent=2, ensure_ascii=False)
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+                        tmp.write(json_str)
+                        tmp_path = tmp.name
+                    
+                    dest_path = f"{container_name}:{todo_file}"
+                    await asyncio.create_subprocess_exec("docker", "cp", tmp_path, dest_path,
+                                                        stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.PIPE)
+                    os.unlink(tmp_path)
+                    
+                    return f"[Success] Todo [{id}] {msg} ✅"
+            
+            return f"[Error] Todo with id '{id}' not found."
+            
+        else:
+            return f"[Error] Unknown action: {action}. Use: create, list, update, delete, toggle"
+            
+    except Exception as e:
+        return f"[Error] Todo operation failed: {str(e)}"
+
+# ==================== 工具注册与权限管理 ====================
+
+TOOLS_REGISTRY = {
+    # --- 只读工具 ---
+    "list_files": {
+        "type": "function",
+        "function": {
+            "name": "list_files_tool",
+            "description": "List files and directories in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The directory path (default: .)"},
+                    "show_all": {"type": "boolean", "description": "Show hidden files (default: false)"}
+                }
+            }
+        }
+    },
+    "read_file": {
+        "type": "function",
+        "function": {
+            "name": "read_file_tool",
+            "description": "Read the contents of a file with line numbers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The path to the file"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    "search_files": {
+        "type": "function",
+        "function": {
+            "name": "search_files_tool",
+            "description": "Search for a text pattern recursively in files using grep.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "The regex or text to search for"},
+                    "path": {"type": "string", "description": "Directory to search in (default: .)"}
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    "glob_files": {
+        "type": "function",
+        "function": {
+            "name": "glob_files_tool",
+            "description": "Find files using glob patterns (e.g., '**/*.py' for all Python files recursively). Much more powerful than list_files for finding specific file types across the project.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string", 
+                        "description": "Glob pattern like '**/*.py', 'src/**/*.ts', '*.md', 'test_*.py'"
+                    },
+                    "exclude": {
+                        "type": "string",
+                        "description": "Comma-separated exclusion patterns (default: '**/node_modules/**,**/.git/**')"
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    
+    # --- 编辑工具 ---
+    "edit_file": {
+        "type": "function",
+        "function": {
+            "name": "edit_file_tool",
+            "description": "Create or Overwrite a file with new content. For editing, read the file first, then provide the FULL new content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The file path"},
+                    "content": {"type": "string", "description": "The full content to write to the file"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    "edit_file_patch": {
+        "type": "function",
+        "function": {
+            "name": "edit_file_patch_tool",
+            "description": "Precise string replacement - the classic Claude Code feature. Finds a specific code block (old_string) and replaces it with new_string, preserving the rest of the file. Safer than edit_file for modifications. old_string must match exactly (except trailing whitespace).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to edit"
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "The exact code block to replace (can be multiple lines). Must match the file content precisely."
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "The new code block to insert in place of old_string"
+                    }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }
+        }
+    },
+    
+    # --- 任务管理工具 ---
+    "todo_write": {
+        "type": "function",
+        "function": {
+            "name": "todo_write_tool",
+            "description": "Task management system with persistent storage in .party/ai_todos.json. CRUD operations for project tasks with priorities and status tracking. Actions: create (needs content), list, update (needs id), delete (needs id), toggle (toggle done status).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "list", "update", "delete", "toggle"],
+                        "description": "Operation to perform"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Task ID (required for update/delete/toggle, optional for create)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Task description (required for create, optional for update)"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                        "description": "Task priority (default: medium)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["pending", "in_progress", "done", "cancelled"],
+                        "description": "Task status (for update action)"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    
+    # --- 全权限工具 (Bash) ---
+    "bash": {
+        "type": "function",
+        "function": {
+            "name": "docker_sandbox_async", 
+            "description": "Execute a bash command in the terminal. Use this for running scripts, installing packages, or git operations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The bash command"}
+                },
+                "required": ["command"]
+            }
+        }
+    }
+}
+
+def get_tools_for_mode(mode: str) -> list:
+    """
+    根据权限模式返回工具定义列表
+    
+    权限矩阵:
+    - default (Default Permission Mode): 只读工具
+    - auto-approve (Accept Edits): 只读 + 文件编辑 + 任务管理  
+    - yolo (Bypass Permissions): 全部工具（包括 bash）
+    """
+    
+    # 基础只读集
+    read_only_tools = [
+        TOOLS_REGISTRY["list_files"],
+        TOOLS_REGISTRY["read_file"],
+        TOOLS_REGISTRY["search_files"],
+        TOOLS_REGISTRY["glob_files"]  # 新增：递归文件查找（只读）
+    ]
+    
+    # 编辑集 (文件修改)
+    edit_tools = [
+        TOOLS_REGISTRY["edit_file"],
+        TOOLS_REGISTRY["edit_file_patch"]  # 新增：精确字符串替换（比全量覆盖更安全）
+    ]
+    
+    # 任务管理集 (元数据操作，理论上安全，但涉及文件写入)
+    todo_tools = [
+        TOOLS_REGISTRY["todo_write"]  # 新增：任务管理系统
+    ]
+    
+    # 终端集 (危险操作)
+    terminal_tools = [
+        TOOLS_REGISTRY["bash"]
+    ]
+    
+    if mode == "default":
+        # 默认模式：只能浏览和搜索
+        return read_only_tools
+        
+    elif mode == "auto-approve": 
+        # 自动批准模式：可以读写文件和管理任务，但不能执行任意 bash
+        return read_only_tools + edit_tools + todo_tools
+        
+    elif mode == "yolo":
+        # 完全授权模式：所有工具
+        return read_only_tools + edit_tools + todo_tools + terminal_tools
+    
+    else:
+        # 未知模式，返回最安全选项
+        return read_only_tools
+
+# ==================== 其他原有工具函数 ====================
+
+async def read_file_tool(path: str) -> str:
+    """[工具] 读取文件内容，带有行号"""
+    try:
+        real_cwd = await _get_current_cwd()
+        cmd = ["cat", "-n", path] 
+        output = await _exec_docker_cmd_simple(real_cwd, cmd)
+        return output
+    except Exception as e:
+        return f"[Error] Could not read file: {str(e)}"
+
+async def edit_file_tool(path: str, content: str) -> str:
+    """[工具] 覆盖写入文件"""
+    try:
+        real_cwd = await _get_current_cwd()
+        container_name = await get_or_create_docker_sandbox(real_cwd)
+        
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", dir_name])
+
+        dest_path = f"{container_name}:/workspace/{path}"
+        
+        cp_proc = await asyncio.create_subprocess_exec(
+            "docker", "cp", tmp_path, dest_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await cp_proc.communicate()
+        
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        
+        if cp_proc.returncode != 0:
+            return f"[Error] Save failed: {stderr.decode()}"
+            
+        return f"[Success] File '{path}' saved successfully."
+    except Exception as e:
+        return f"[Error] Edit tool failed: {str(e)}"
+
+async def search_files_tool(pattern: str, path: str = ".") -> str:
+    """[工具] 使用 grep 搜索文件内容"""
+    try:
+        real_cwd = await _get_current_cwd()
+        cmd = ["grep", "-rn", pattern, path]
+        output = await _exec_docker_cmd_simple(real_cwd, cmd)
+        return output if output else "[Result] No matches found."
+    except Exception as e:
+        return f"[Error] Search failed: {str(e)}"
+
+async def list_files_tool(path: str = ".", show_all: bool = False) -> str:
+    """[工具] 列出目录下的文件
+    参数:
+        show_all: 是否显示隐藏文件（默认False）
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        
+        # 先检查是否有隐藏文件
+        all_files = await _exec_docker_cmd_simple(real_cwd, ["ls", "-A", path])
+        has_hidden = any(f.startswith('.') for f in all_files.split('\n') if f)
+        
+        if show_all:
+            cmd = ["ls", "-laF", path]
+            output = await _exec_docker_cmd_simple(real_cwd, cmd)
+            if not output:
+                if has_hidden:
+                    return "[Result] 当前目录没有可见文件，但包含隐藏项目（如 .party, .git 等）。如需查看请使用 show_all=true"
+                else:
+                    return "[Result] Directory is empty."
+            return output
+        else:
+            # 默认不显示隐藏文件
+            cmd = ["ls", "-F", path]
+            output = await _exec_docker_cmd_simple(real_cwd, cmd)
+            
+            if not output:
+                if has_hidden:
+                    return "[Result] 当前目录没有可见文件，但包含隐藏项目（如 .party, .git 等）。如需查看请使用 show_all=true"
+                else:
+                    return "[Result] Directory is empty."
+            return output
+            
+    except Exception as e:
+        return f"[Error] {str(e)}"
+
+# ==================== Claude Code & Qwen Code 工具（原有）=====================
+
+cli_info = """这是一个交互式命令行工具，专门帮助用户完成软件工程任务..."""
 
 async def claude_code_async(prompt) -> str | AsyncIterator[str]:
-    """返回 str（报错）或 AsyncIterator[str]（正常流式输出）"""
+    """Claude Code 调用"""
     settings = await load_settings()
     CLISettings = settings.get("CLISettings", {})
     cwd = CLISettings.get("cc_path")
@@ -133,7 +921,7 @@ claude_code_tool = {
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "你想让Claude Code执行的指令，最好用自然语言交流，例如：请帮我创建一个文件，文件名为test.txt，文件内容为hello world",
+                    "description": "你想让Claude Code执行的指令...",
                 }
             },
             "required": ["prompt"],
@@ -141,10 +929,8 @@ claude_code_tool = {
     },
 }
 
-# ==================== Qwen Code 工具 ====================
-
 async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
-    """返回 str（报错）或 AsyncIterator[str]（正常流式输出）"""
+    """Qwen Code 调用"""
     settings = await load_settings()
     CLISettings = settings.get("CLISettings", {})
     cwd = CLISettings.get("cc_path")
@@ -179,13 +965,11 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
                 env={**os.environ, **extra_config},
             )
         except FileNotFoundError:
-            yield f"[ERROR] System cannot find the executable: {executable}. Is it installed and in PATH?"
+            yield f"[ERROR] System cannot find the executable: {executable}..."
             return
         except Exception as e:
             yield f"[ERROR] Failed to start subprocess: {str(e)}"
             return
-
-        print("你的配置:", extra_config)
 
         async for out in _merge_streams(
             read_stream(process.stdout),
@@ -207,7 +991,7 @@ qwen_code_tool = {
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "你想让Qwen Code执行的指令，最好用自然语言交流，例如：请帮我创建一个文件，文件名为test.txt，文件内容为hello world",
+                    "description": "你想让Qwen Code执行的指令...",
                 }
             },
             "required": ["prompt"],
@@ -215,478 +999,20 @@ qwen_code_tool = {
     },
 }
 
-# ==================== Docker Sandbox 工具（已修复） ====================
-
-import hashlib
-
-async def read_stream(stream, *, is_error: bool = False):
-    """读取流并添加错误前缀"""
-    if stream is None:
-        return
-    async for line in stream:
-        prefix = "[ERROR] " if is_error else ""
-        yield f"{prefix}{line.decode('utf-8', errors='replace').rstrip()}"
-
-async def _merge_streams(*streams):
-    """合并多个异步流"""
-    streams = [s.__aiter__() for s in streams]
-    while streams:
-        for stream in list(streams):
-            try:
-                item = await stream.__anext__()
-                yield item
-            except StopAsyncIteration:
-                streams.remove(stream)
-
-def get_safe_container_name(cwd: str) -> str:
-    """
-    根据路径生成合法容器名
-    规则：sandbox- + 路径MD5前12位（确保唯一且合法）
-    """
-    # 统一路径格式（绝对路径、去除尾部斜杠）
-    abs_path = str(Path(cwd).resolve())
-    # 生成哈希
-    path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
-    return f"sandbox-{path_hash}"
-
-async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandbox-templates:latest") -> str:
-    """
-    获取或创建基于路径的持久化沙盒
-    返回: 容器名（同时也是沙盒ID）
-    """
-    container_name = get_safe_container_name(cwd)
-    
-    # 1. 检查容器是否已存在（包括已停止的）
-    check_proc = await asyncio.create_subprocess_exec(
-        "docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "--format", "{{.Names}}|{{.Status}}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await check_proc.communicate()
-    output = stdout.decode().strip()
-    
-    if container_name in output:
-        # 容器存在，检查状态
-        # 格式: sandbox-xxxxx|Up 10 minutes 或 sandbox-xxxxx|Exited (0) 2 hours ago
-        status = output.split("|")[-1] if "|" in output else ""
-        
-        if "Up" in status:
-            # 已在运行，直接返回
-            print(f"[INFO] 使用已运行的沙盒: {container_name}")
-            return container_name
-        else:
-            # 已停止，启动它
-            print(f"[INFO] 启动已存在的沙盒: {container_name}")
-            start_proc = await asyncio.create_subprocess_exec(
-                "docker", "start", container_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await start_proc.communicate()
-            if start_proc.returncode != 0:
-                raise Exception(f"启动沙盒失败: {stderr.decode()}")
-            return container_name
-    
-    # 2. 容器不存在，创建新的
-    print(f"[INFO] 创建新沙盒: {container_name} (路径: {cwd})")
-    
-    create_cmd = [
-        "docker", "run", "-d",
-        "--name", container_name,
-        "-v", f"{cwd}:/workspace",  # 挂载工作目录到 /workspace
-        "-w", "/workspace",         # 设置工作目录
-        "--restart", "unless-stopped",  # 除非手动停止，否则自动重启
-        "--label", f"sandbox.path={cwd}",  # 添加标签记录原始路径
-        "--label", "sandbox.type=persistent", # 标记为持久化沙盒
-        image_name,
-        "tail", "-f", "/dev/null"   # 保持容器运行（不退出）
-    ]
-    
-    proc = await asyncio.create_subprocess_exec(
-        *create_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
-    
-    if proc.returncode == 0:
-        container_id = stdout.decode().strip()[:12]
-        print(f"[INFO] 沙盒创建成功: {container_id}")
-        return container_name
-    else:
-        error_msg = stderr.decode()
-        # 处理并发创建冲突（race condition）
-        if "is already in use by container" in error_msg:
-            await asyncio.sleep(0.5)
-            return await get_or_create_docker_sandbox(cwd, image_name)
-        raise Exception(f"创建沙盒失败: {error_msg}")
-
-async def docker_sandbox_async(command: str) -> str | AsyncIterator[str]:
-    """
-    在持久化 Docker 沙盒中执行命令
-    特性：
-    - 同一路径共享同一个容器（路径级隔离）
-    - 自动创建/启动管理
-    - 状态持久化（文件、安装的软件都会保留）
-    """
-    # 加载配置（假设你有类似的配置加载函数）
-    settings = await load_settings()
-    CLISettings = settings.get("CLISettings", {})
-    # 注意：实际使用时请确保 cc_path 存在且有效
-    cwd = CLISettings.get("cc_path")
-    if not cwd:
-        return "Error: No workspace directory specified in settings."
-    dsSettings = settings.get("dsSettings", {})
-    
-    image_name = "docker/sandbox-templates:latest"  # 或从配置读取
-    
-    # 验证路径
-    if not cwd or not Path(cwd).is_dir():
-        # 在实际环境中，如果目录不存在，可能需要先创建它
-        return f"Error: Invalid workspace directory: {cwd}"
-    
-    try:
-        # 获取或创建沙盒（自动处理创建/启动逻辑）
-        container_name = await get_or_create_docker_sandbox(cwd, image_name)
-    except Exception as e:
-        return f"Docker Sandbox Initialization Error: {str(e)}"
-
-    # 返回异步生成器用于流式执行
-    async def _stream() -> AsyncIterator[str]:
-        # 使用 docker exec 在运行中的容器内执行命令
-        exec_cmd = [
-            "docker", "exec",
-            "-i",  # 保持 stdin 打开
-            container_name,
-            "sh", "-c",
-            f"cd /workspace && {command}"  # 确保在 workspace 目录执行
-        ]
-        
-        output_yielded = False  # <--- 新增：用于跟踪是否有任何输出被生成
-        
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *exec_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            
-            # 合并输出流
-            async for line in _merge_streams(
-                read_stream(process.stdout, is_error=False),
-                read_stream(process.stderr, is_error=True),
-            ):
-                yield line
-                output_yielded = True  # <--- 任何输出都会设置此标志
-            
-            await process.wait()
-            
-            # 检查退出码
-            if process.returncode != 0:
-                # 失败：返回退出码提示
-                yield f"[EXIT CODE] {process.returncode}"
-            
-            # 兜底逻辑：如果成功 (returncode == 0) 且没有任何输出 (output_yielded == False)
-            elif process.returncode == 0 and not output_yielded:
-                yield "[SUCCESS] 命令已成功执行未报错" # <--- 成功且静默时的提示
-                
-        except Exception as e:
-            yield f"[ERROR] 执行失败: {str(e)}"
-    
-    return _stream()
-
-# 辅助函数：列出所有管理的沙盒（方便调试）
-async def list_managed_sandboxes():
-    """列出所有由本工具管理的沙盒"""
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "ps", "-a", "--filter", "label=sandbox.type=persistent", 
-        "--format", "table {{.Names}}\\t{{.Status}}\\t{{.Labels}}",
-        stdout=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode()
-
-# 辅助函数：清理特定路径的沙盒
-async def remove_sandbox_by_path(cwd: str):
-    """删除指定路径对应的沙盒"""
-    container_name = get_safe_container_name(cwd)
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "rm", "-f", container_name,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    await proc.communicate()
-    return proc.returncode == 0
-
-# 工具定义
 docker_sandbox_tool = {
     "type": "function",
     "function": {
         "name": "docker_sandbox_async",
-        "description": "在隔离且持久化的 Docker 沙盒环境中执行 bash 命令。每个工作目录有独立的沙盒，环境状态（文件、安装的软件）会持久保留。自动处理沙盒的创建、启动和复用。",
+        "description": "在隔离且持久化的 Docker 沙盒环境中执行 bash 命令...",
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "要执行的完整 bash 命令，例如 'pip install requests' 或 'ls -la'。支持管道、重定向等复杂命令。",
+                    "description": "要执行的完整 bash 命令...",
                 }
             },
             "required": ["command"],
         },
     },
 }
-
-import os
-import tempfile
-import asyncio
-from pathlib import Path
-
-# ==================== Docker Sandbox 细粒度工具集 (已修复路径获取) ====================
-
-# 确保引入了配置加载器
-from py.get_setting import load_settings 
-import os
-import tempfile
-import asyncio
-from pathlib import Path
-
-# ==================== 1. 基础底层函数 ====================
-
-async def _exec_docker_cmd_simple(cwd: str, cmd_list: list) -> str:
-    """
-    内部辅助函数：在容器内执行简单命令并获取一次性输出
-    注意：必须传入有效的 cwd 用于定位容器
-    """
-    # 确保沙盒存在
-    container_name = await get_or_create_docker_sandbox(cwd)
-    
-    # 构建完整 exec 命令
-    full_cmd = ["docker", "exec", "-w", "/workspace", container_name] + cmd_list
-    
-    proc = await asyncio.create_subprocess_exec(
-        *full_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
-    
-    if proc.returncode != 0:
-        raise Exception(f"Command failed: {stderr.decode().strip()}")
-    return stdout.decode()
-
-async def _get_current_cwd() -> str:
-    """内部辅助：获取当前配置的工作目录"""
-    settings = await load_settings()
-    cwd = settings.get("CLISettings", {}).get("cc_path")
-    if not cwd:
-        raise ValueError("No workspace directory specified in settings (CLISettings.cc_path).")
-    return cwd
-
-# ==================== 2. 细粒度工具函数 ====================
-
-async def list_files_tool(path: str = ".") -> str:
-    """
-    [工具] 列出目录下的文件
-    """
-    try:
-        # 1. 动态获取配置路径
-        real_cwd = await _get_current_cwd()
-        
-        # 2. 执行命令
-        cmd = ["ls", "-F", path]
-        output = await _exec_docker_cmd_simple(real_cwd, cmd) 
-        
-        if not output:
-            return "[Result] Directory is empty."
-        return output
-    except Exception as e:
-        return f"[Error] {str(e)}"
-
-async def read_file_tool(path: str) -> str:
-    """
-    [工具] 读取文件内容，带有行号
-    """
-    try:
-        real_cwd = await _get_current_cwd()
-        
-        # -n 显示行号，方便 AI 引用
-        cmd = ["cat", "-n", path] 
-        output = await _exec_docker_cmd_simple(real_cwd, cmd)
-        return output
-    except Exception as e:
-        return f"[Error] Could not read file: {str(e)}"
-
-async def search_files_tool(pattern: str, path: str = ".") -> str:
-    """
-    [工具] 使用 grep 搜索文件内容
-    """
-    try:
-        real_cwd = await _get_current_cwd()
-        
-        cmd = ["grep", "-rn", pattern, path]
-        output = await _exec_docker_cmd_simple(real_cwd, cmd)
-        return output if output else "[Result] No matches found."
-    except Exception as e:
-        return f"[Error] Search failed: {str(e)}"
-
-async def edit_file_tool(path: str, content: str) -> str:
-    """
-    [工具] 覆盖写入文件
-    """
-    try:
-        real_cwd = await _get_current_cwd()
-        container_name = await get_or_create_docker_sandbox(real_cwd)
-        
-        # 1. 在宿主机创建临时文件
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        
-        # 2. 确保容器内目标目录存在
-        dir_name = os.path.dirname(path)
-        if dir_name:
-            # 这里的 mkdir 可能会失败如果目录已存在且不是目录，暂忽略复杂情况
-            await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", dir_name])
-
-        # 3. 执行 docker cp
-        dest_path = f"{container_name}:/workspace/{path}"
-        
-        cp_proc = await asyncio.create_subprocess_exec(
-            "docker", "cp", tmp_path, dest_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, stderr = await cp_proc.communicate()
-        
-        # 清理宿主机临时文件
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        
-        if cp_proc.returncode != 0:
-            return f"[Error] Save failed: {stderr.decode()}"
-            
-        return f"[Success] File '{path}' saved successfully."
-
-    except Exception as e:
-        return f"[Error] Edit tool failed: {str(e)}"
-
-# ==================== 3. 工具定义 (Schema) ====================
-
-TOOLS_REGISTRY = {
-    # --- 只读工具 ---
-    "list_files": {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": "List files and directories in the workspace. Use this to explore the file structure.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The directory path (default: .)"}
-                }
-            }
-        }
-    },
-    "read_file": {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read the contents of a file. Returns content with line numbers.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The path to the file"}
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    "search_files": {
-        "type": "function",
-        "function": {
-            "name": "search_files",
-            "description": "Search for a text pattern recursively in files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "The regex or text to search for"},
-                    "path": {"type": "string", "description": "Directory to search in (default: .)"}
-                },
-                "required": ["pattern"]
-            }
-        }
-    },
-    
-    # --- 编辑工具 ---
-    "edit_file": {
-        "type": "function",
-        "function": {
-            "name": "edit_file",
-            "description": "Create or Overwrite a file with new content. For editing, read the file first, then provide the FULL new content.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The file path"},
-                    "content": {"type": "string", "description": "The full content to write to the file"}
-                },
-                "required": ["path", "content"]
-            }
-        }
-    },
-    
-    # --- 全权限工具 (Bash) ---
-    "bash": {
-        "type": "function",
-        "function": {
-            "name": "docker_sandbox_async", 
-            "description": "Execute a bash command in the terminal. Use this for running scripts, installing packages, or git operations.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "The bash command"}
-                },
-                "required": ["command"]
-            }
-        }
-    }
-}
-
-def get_tools_for_mode(mode: str) -> list:
-    """
-    根据权限模式返回工具定义列表
-    
-    UI 对应关系:
-    - Default Permission Mode (default) -> 只读
-    - Accept Edits (auto-approve) -> 读 + 写文件
-    - Bypass Permissions (yolo) -> 读 + 写 + 执行任意 Bash
-    """
-    
-    # 基础只读集
-    read_only_tools = [
-        TOOLS_REGISTRY["list_files"],
-        TOOLS_REGISTRY["read_file"],
-        TOOLS_REGISTRY["search_files"]
-    ]
-    
-    # 编辑集 (文件操作)
-    edit_tools = [
-        TOOLS_REGISTRY["edit_file"]
-    ]
-    
-    # 终端集 (危险操作)
-    terminal_tools = [
-        TOOLS_REGISTRY["bash"]
-    ]
-    
-    if mode == "default":
-        return read_only_tools
-        
-    elif mode == "auto-approve": 
-        return read_only_tools + edit_tools
-        
-    elif mode == "yolo":
-        return read_only_tools + edit_tools + terminal_tools
-    
-    else:
-        return read_only_tools
