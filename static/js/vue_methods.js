@@ -1693,9 +1693,9 @@ let vue_methods = {
 
 
     // ==========================================
-    // 2. AI 生成与流式处理函数（完全修复版）
+    // 2. AI 生成与流式处理函数（支持 Human-in-the-loop 审批）
     // ==========================================
-    async generateAIResponse(targetAgentId, agentDisplayName = null) {
+    async generateAIResponse(targetAgentId, agentDisplayName = null, isResume = false) {
         this.startTimer(); 
         this.voiceStack = ['default']; 
         let tts_buffer = '';
@@ -1703,13 +1703,9 @@ let vue_methods = {
         this.cur_voice = 'default';
         let max_rounds = this.settings.max_rounds || 0;
         
-        // 【关键修复1】维护工具ID映射表：{工具名: 统一ID}
-        // 确保同一个工具的 call 和 result 使用完全相同的 ID
-        const toolCallIdMap = {};
-
+        const toolCallStack = [];
         // 内部函数：准备发送给 API 的消息历史
         const prepareMessages = (msgs) => {
-            // 1. 初步提取消息
             const rawMessages = msgs.flatMap(msg => {
                 // 优先使用后端专用结构 backend_content
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
@@ -1719,7 +1715,6 @@ let vue_methods = {
                         m.role === 'tool'
                     );
                 }
-                // 处理普通消息和多模态图片
                 let apiRole = msg.role === 'system' ? 'system' : (msg.role === 'assistant' ? 'assistant' : 'user');
                 let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
                 
@@ -1734,41 +1729,23 @@ let vue_methods = {
                 }
             });
 
-            // ============================================================
-            // 【关键修复2】Sanitizer: 强制修复历史记录中的 ID 断层
-            // 防止 "No tool calls but found tool output" 错误
-            // ============================================================
+            // ID 修复逻辑 (保持原样)
             const sanitized = [];
             for (let i = 0; i < rawMessages.length; i++) {
                 const current = rawMessages[i];
-                
-                // 只有当当前消息是 tool 结果时才需要检查
                 if (current.role === 'tool') {
                     let prev = sanitized.length > 0 ? sanitized[sanitized.length - 1] : null;
-                    
-                    // 必须保证前一条是 assistant
                     if (!prev || prev.role !== 'assistant') {
-                        // 如果前一条不是 assistant，强行插入一个 assistant 父节点
                         prev = { role: 'assistant', content: null, tool_calls: [] };
                         sanitized.push(prev);
                     }
-
                     if (!prev.tool_calls) prev.tool_calls = [];
-
-                    // 检查前一条 assistant 是否真的包含了这个 ID
                     const hasMatchingId = prev.tool_calls.some(tc => tc.id === current.tool_call_id);
-                    
                     if (!hasMatchingId) {
-                        // 【核心】如果没有找到匹配的 ID，强行补全一个假的调用记录
-                        // 这样 API 就会认为历史记录是合法的
-                        // console.warn(`[Auto-Fix] Patching missing tool_call_id: ${current.tool_call_id} for tool ${current.name}`);
                         prev.tool_calls.push({
                             id: current.tool_call_id,
                             type: 'function',
-                            function: { 
-                                name: current.name || 'unknown_tool', 
-                                arguments: "{}" 
-                            }
+                            function: { name: current.name || 'unknown_tool', arguments: "{}" }
                         });
                     }
                 }
@@ -1779,28 +1756,38 @@ let vue_methods = {
 
         let messagesPayload = max_rounds === 0 ? prepareMessages(this.messages) : prepareMessages(this.messages.slice(-max_rounds));
 
-        const newMsgData = {
-            id: Date.now() + Math.random(),
-            role: 'assistant',
-            agentName: agentDisplayName, 
-            content: '',
-            pure_content: '', 
-            backend_content: [{ role: 'assistant', content: '' }],
-            isOmni: this.settings.enableOmniTTS, 
-            omniAudioChunks: [], 
-            ttsChunks: [],        
-            chunks_voice: [],     
-            audioChunks: [], 
-            isPlaying: false,
-            total_tokens: 0, 
-            first_token_latency: 0, 
-            elapsedTime: 0, 
-            generationFinished: false, 
-            toolBlocks: {},
-        };
+        let currentMsg;
 
-        this.messages.push(newMsgData);
-        const currentMsg = this.messages[this.messages.length - 1]; 
+        // === 【修复 1】: 是恢复模式则复用最后一条消息，否则创建新消息 ===
+        if (isResume && this.messages.length > 0) {
+            currentMsg = this.messages[this.messages.length - 1];
+            currentMsg.generationFinished = false; // 重置完成状态
+            // 此时 backend_content 已经包含了 tool_result (由 processToolApproval 插入)
+            // messagesPayload 需要包含这个最新的状态，prepareMessages 已经处理了 this.messages，所以上面的 messagesPayload 是对的
+        } else {
+            const newMsgData = {
+                id: Date.now() + Math.random(),
+                role: 'assistant',
+                agentName: agentDisplayName, 
+                content: '',
+                pure_content: '', 
+                backend_content: [{ role: 'assistant', content: '' }],
+                isOmni: this.settings.enableOmniTTS, 
+                omniAudioChunks: [], 
+                ttsChunks: [],        
+                chunks_voice: [],     
+                audioChunks: [], 
+                isPlaying: false,
+                total_tokens: 0, 
+                first_token_latency: 0, 
+                elapsedTime: 0, 
+                generationFinished: false, 
+                toolBlocks: {},
+            };
+            this.messages.push(newMsgData);
+            currentMsg = this.messages[this.messages.length - 1]; 
+        }
+
         this.$nextTick(() => { this.scrollToBottom(); });
 
         let audioResolve = null;
@@ -1824,7 +1811,7 @@ let vue_methods = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: targetAgentId,
-                    messages: messagesPayload,
+                    messages: messagesPayload, // 此时 payload 包含了之前的 tool call 和 result
                     stream: true,
                     fileLinks: this.fileLinks,
                     asyncToolsID: this.asyncToolsID || [],
@@ -1856,12 +1843,12 @@ let vue_methods = {
                         const delta = parsed.choices?.[0]?.delta;
                         if (!delta) continue;
 
-                        if (currentMsg.content === '') {
+                        if (currentMsg.content === '' && !isResume) { // 只有非 Resume 或者是新内容开始时才算延迟
                             this.stopTimer(); 
                             currentMsg.first_token_latency = this.elapsedTime;
                         }
 
-                        // 处理普通文本内容
+                        // 1. 处理文本
                         if (delta.content) {
                             if (this.isThinkOpen) { 
                                 currentMsg.content += '</div>\n\n'; 
@@ -1870,10 +1857,9 @@ let vue_methods = {
                             currentMsg.content += delta.content;
                             currentMsg.pure_content += delta.content;
 
-                            // 更新 backend_content (文本追加)
                             let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
+                            // 确保如果最后一条是 tool 或 result，新开一个 assistant 块
                             if (last.role !== 'assistant' || (last.tool_calls && last.tool_calls.length > 0)) {
-                                // 如果上一条是 tool 或者 已经有 tool_calls 的 assistant，则新建一条纯文本 assistant
                                 currentMsg.backend_content.push({ role: 'assistant', content: delta.content });
                             } else {
                                 last.content += delta.content;
@@ -1896,15 +1882,38 @@ let vue_methods = {
                             }
                         }
 
-                        // 处理流式工具参数显示（Loading状态）
+                        // 2. 处理工具 Loading 状态 (保持原样)
                         if (delta.tool_progress) {
                             const progress = delta.tool_progress;
-                            // 为新工具生成 ID 并记录，以便后续对齐
-                            if (!toolCallIdMap[progress.name]) {
-                                toolCallIdMap[progress.name] = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                            let toolCallId = progress.tool_call_id; // 优先使用后端提供的 ID
+                            
+                            // 【修复】使用栈管理，替代原来的 toolCallIdMap[progress.name]
+                            if (!toolCallId) {
+                                // 查找该工具是否有未解决的调用（用于匹配后续的 result/approval）
+                                const existingCall = toolCallStack.find(c => c.name === progress.name && !c.resolved);
+                                if (existingCall) {
+                                    toolCallId = existingCall.id;
+                                } else {
+                                    // 全新的调用，生成 ID 并入栈
+                                    toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                                    toolCallStack.push({ 
+                                        id: toolCallId, 
+                                        name: progress.name, 
+                                        resolved: false 
+                                    });
+                                }
+                            } else {
+                                // 如果后端提供了 ID，但栈中没有，也入栈（防重复）
+                                if (!toolCallStack.find(c => c.id === toolCallId)) {
+                                    toolCallStack.push({ 
+                                        id: toolCallId, 
+                                        name: progress.name, 
+                                        resolved: false 
+                                    });
+                                }
                             }
                             
-                            const blockId = `tool-call-${toolCallIdMap[progress.name]}`;
+                            const blockId = `tool-call-${toolCallId}`;
                             const existingBlock = currentMsg.content.includes(`id="${blockId}"`);
                             const displayArgs = escapeHtml(progress.arguments);
                             
@@ -1919,6 +1928,7 @@ let vue_methods = {
                                 html += '</div>\n';
                                 currentMsg.content += html;
                             } else {
+                                // 更新已有块的参数
                                 const blockStart = currentMsg.content.indexOf(`id="${blockId}"`);
                                 const preStart = currentMsg.content.indexOf('<pre', blockStart);
                                 const contentStart = currentMsg.content.indexOf('>', preStart) + 1;
@@ -1931,53 +1941,109 @@ let vue_methods = {
                             continue;
                         }
 
-                        // ==========================================
-                        // 【关键修复3】流式工具调用与结果处理 (ID对齐)
-                        // ==========================================
+                        // 3. 处理工具结果 (Result / Error / Approval)
                         if (delta.tool_content) {
                             const tool = delta.tool_content;
                             const toolName = tool.title || 'unknown';
 
-                            // 1. 获取 ID：优先从 Map 取，确保 call 和 result 一致
-                            let toolCallId = toolCallIdMap[toolName] || delta.tool_call_id || delta.async_tool_id;
+                            // 获取 ID - 优先使用后端提供的 ID，否则生成新的
+                            let toolCallId = delta.tool_call_id || delta.async_tool_id;
 
                             if (tool.type === 'call') {
-                                // 如果是发起调用，且还没有 ID，生成一个并存入 Map
                                 if (!toolCallId) {
                                     toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                                 }
-                                toolCallIdMap[toolName] = toolCallId; 
-                            } else {
-                                // 如果是结果 (result/error)，必须找到之前 call 用的 ID
+                                // 将新调用压入栈，标记为未解决（unresolved）
+                                toolCallStack.push({ 
+                                    id: toolCallId, 
+                                    name: toolName, 
+                                    resolved: false 
+                                });
+                            } 
+                            else {
+                                // result/error/approval 类型：查找第一个未解决的同名调用
                                 if (!toolCallId) {
-                                    // 回溯查找最近一次该工具的调用
-                                    const lastAssistant = [...currentMsg.backend_content].reverse().find(m => m.role === 'assistant' && m.tool_calls);
-                                    if (lastAssistant && lastAssistant.tool_calls) {
-                                        const match = lastAssistant.tool_calls.find(tc => tc.function.name === toolName);
-                                        if (match) {
-                                            toolCallId = match.id;
-                                            toolCallIdMap[toolName] = toolCallId; // 恢复到 Map
-                                        }
+                                    const pendingCall = toolCallStack.find(c => c.name === toolName && !c.resolved);
+                                    if (pendingCall) {
+                                        toolCallId = pendingCall.id;
+                                        pendingCall.resolved = true; // 标记为已解决，下次同名调用会找下一个
                                     }
                                 }
-                                // 最终兜底，prepareMessages 会修复这个 ID
-                                if (!toolCallId) toolCallId = `call_${Date.now()}_fallback`;
+                                // 如果后端提供了 tool_call_id，也需要标记对应的栈项为 resolved
+                                if (toolCallId) {
+                                    const callItem = toolCallStack.find(c => c.id === toolCallId);
+                                    if (callItem) callItem.resolved = true;
+                                }
                             }
-
-                            // 清理异步工具 ID
+                            
+                            // 异步 ID 清理
                             if (delta.async_tool_id && (tool.type === 'tool_result' || tool.type === 'error')) {
                                 if (this.asyncToolsID) {
                                     const index = this.asyncToolsID.indexOf(delta.async_tool_id);
                                     if (index > -1) {
                                         this.asyncToolsID.splice(index, 1);
-                                        delete toolCallIdMap[toolName];
+                                        // 从栈中移除对应的调用记录
+                                        const stackIndex = toolCallStack.findIndex(c => c.id === delta.async_tool_id);
+                                        if (stackIndex > -1) toolCallStack.splice(stackIndex, 1);
                                     }
                                 }
                             }
 
-                            // 处理流式结果 (Streaming Continuation)
-                            const isStreamingContinuationChunk = tool.type === 'tool_result_stream' && tool.title === "tool_result_stream";
-                            if (isStreamingContinuationChunk) {
+                            // === 审批逻辑 ===
+                            let isApproval = false;
+                            let approvalData = null;
+
+                            if (tool.type === 'tool_approval') {
+                                isApproval = true;
+                                try { approvalData = JSON.parse(tool.content); } catch(e){ console.error(e); }
+                            } else if (tool.type === 'tool_result' && typeof tool.content === 'string' && tool.content.includes('"approval_required"')) {
+                                try {
+                                    const temp = JSON.parse(tool.content);
+                                    if (temp.type === 'approval_required') {
+                                        isApproval = true;
+                                        approvalData = temp;
+                                    }
+                                } catch (e) {}
+                            }
+
+                            if (isApproval && approvalData) {
+                                if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
+                                
+                                const blockId = `approval-${toolCallId}`;
+                                this.approvalMap[toolCallId] = approvalData;
+                                console.log('Approval Data:', approvalData);
+                                // 构造审批卡片 HTML
+                                // 【注意】这里保留了 params，但在卡片样式中显示
+                                let html = `\n<div class="approval-card" id="${blockId}">`;
+                                html += `<div class="approval-header">${this.t('permissionRequest')} (${approvalData.permission_mode})</div>`;
+                                html += `<div class="approval-body">${this.t('AIwantsToExecute')}: <b>${approvalData.tool_name}</b></div>`;
+                                html += `<div class="approval-params">${escapeHtml(JSON.stringify(approvalData.tool_params, null, 2))}</div>`;
+                                
+                                const dataStr = encodeURIComponent(JSON.stringify(approvalData));
+                                
+                                html += `<div class="approval-actions">`;
+                                html += `<button onclick="window.handleToolApproval('${toolCallId}', 'once')" class="btn-allow-once">${this.t('AllowOnce')}</button>`;
+                                html += `<button onclick="window.handleToolApproval('${toolCallId}', 'always')" class="btn-allow-always">${this.t('AllowAlways')}</button>`;
+                                html += `<button onclick="window.handleToolApproval('${toolCallId}', 'deny')" class="btn-deny">${this.t('Deny')}</button>`;
+                                html += `</div></div>\n`;
+
+                                currentMsg.content += html;
+
+                                // 记录占位符
+                                currentMsg.backend_content.push({
+                                    role: 'tool',
+                                    tool_call_id: toolCallId,
+                                    name: toolName,
+                                    content: "{}" 
+                                });
+                                currentMsg.backend_content.push({ role: 'assistant', content: '' });
+
+                                this.scrollToBottom();
+                                // 后端会结束流，这里不需要 continue
+                            } 
+                            // === 普通流式工具逻辑 ===
+                            else if (tool.type === 'tool_result_stream' && tool.title === "tool_result_stream") {
+                                // ... (保持原样)
                                 const blockEndTag = '</div>';
                                 let lastBlockEndIndex = currentMsg.content.lastIndexOf(blockEndTag);
                                 if (lastBlockEndIndex > -1) {
@@ -1986,7 +2052,6 @@ let vue_methods = {
                                 } else {
                                     currentMsg.content += ' ' + escapeHtml(tool.content).replace(/\n/g, '<br>');
                                 }
-                                // 更新 backend_content
                                 const lastToolIndex = currentMsg.backend_content.length - 1;
                                 for (let i = lastToolIndex; i >= 0; i--) {
                                     if (currentMsg.backend_content[i].role === 'tool' && currentMsg.backend_content[i].tool_call_id === toolCallId) {
@@ -1995,7 +2060,7 @@ let vue_methods = {
                                     }
                                 }
                             } else {
-                                // 处理标准的 Call/Result/Error 块
+                                // ... (标准 Call/Result/Error 逻辑 - 保持原样)
                                 if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
                                 let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
                                 let uiTitle = "";
@@ -2010,18 +2075,20 @@ let vue_methods = {
 
                                 let html = `\n<div class="${className}">`;
                                 html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
-                                if (tool.content) { html += escapeHtml(tool.content).replace(/\n/g, '<br>'); }
+                                if (tool.content) { 
+                                    if (tool.type === 'call') {
+                                         html += escapeHtml(tool.content).replace(/\n/g, '<br>'); 
+                                    } else {
+                                        html += `<pre style="margin:0; white-space: pre-wrap; word-break: break-all; font-family: inherit;">${escapeHtml(tool.content)}</pre>`;
+                                    }
+                                }
                                 html += '</div>\n';
                                 currentMsg.content += html;
 
-                                // 【关键构造逻辑】backend_content 结构化存储
                                 if (tool.type === 'call') {
                                     let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
-                                    
-                                    // 如果上一条是 assistant，则合并 tool_calls，不新建消息
                                     if (last.role === 'assistant') {
                                         if (!last.tool_calls) last.tool_calls = [];
-                                        // 防止重复添加
                                         if (!last.tool_calls.some(tc => tc.id === toolCallId)) {
                                             last.tool_calls.push({ 
                                                 id: toolCallId, 
@@ -2030,7 +2097,6 @@ let vue_methods = {
                                             });
                                         }
                                     } else {
-                                        // 上一条不是 assistant（可能是 tool 结果），新建 assistant
                                         currentMsg.backend_content.push({ 
                                             role: 'assistant', 
                                             content: null, 
@@ -2046,19 +2112,32 @@ let vue_methods = {
                                         ? '<hide to save token>' 
                                         : (tool.content || '');
                                     
-                                    currentMsg.backend_content.push({
-                                        role: 'tool',
-                                        tool_call_id: toolCallId,  // 此时这里一定和上面的 call 对齐
-                                        name: toolName,
-                                        content: toolContent
-                                    });
-                                    // 结果后追加一个新的 assistant 占位，为后续对话做准备
-                                    currentMsg.backend_content.push({ role: 'assistant', content: '' });
+                                    // 【修复】：在 Resume 模式下，如果 backend_content 已经有了这个 ID 的占位符（来自 Approval），应该更新它而不是 push 新的
+                                    let updated = false;
+                                    for(let i=currentMsg.backend_content.length-1; i>=0; i--){
+                                        if(currentMsg.backend_content[i].role === 'tool' && currentMsg.backend_content[i].tool_call_id === toolCallId){
+                                            currentMsg.backend_content[i].content = toolContent;
+                                            updated = true;
+                                            break;
+                                        }
+                                    }
+                                    if(!updated) {
+                                        currentMsg.backend_content.push({
+                                            role: 'tool',
+                                            tool_call_id: toolCallId,  
+                                            name: toolName,
+                                            content: toolContent
+                                        });
+                                    }
+                                    // 确保后面跟着 assistant 块，方便后续追加文本
+                                    if(currentMsg.backend_content[currentMsg.backend_content.length-1].role !== 'assistant'){
+                                        currentMsg.backend_content.push({ role: 'assistant', content: '' });
+                                    }
                                 }
                             }
                             this.scrollToBottom();
                         }
-
+                        // ... (后续 reasoning, audio, token 处理保持原样)
                         if (delta.reasoning_content) {
                             if (!this.isThinkOpen) {
                                 currentMsg.content += '<div class="highlight-block-reasoning">';
@@ -2086,6 +2165,7 @@ let vue_methods = {
                     }
                 }
             }
+            // ... (流结束后的处理保持原样)
             
             if (tts_buffer.trim() && this.ttsSettings.enabled) {
                 currentMsg.chunks_voice.push(this.cur_voice);
@@ -2112,9 +2192,13 @@ let vue_methods = {
             }
             if (audioResolve) audioResolve();
         } finally {
+            this.isSending = false;
+            this.isTyping = false;
+            this.saveConversations();
             this.voiceStack = ['default'];
             if (this.allBriefly) currentMsg.briefly = true;
             
+            // Conversation saving logic...
             if (this.conversationId === null) {
                 this.conversationId = uuid.v4();
                 const newConv = {
@@ -2150,7 +2234,101 @@ let vue_methods = {
         }
     },
 
+    // === Human-in-the-loop 处理函数 (精准替换版) ===
+    async processToolApproval(toolCallId, action) {
+        const currentMsg = this.messages[this.messages.length - 1];
+        if (!currentMsg) return;
+        let data = this.approvalMap[toolCallId];
+        this.isSending = true; 
+        this.isTyping = true;
+        this.abortController = new AbortController(); 
 
+        const toolName = data?.tool_name || 'Tool';
+        let resultText = "";
+
+        try {
+            if (action === 'deny') {
+                resultText = `User denied the execution of tool '${toolName}'.`;
+            } else {
+                resultText = await this.executeToolBackend(toolName, data.tool_params, action);
+            }
+
+            // --- 精准替换 UI 内容 ---
+            const blockId = `approval-${toolCallId}`;
+            const content = currentMsg.content;
+            
+            // 找到审批块的起点
+            const startIndex = content.indexOf(`<div class="approval-card" id="${blockId}">`);
+            if (startIndex !== -1) {
+                // 找到该块的终点
+                // 因为审批卡片的结构固定，最后是以 </div></div> 结尾的（actions 的结尾 + card 的结尾）
+                // 我们寻找从 startIndex 开始后的第一个匹配整个卡片闭合的标志
+                const searchPart = content.substring(startIndex);
+                const endTag = '</div></div>'; 
+                const relativeEndIndex = searchPart.indexOf(endTag);
+                
+                if (relativeEndIndex !== -1) {
+                    const endIndex = startIndex + relativeEndIndex + endTag.length;
+                    
+                    // 构造结果 HTML
+                    const className = action === 'deny' ? 'highlight-block-error' : 'highlight-block';
+                    const title = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
+                    const resultHtml = `\n<div class="${className}">
+                        <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(title)}</div>
+                        ${this.escapeHtml(resultText)}
+                    </div>\n`;
+
+                    // 替换整个字符串区间
+                    currentMsg.content = content.substring(0, startIndex) + resultHtml + content.substring(endIndex);
+                }
+            }
+
+            // --- 更新后端上下文 ---
+            if (currentMsg.backend_content) {
+                for (let i = currentMsg.backend_content.length - 1; i >= 0; i--) {
+                    const item = currentMsg.backend_content[i];
+                    if (item.role === 'tool' && item.tool_call_id === toolCallId) {
+                        item.content = resultText;
+                        break;
+                    }
+                }
+            }
+            // 触发下一轮生成
+            await this.generateAIResponse(this.mainAgent, currentMsg.agentName, true);
+
+        } catch (e) {
+            console.error("Approval flow failed:", e);
+            this.isSending = false;
+            this.isTyping = false;
+        }
+    },   
+
+    // === 辅助函数 ===
+
+    // 辅助：调用后端手动执行接口
+    async executeToolBackend(name, params, type) {
+        try {
+            const res = await fetch('/execute_tool_manually', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    tool_name: name, 
+                    tool_params: params,
+                    approval_type: type 
+                })
+            });
+            const json = await res.json();
+            return json.result || JSON.stringify(json);
+        } catch (e) {
+            return `System Error: ${e.message}`;
+        }
+    },
+    
+    // 辅助：转义 HTML (如果已有可忽略)
+    escapeHtml(text) {
+        if (!text) return '';
+        return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
     async handleInputPaste(event) {
       const items = (event.clipboardData || window.clipboardData).items;
       

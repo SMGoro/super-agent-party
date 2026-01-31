@@ -7923,3 +7923,149 @@ hr.footnotes-sep {
 .attachment-preview-list + .input-box-transparent .el-textarea__inner {
   padding-top: 4px !important;
 }
+/* =========================================
+   MCP Tool Approval Card - 现代主题适配版
+   ========================================= */
+
+.approval-card {
+    /* 使用警告色的极淡背景，通过 color-mix 自动适配深浅主题 */
+    background-color: color-mix(in srgb, var(--el-color-warning) 8%, var(--el-bg-color-page)) !important;
+    
+    /* 边框逻辑：与 highlight-block 统一，左侧加粗作为状态识别 */
+    border: 1px solid var(--el-border-color-light) !important;
+    border-left: 4px solid var(--el-color-warning) !important;
+    
+    border-radius: 12px;
+    padding: 16px;
+    margin: 15px 0;
+    
+    /* 使用全局定义的字体栈 */
+    font-family: var(--el-font-family);
+    font-size: 14px;
+    line-height: 1.6;
+    
+    /* 阴影效果 */
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+/* 悬停时稍微浮起 */
+.approval-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    background-color: color-mix(in srgb, var(--el-color-warning) 12%, var(--el-bg-color-page)) !important;
+}
+
+.approval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    
+    /* 使用主题的警告文字颜色 */
+    color: var(--el-color-warning);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+}
+
+.approval-body {
+    margin-bottom: 12px;
+    color: var(--el-text-color-primary);
+}
+
+/* 参数展示区：模仿代码块风格 */
+.approval-params {
+    background-color: var(--el-input-bg-color); /* 跟随输入框背景色 */
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--el-border-color-lighter);
+    margin-bottom: 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    
+    /* 参数使用等宽字体 */
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--el-text-color-regular);
+}
+
+/* 按钮组适配 */
+.approval-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end; /* 靠右对齐，符合主流交互 */
+}
+
+/* 基础按钮样式重制，继承全局 .el-button 的逻辑 */
+.approval-actions button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 仅允许一次：使用主色渐变 */
+.btn-allow-once {
+    background: linear-gradient(145deg, var(--el-color-primary), var(--el-color-primary-light-3)) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(var(--el-color-primary-rgb), 0.2);
+}
+
+/* 总是允许：使用成功色渐变 */
+.btn-allow-always {
+    background: linear-gradient(145deg, var(--el-color-success), var(--el-color-success-light-3)) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(103, 194, 58, 0.2);
+}
+
+/* 拒绝：使用危险色 (红色) */
+.btn-deny {
+    background-color: var(--el-bg-color) !important;
+    color: var(--el-color-danger) !important;
+    border: 1px solid var(--el-color-danger) !important;
+}
+
+.approval-actions button:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+}
+
+.approval-actions button:active {
+    transform: translateY(0);
+}
+
+/* 处理状态文字 */
+.approval-processing {
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+}
+
+/* 为处理状态添加一个小的旋转图标动画适配 */
+.approval-processing::before {
+    content: "\f110"; /* FontAwesome spinner */
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    animation: spin 1s infinite linear;
+}
+
+/* 特殊主题微调：暗色主题下背景稍微加深 */
+[data-theme="dark"] .approval-card,
+[data-theme="midnight"] .approval-card {
+    background-color: color-mix(in srgb, var(--el-color-warning) 12%, var(--bg-color)) !important;
+}

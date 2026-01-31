@@ -436,3 +436,257 @@ docker_sandbox_tool = {
         },
     },
 }
+
+import os
+import tempfile
+import asyncio
+from pathlib import Path
+
+# ==================== Docker Sandbox 细粒度工具集 (已修复路径获取) ====================
+
+# 确保引入了配置加载器
+from py.get_setting import load_settings 
+import os
+import tempfile
+import asyncio
+from pathlib import Path
+
+# ==================== 1. 基础底层函数 ====================
+
+async def _exec_docker_cmd_simple(cwd: str, cmd_list: list) -> str:
+    """
+    内部辅助函数：在容器内执行简单命令并获取一次性输出
+    注意：必须传入有效的 cwd 用于定位容器
+    """
+    # 确保沙盒存在
+    container_name = await get_or_create_docker_sandbox(cwd)
+    
+    # 构建完整 exec 命令
+    full_cmd = ["docker", "exec", "-w", "/workspace", container_name] + cmd_list
+    
+    proc = await asyncio.create_subprocess_exec(
+        *full_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+    
+    if proc.returncode != 0:
+        raise Exception(f"Command failed: {stderr.decode().strip()}")
+    return stdout.decode()
+
+async def _get_current_cwd() -> str:
+    """内部辅助：获取当前配置的工作目录"""
+    settings = await load_settings()
+    cwd = settings.get("CLISettings", {}).get("cc_path")
+    if not cwd:
+        raise ValueError("No workspace directory specified in settings (CLISettings.cc_path).")
+    return cwd
+
+# ==================== 2. 细粒度工具函数 ====================
+
+async def list_files_tool(path: str = ".") -> str:
+    """
+    [工具] 列出目录下的文件
+    """
+    try:
+        # 1. 动态获取配置路径
+        real_cwd = await _get_current_cwd()
+        
+        # 2. 执行命令
+        cmd = ["ls", "-F", path]
+        output = await _exec_docker_cmd_simple(real_cwd, cmd) 
+        
+        if not output:
+            return "[Result] Directory is empty."
+        return output
+    except Exception as e:
+        return f"[Error] {str(e)}"
+
+async def read_file_tool(path: str) -> str:
+    """
+    [工具] 读取文件内容，带有行号
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        
+        # -n 显示行号，方便 AI 引用
+        cmd = ["cat", "-n", path] 
+        output = await _exec_docker_cmd_simple(real_cwd, cmd)
+        return output
+    except Exception as e:
+        return f"[Error] Could not read file: {str(e)}"
+
+async def search_files_tool(pattern: str, path: str = ".") -> str:
+    """
+    [工具] 使用 grep 搜索文件内容
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        
+        cmd = ["grep", "-rn", pattern, path]
+        output = await _exec_docker_cmd_simple(real_cwd, cmd)
+        return output if output else "[Result] No matches found."
+    except Exception as e:
+        return f"[Error] Search failed: {str(e)}"
+
+async def edit_file_tool(path: str, content: str) -> str:
+    """
+    [工具] 覆盖写入文件
+    """
+    try:
+        real_cwd = await _get_current_cwd()
+        container_name = await get_or_create_docker_sandbox(real_cwd)
+        
+        # 1. 在宿主机创建临时文件
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        # 2. 确保容器内目标目录存在
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            # 这里的 mkdir 可能会失败如果目录已存在且不是目录，暂忽略复杂情况
+            await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", dir_name])
+
+        # 3. 执行 docker cp
+        dest_path = f"{container_name}:/workspace/{path}"
+        
+        cp_proc = await asyncio.create_subprocess_exec(
+            "docker", "cp", tmp_path, dest_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await cp_proc.communicate()
+        
+        # 清理宿主机临时文件
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        
+        if cp_proc.returncode != 0:
+            return f"[Error] Save failed: {stderr.decode()}"
+            
+        return f"[Success] File '{path}' saved successfully."
+
+    except Exception as e:
+        return f"[Error] Edit tool failed: {str(e)}"
+
+# ==================== 3. 工具定义 (Schema) ====================
+
+TOOLS_REGISTRY = {
+    # --- 只读工具 ---
+    "list_files": {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files and directories in the workspace. Use this to explore the file structure.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The directory path (default: .)"}
+                }
+            }
+        }
+    },
+    "read_file": {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the contents of a file. Returns content with line numbers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The path to the file"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    "search_files": {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Search for a text pattern recursively in files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "The regex or text to search for"},
+                    "path": {"type": "string", "description": "Directory to search in (default: .)"}
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    
+    # --- 编辑工具 ---
+    "edit_file": {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Create or Overwrite a file with new content. For editing, read the file first, then provide the FULL new content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The file path"},
+                    "content": {"type": "string", "description": "The full content to write to the file"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    
+    # --- 全权限工具 (Bash) ---
+    "bash": {
+        "type": "function",
+        "function": {
+            "name": "docker_sandbox_async", 
+            "description": "Execute a bash command in the terminal. Use this for running scripts, installing packages, or git operations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The bash command"}
+                },
+                "required": ["command"]
+            }
+        }
+    }
+}
+
+def get_tools_for_mode(mode: str) -> list:
+    """
+    根据权限模式返回工具定义列表
+    
+    UI 对应关系:
+    - Default Permission Mode (default) -> 只读
+    - Accept Edits (auto-approve) -> 读 + 写文件
+    - Bypass Permissions (yolo) -> 读 + 写 + 执行任意 Bash
+    """
+    
+    # 基础只读集
+    read_only_tools = [
+        TOOLS_REGISTRY["list_files"],
+        TOOLS_REGISTRY["read_file"],
+        TOOLS_REGISTRY["search_files"]
+    ]
+    
+    # 编辑集 (文件操作)
+    edit_tools = [
+        TOOLS_REGISTRY["edit_file"]
+    ]
+    
+    # 终端集 (危险操作)
+    terminal_tools = [
+        TOOLS_REGISTRY["bash"]
+    ]
+    
+    if mode == "default":
+        return read_only_tools
+        
+    elif mode == "auto-approve": 
+        return read_only_tools + edit_tools
+        
+    elif mode == "yolo":
+        return read_only_tools + edit_tools + terminal_tools
+    
+    else:
+        return read_only_tools
