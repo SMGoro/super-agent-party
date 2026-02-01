@@ -1258,6 +1258,7 @@ let vue_methods = {
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.dsSettings = data.data.dsSettings || this.dsSettings;
+          this.localEnvSettings = data.data.localEnvSettings || this.localEnvSettings;
           this.ocSettings = data.data.ocSettings || this.ocSettings;
           this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
           this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
@@ -2676,6 +2677,7 @@ let vue_methods = {
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
           dsSettings: this.dsSettings,
+          localEnvSettings: this.localEnvSettings,
           ocSettings: this.ocSettings,
           prefrontalCortexSettings: this.prefrontalCortexSettings,
           NeocortexSettings: this.NeocortexSettings,

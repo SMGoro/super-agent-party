@@ -156,7 +156,7 @@
     },
     "CLISettings": {
       "enabled": false,
-      "engine": "cc",
+      "engine": "local",
       "cc_path": ""
     },
     "ccSettings": {
@@ -177,7 +177,10 @@
     },
     "dsSettings": {
       "enabled": false,
-      "template": "docker/sandbox-templates:latest",
+      "permissionMode": "default"
+    },
+    "localEnvSettings": {
+      "enabled": false,
       "permissionMode": "default"
     },
     "ocSettings": {

@@ -334,7 +334,7 @@ let vue_data = {
     },
     CLISettings: {
       enabled: false,
-      engine: 'cc',
+      engine: 'local',
       cc_path: '',
     },
     ccSettings: {
@@ -355,7 +355,10 @@ let vue_data = {
     },
     dsSettings: {
       enabled: false,
-      template: 'docker/sandbox-templates:latest', // 默认使用 latest
+      permissionMode: 'default',
+    },
+    localEnvSettings: {
+      enabled: false,
       permissionMode: 'default',
     },
     ocSettings: {

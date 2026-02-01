@@ -894,6 +894,51 @@ const app = Vue.createApp({
         }
     });
     this.loadFavorites();
+
+  const handleRemoteInstall = (repoUrl) => {
+    if (!repoUrl) return;
+
+    // 1. 切换界面
+    this.activeMenu = 'api-group'; 
+    this.subMenu = 'extension';
+    
+    // 2. 赋值给输入框
+    this.newExtensionUrl = repoUrl;
+
+    // 3. 使用 this.$confirm 代替 ElMessageBox (Vue 3 标准写法)
+    this.$confirm(
+      `${this.t('confirmInstallExtensionFrom')}：\n${repoUrl}`, 
+      this.t('confirmInstallExtension'), 
+      { 
+        confirmButtonText: this.t('confirm'), 
+        cancelButtonText: this.t('cancel'),
+        type: 'info' 
+      }
+    ).then(() => {
+      // 4. 用户点击确定，执行安装
+      this.addExtension(); 
+    }).catch(() => {
+      console.log('用户取消了安装');
+    });
+  };
+
+  // --- 挂载监听 ---
+  if (window.electronAPI) {
+    // 软件运行中点击链接触发
+    window.electronAPI.onRemoteInstall((url) => {
+      handleRemoteInstall(url);
+    });
+
+    // 软件刚启动时检查
+    setTimeout(async () => {
+      const pendingRepo = await window.electronAPI.checkPendingInstall();
+      if (pendingRepo) {
+        handleRemoteInstall(pendingRepo);
+      }
+    }, 1000);
+  }
+
+
   },
   beforeUnmount() {
     this.stopEdgeScroll();
