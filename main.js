@@ -720,31 +720,44 @@ function setupAutoUpdater() {
   });
 }
 
-// 确保只运行一个实例
+const PROTOCOL = 'sap'; // 协议名称 sap://
+let pendingExtensionUrl = null; // 用于存放“软件还没启动完成时”传来的链接
+
+// --- [修改 2] 单例锁与协议监听 ---
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
-  // 如果无法获得锁（说明已经有一个实例在运行），我们不应该显示错误
-  // 因为第一个实例会处理显示窗口
-  setTimeout(() => {
-    app.quit()
-  }, 0)
-  return
+  app.quit()
+} else {
+  // 当第二个实例启动时（Windows/Linux 下点击链接会触发这里）
+  app.on('second-instance', (event, commandLine) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+    // 解析命令行参数中的 URL
+    const url = commandLine.find(arg => arg.startsWith(`${PROTOCOL}://`));
+    handleProtocolUrl(url);
+  })
 }
 
-// 监听第二个实例的启动
-app.on('second-instance', (event, commandLine, workingDirectory) => {
-  // 当运行第二个实例时，显示主窗口
-  if (mainWindow) {
-    if (!mainWindow.isVisible()) {
-      mainWindow.show()
-    }
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore()
-    }
-    mainWindow.focus()
+// 注册为默认协议客户端
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
   }
-})
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL)
+}
+
+// Windows 冷启动处理：检查启动参数里有没有 sap://
+const startUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL}://`));
+if (startUrl) {
+  pendingExtensionUrl = startUrl; // 存起来，等 Vue 好了再发给它
+}
+
+
 ipcMain.handle('get-window-size', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   return win.getSize();
@@ -1839,3 +1852,48 @@ app.on('web-contents-created', (event, contents) => {
   });
 });
 app.commandLine.appendSwitch('disable-http-cache');
+
+// --- [新增 3] 协议处理核心函数 & IPC ---
+
+// 处理 URL 的逻辑
+function handleProtocolUrl(url) {
+  if (!url) return;
+  try {
+    const urlObj = new URL(url);
+    // 检查是不是 install 指令，并且带有 repo 参数
+    if (urlObj.hostname === 'install') {
+      const repo = urlObj.searchParams.get('repo');
+      if (repo) {
+        // 如果窗口已经加载完毕，直接发
+        if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isLoading()) {
+          mainWindow.webContents.send('remote-install-extension', repo);
+        } else {
+          // 如果窗口还没好，存入缓存
+          pendingExtensionUrl = url;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('协议解析失败:', e);
+  }
+}
+
+// macOS 监听 (Mac 下点击链接触发这里)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleProtocolUrl(url);
+});
+
+// 让 Vue 主动来取缓存的 URL (解决冷启动问题)
+ipcMain.handle('check-pending-install', () => {
+  if (pendingExtensionUrl) {
+    // 这里重新解析一下，提取 repo
+    try {
+      const urlObj = new URL(pendingExtensionUrl);
+      const repo = urlObj.searchParams.get('repo');
+      pendingExtensionUrl = null; // 取完清空
+      return repo;
+    } catch (e) { return null; }
+  }
+  return null;
+});
