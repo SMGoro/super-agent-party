@@ -688,7 +688,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         edit_file_tool,
         edit_file_patch_tool, 
         glob_files_tool,       
-        todo_write_tool,      
+        todo_write_tool, 
+        manage_processes_tool,
+        docker_manage_ports_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -701,6 +703,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         edit_file_patch_tool_local,# 本地精确替换
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
+        local_net_tool,            # 本地网络工具
     )
 
     from py.cdp_tool import (
@@ -786,6 +789,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "edit_file_patch_tool": edit_file_patch_tool,
         "glob_files_tool": glob_files_tool,
         "todo_write_tool": todo_write_tool,
+        "manage_processes_tool": manage_processes_tool,
+        "docker_manage_ports_tool": docker_manage_ports_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -796,6 +801,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
+        "local_net_tool": local_net_tool,                       # 本地网络工具
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -810,6 +816,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "edit_file_tool_local",
         "edit_file_patch_tool_local",
         "todo_write_tool_local",
+        "manage_processes_tool",
+        "docker_manage_ports_tool",
+        "local_net_tool",
     ]
     
     # 只有当调用的工具属于敏感工具列表时才进行拦截检查
@@ -1092,6 +1101,7 @@ def get_system_context() -> str:
 2. {command_hint}
 3. 执行 bash_tool_local 时，命令必须符合当前系统的语法规范
 4. 路径分隔符：Windows 使用反斜杠(\\)，Unix 使用正斜杠(/)
+5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
 """
 
 async def tools_change_messages(request: ChatRequest, settings: dict):
@@ -4237,7 +4247,9 @@ async def execute_tool_manually(request: Request):
         edit_file_tool,
         edit_file_patch_tool, 
         glob_files_tool,       
-        todo_write_tool,      
+        todo_write_tool, 
+        manage_processes_tool,
+        docker_manage_ports_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -4250,6 +4262,7 @@ async def execute_tool_manually(request: Request):
         edit_file_patch_tool_local,# 本地精确替换
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
+        local_net_tool,            # 本地网络工具
     )
 
     from py.cdp_tool import (
@@ -4335,6 +4348,8 @@ async def execute_tool_manually(request: Request):
         "edit_file_patch_tool": edit_file_patch_tool,
         "glob_files_tool": glob_files_tool,
         "todo_write_tool": todo_write_tool,
+        "manage_processes_tool": manage_processes_tool,
+        "docker_manage_ports_tool": docker_manage_ports_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -4345,6 +4360,7 @@ async def execute_tool_manually(request: Request):
         "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
+        "local_net_tool": local_net_tool,                       # 本地网络工具
     }
     
     if tool_name not in _TOOL_HOOKS:
