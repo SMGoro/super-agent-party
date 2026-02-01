@@ -5,7 +5,7 @@ import mimetypes
 import pathlib
 import sys
 import traceback
-
+import platform
 import requests
 
 from py.agent import add_tool_to_project_config, is_tool_allowed_by_project_config
@@ -676,19 +676,33 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         search_arxiv_papers
     )
     from py.autoBehavior import auto_behavior
+
+    # Docker CLI 工具（原有）
     from py.cli_tool import (
         claude_code_async,
         qwen_code_async,
         docker_sandbox_async,
-        # 细粒度工具 - 新增三个工具
         list_files_tool,
         read_file_tool,
         search_files_tool,
         edit_file_tool,
-        edit_file_patch_tool,  # 新增：精确字符串替换
-        glob_files_tool,       # 新增：递归 glob 查找
-        todo_write_tool        # 新增：任务管理
+        edit_file_patch_tool, 
+        glob_files_tool,       
+        todo_write_tool,      
     )
+
+    # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
+    from py.cli_tool import (
+        bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
+        list_files_tool_local,     # 本地文件列表
+        read_file_tool_local,      # 本地文件读取
+        search_files_tool_local,   # 本地文件搜索
+        edit_file_tool_local,      # 本地文件写入
+        edit_file_patch_tool_local,# 本地精确替换
+        glob_files_tool_local,     # 本地 glob 查找
+        todo_write_tool_local,     # 本地任务管理
+    )
+
     from py.cdp_tool import (
         list_pages,
         navigate_page,
@@ -763,37 +777,56 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "get_random_topics":get_random_topics,
         "get_categories":get_categories,
         
-        # Docker Sandbox 相关工具
+        # Docker Sandbox 相关工具（原有）
         "docker_sandbox_async": docker_sandbox_async,
         "list_files_tool": list_files_tool,
         "read_file_tool": read_file_tool,
         "search_files_tool": search_files_tool,
         "edit_file_tool": edit_file_tool,
-        # 新增三个核心工具
-        "edit_file_patch_tool": edit_file_patch_tool,  # 精确字符串替换（Claude Code 风格）
-        "glob_files_tool": glob_files_tool,            # 递归 glob 文件查找
-        "todo_write_tool": todo_write_tool,            # 任务管理系统
+        "edit_file_patch_tool": edit_file_patch_tool,
+        "glob_files_tool": glob_files_tool,
+        "todo_write_tool": todo_write_tool,
+        
+        # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
+        "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
+        "list_files_tool_local": list_files_tool_local,         # 本地文件列表
+        "read_file_tool_local": read_file_tool_local,           # 本地文件读取
+        "search_files_tool_local": search_files_tool_local,     # 本地文件搜索
+        "edit_file_tool_local": edit_file_tool_local,           # 本地文件写入
+        "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
+        "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
+        "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
     }
-
+    
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
     # 定义受控的敏感工具列表
     # 这些工具在执行前需要检查权限配置 (.party/config.json 或 全局设置)
-    DOCKER_SENSITIVE_TOOLS = [
+    SENSITIVE_TOOLS = [
         "docker_sandbox_async",
         "edit_file_tool",
-        "edit_file_patch_tool",    # 新增：精确编辑涉及文件写入，需要权限控制
-        "todo_write_tool"          # 新增：任务管理涉及文件写入，需要权限控制
-        # 注意：glob_files 是只读工具，不加入此列表，默认允许使用
+        "edit_file_patch_tool",   
+        "todo_write_tool",        
+        "bash_tool_local",
+        "edit_file_tool_local",
+        "edit_file_patch_tool_local",
+        "todo_write_tool_local",
     ]
     
-    # 只有当调用的工具属于 Docker 体系时才进行拦截检查
-    if tool_name in DOCKER_SENSITIVE_TOOLS:
+    # 只有当调用的工具属于敏感工具列表时才进行拦截检查
+    if tool_name in SENSITIVE_TOOLS:
         
         # 获取相关配置
-        ds_settings = settings.get("dsSettings", {})
         cli_settings = settings.get("CLISettings", {})
-        permission_mode = ds_settings.get("permissionMode", "default")
-        cwd = cli_settings.get("cc_path") # 当前项目路径
+        cwd = cli_settings.get("cc_path")
+        # 修复：local 环境应该从 localEnvSettings 读取权限模式
+        engine = cli_settings.get("engine", "")
+        
+        if engine == "local":
+            env_settings = settings.get("localEnvSettings", {})
+        else:
+            env_settings = settings.get("dsSettings", {})
+        
+        permission_mode = env_settings.get("permissionMode", "default")
         
         is_allowed = False
 
@@ -805,7 +838,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         # 允许文件编辑类工具（包括全量写入、精确替换、任务管理）
         # 但依然拦截终端命令（docker/bash）
         elif permission_mode == "auto-approve":
-            if tool_name in ["edit_file_tool", "edit_file_patch_tool", "todo_write_tool"]:
+            if tool_name in ["edit_file_tool", "edit_file_patch_tool", "todo_write_tool", "edit_file_tool_local", "edit_file_patch_tool_local", "todo_write_tool_local"]:
                 is_allowed = True
             # docker/bash 等危险命令在此模式下依然默认拦截，除非在项目白名单中
         
@@ -1013,90 +1046,162 @@ async def images_add_in_messages(request_messages: List[Dict], images: List[Dict
                             messages[index]['content'].append({"type": "image_url", "image_url": {"url": item['image_url']['url']}})
     return messages
 
+async def read_todos_local(cwd: str) -> list:
+    """读取本地待办事项（跨平台）"""
+    todo_file = Path(cwd) / ".party" / "ai_todos.json"
+    if not todo_file.exists():
+        return []
+    
+    try:
+        async with aiofiles.open(todo_file, 'r', encoding='utf-8') as f:
+            content = await f.read()
+            return json.loads(content) if content else []
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+    except Exception as e:
+        print(f"Error reading todos: {e}")
+        return []
+
+
+def get_system_context() -> str:
+    """
+    获取当前系统环境的详细描述，帮助 AI 适配正确的命令和路径格式
+    """
+    system = platform.system()
+    release = platform.release()
+    
+    # 检测 shell
+    if system == "Windows":
+        # 检测是 PowerShell 还是 CMD
+        shell = "PowerShell" if "PSMODULEPATH" in os.environ else "CMD"
+        path_hint = "使用 Windows 路径格式（C:\\Users\\name\\file），命令使用 dir、copy、del 等"
+        command_hint = f"当前使用 {shell}，命令语法为 Windows 风格。避免使用 Unix 命令（ls/cat/rm），改用 dir/type/del"
+    elif system == "Darwin":
+        shell = os.path.basename(os.environ.get('SHELL', '/bin/zsh'))
+        path_hint = "使用 Unix 路径格式（/Users/name/file），区分大小写"
+        command_hint = f"当前为 macOS ({release})，使用 {shell}。支持标准 Unix 命令（ls/cat/rm），但注意部分命令是 BSD 版本而非 GNU 版本"
+    else:  # Linux
+        shell = os.path.basename(os.environ.get('SHELL', '/bin/bash'))
+        path_hint = "使用 Unix 路径格式（/home/name/file），区分大小写"
+        command_hint = f"当前为 Linux ({release})，使用 {shell}。支持标准 GNU 命令和工具链"
+    
+    return f"""【环境信息】操作系统：{system} {release} | Shell：{shell}
+
+⚠️ 重要提示：
+1. {path_hint}
+2. {command_hint}
+3. 执行 bash_tool_local 时，命令必须符合当前系统的语法规范
+4. 路径分隔符：Windows 使用反斜杠(\\)，Unix 使用正斜杠(/)
+"""
+
 async def tools_change_messages(request: ChatRequest, settings: dict):
-    global HA_client,ChromeMCP_client,sql_client
-    newttsList = []
+    global HA_client, ChromeMCP_client, sql_client
+    
     if request.messages and request.messages[0]['role'] == 'system' and request.messages[0]['content'] != '':
         basic_message = "你必须使用用户使用的语言与之交流，例如：当用户使用中文时，你也必须尽可能地使用中文！当用户使用英文时，你也必须尽可能地使用英文！以此类推！"
-        if request.messages and request.messages[0]['role'] == 'system':
-            request.messages[0]['content'] += basic_message
+        request.messages[0]['content'] += basic_message
 
     cli_settings = settings.get("CLISettings", {})
     cwd = cli_settings.get("cc_path")
-    dsSettings = settings.get("dsSettings", {})
-    permissionMode = dsSettings.get("permissionMode", "default")
-    if cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and cli_settings.get("engine", "") == "ds":
+    # 修复：local 环境应该从 localEnvSettings 读取权限模式
+    engine = cli_settings.get("engine", "")
+    
+    if engine == "local":
+        env_settings = settings.get("localEnvSettings", {})
+    else:
+        env_settings = settings.get("dsSettings", {})
+    
+    permissionMode = env_settings.get("permissionMode", "default")
+    
+    if cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and engine in ["ds", "local"]:
+        
+        # ====== 新增：本地环境系统提示 ======
+        if engine == "local":
+            # 在本地环境下，首先注入系统环境信息
+            system_context = get_system_context()
+            content_append(request.messages, 'system', system_context)
+        # =====================================
+        
+        todos = []
+        
         try:
-            # 生成容器名（与 cli_tool.py 中的逻辑保持一致）
-            abs_path = str(Path(cwd).resolve())
-            path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
-            container_name = f"sandbox-{path_hash}"
+            if engine == "ds":
+                # Docker 环境（已有代码保持不变）
+                abs_path = str(Path(cwd).resolve())
+                path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
+                container_name = f"sandbox-{path_hash}"
+                
+                proc = await asyncio.create_subprocess_exec(
+                    "docker", "exec", container_name, 
+                    "cat", "/workspace/.party/ai_todos.json",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                
+                if proc.returncode == 0 and stdout:
+                    try:
+                        todos = json.loads(stdout.decode('utf-8'))
+                    except json.JSONDecodeError:
+                        todos = []
+                        
+            else:  # local 环境
+                todos = await read_todos_local(cwd)
             
-            # 尝试从 Docker 容器中读取待办事项文件
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", container_name, 
-                "cat", "/workspace/.party/ai_todos.json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            if proc.returncode == 0:
-                todos = json.loads(stdout.decode())
-                if isinstance(todos, list) and len(todos) > 0:
-                    # 格式化待办事项列表
-                    priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-                    status_icons = {
-                        "pending": "⏳", 
-                        "in_progress": "🔄", 
-                        "done": "✅", 
-                        "cancelled": "❌"
-                    }
-                    
-                    # 按优先级和状态排序
-                    priority_order = {"high": 0, "medium": 1, "low": 2}
-                    todos_sorted = sorted(
-                        todos, 
-                        key=lambda x: (
-                            priority_order.get(x.get('priority', 'medium'), 1),
-                            x.get('created_at', '')
-                        )
+            # 处理待办事项（原有逻辑）
+            if isinstance(todos, list) and len(todos) > 0:
+                # ... 原有待办事项格式化代码保持不变 ...
+                priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                status_icons = {
+                    "pending": "⏳", 
+                    "in_progress": "🔄", 
+                    "done": "✅", 
+                    "cancelled": "❌"
+                }
+                
+                priority_order = {"high": 0, "medium": 1, "low": 2}
+                todos_sorted = sorted(
+                    todos, 
+                    key=lambda x: (
+                        priority_order.get(x.get('priority', 'medium'), 1),
+                        x.get('created_at', '')
                     )
-                    
-                    todo_lines = ["\n\n当你完成一个事项后，请记得使用todo_write_tool更新项目待办事项，所有事项结束后，可以删除本事项文件\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
-                    pending_count = 0
-                    
-                    for todo in todos_sorted:
-                        status = todo.get('status', 'pending')
-                        if status != 'done':  # 只显示未完成的任务
-                            pending_count += 1
-                            icon = status_icons.get(status, "⏳")
-                            priority = priority_icons.get(todo.get('priority', 'medium'), "🟡")
-                            content = todo.get('content', '无内容')[:50]  # 限制长度
-                            if len(todo.get('content', '')) > 50:
-                                content += "..."
-                            
-                            todo_lines.append(f"{icon} {priority} [{todo.get('id', 'unknown')}] {content}")
-                    
-                    if pending_count == 0:
-                        todo_lines.append("✨ 当前没有待办事项，所有任务已完成！")
-                    else:
-                        todo_lines.append(f"\n*共有 {pending_count} 个未完成任务*")
-                    
-                    todo_message = "\n".join(todo_lines)
-                    content_append(request.messages, 'system', todo_message)
-                    
+                )
+                
+                todo_lines = ["\n\n当你完成一个事项后，请记得使用todo_write_tool更新项目待办事项，所有事项结束后，可以删除本事项文件\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
+                pending_count = 0
+                
+                for todo in todos_sorted:
+                    status = todo.get('status', 'pending')
+                    if status != 'done':
+                        pending_count += 1
+                        icon = status_icons.get(status, "⏳")
+                        priority = priority_icons.get(todo.get('priority', 'medium'), "🟡")
+                        content_text = todo.get('content', '无内容')[:50]
+                        if len(todo.get('content', '')) > 50:
+                            content_text += "..."
+                        
+                        todo_lines.append(f"{icon} {priority} [{todo.get('id', 'unknown')}] {content_text}")
+                
+                if pending_count == 0:
+                    todo_lines.append("✨ 当前没有待办事项，所有任务已完成！")
+                else:
+                    todo_lines.append(f"\n*共有 {pending_count} 个未完成任务*")
+                
+                todo_message = "\n".join(todo_lines)
+                content_append(request.messages, 'system', todo_message)
+                
         except Exception as e:
-            # 文件不存在或读取失败时静默处理，不阻断主流程
             print(f"[Todo Loader] 跳过待办事项加载: {e}")
             pass
 
+        # 权限模式提示（原有逻辑，但修复了变量名）
         if permissionMode != "plan":
-            premission_message = "你当前处于执行阶段，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
-            content_append(request.messages, 'system',premission_message )
-        elif permissionMode == "plan":
-            premission_message = "你当前处于计划阶段，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
-            content_append(request.messages, 'system',premission_message )
+            permission_message = "你当前处于执行阶段，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
+            content_append(request.messages, 'system', permission_message)
+        else:
+            permission_message = "你当前处于计划阶段，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
+            content_append(request.messages, 'system', permission_message)
 
     if settings["HASettings"]["enabled"]:
         HA_devices = await HA_client.call_tool("GetLiveContext", {})
@@ -1573,7 +1678,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         arxiv_tool 
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode,get_local_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
     m0 = None
@@ -1663,6 +1768,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 tools.append(qwen_code_tool)
             elif settings['CLISettings']['engine'] == 'ds':
                 tools.extend(get_tools_for_mode('yolo'))
+            elif settings['CLISettings']['engine'] == 'local':
+                tools.extend(get_local_tools_for_mode('yolo'))
         if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
             tools.append(time_tool)
         if settings["tools"]["weather"]['enabled']:
@@ -3215,7 +3322,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         arxiv_tool
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode
+    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode,get_local_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
@@ -3307,6 +3414,8 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             tools.append(qwen_code_tool)
         elif settings['CLISettings']['engine'] == 'ds':
             tools.extend(get_tools_for_mode('yolo'))
+        elif settings['CLISettings']['engine'] == 'local':
+            tools.extend(get_local_tools_for_mode('yolo'))
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'afterThinking':
         tools.append(time_tool)
     if settings["tools"]["weather"]['enabled']:
@@ -4116,19 +4225,33 @@ async def execute_tool_manually(request: Request):
         search_arxiv_papers
     )
     from py.autoBehavior import auto_behavior
+
+    # Docker CLI 工具（原有）
     from py.cli_tool import (
         claude_code_async,
         qwen_code_async,
         docker_sandbox_async,
-        # 细粒度工具 - 新增三个工具
         list_files_tool,
         read_file_tool,
         search_files_tool,
         edit_file_tool,
-        edit_file_patch_tool,  # 新增：精确字符串替换
-        glob_files_tool,       # 新增：递归 glob 查找
-        todo_write_tool        # 新增：任务管理
+        edit_file_patch_tool, 
+        glob_files_tool,       
+        todo_write_tool,      
     )
+
+    # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
+    from py.cli_tool import (
+        bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
+        list_files_tool_local,     # 本地文件列表
+        read_file_tool_local,      # 本地文件读取
+        search_files_tool_local,   # 本地文件搜索
+        edit_file_tool_local,      # 本地文件写入
+        edit_file_patch_tool_local,# 本地精确替换
+        glob_files_tool_local,     # 本地 glob 查找
+        todo_write_tool_local,     # 本地任务管理
+    )
+
     from py.cdp_tool import (
         list_pages,
         navigate_page,
@@ -4203,18 +4326,27 @@ async def execute_tool_manually(request: Request):
         "get_random_topics":get_random_topics,
         "get_categories":get_categories,
         
-        # Docker Sandbox 相关工具
+        # Docker Sandbox 相关工具（原有）
         "docker_sandbox_async": docker_sandbox_async,
         "list_files_tool": list_files_tool,
         "read_file_tool": read_file_tool,
         "search_files_tool": search_files_tool,
         "edit_file_tool": edit_file_tool,
-        # 新增三个核心工具
-        "edit_file_patch_tool": edit_file_patch_tool,  # 精确字符串替换（Claude Code 风格）
-        "glob_files_tool": glob_files_tool,            # 递归 glob 文件查找
-        "todo_write_tool": todo_write_tool,            # 任务管理系统
+        "edit_file_patch_tool": edit_file_patch_tool,
+        "glob_files_tool": glob_files_tool,
+        "todo_write_tool": todo_write_tool,
+        
+        # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
+        "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
+        "list_files_tool_local": list_files_tool_local,         # 本地文件列表
+        "read_file_tool_local": read_file_tool_local,           # 本地文件读取
+        "search_files_tool_local": search_files_tool_local,     # 本地文件搜索
+        "edit_file_tool_local": edit_file_tool_local,           # 本地文件写入
+        "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
+        "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
+        "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
     }
-
+    
     if tool_name not in _TOOL_HOOKS:
         return {"result": f"Tool {tool_name} not found in backend registry."}
     
@@ -5865,7 +5997,6 @@ async def text_to_speech(request: Request):
                 }
             )
         elif tts_engine == 'systemtts':
-            import platform
             import subprocess
             import uuid
             # 注意：pyttsx3 不要在全局导入，防止在 Mac 上干扰主线程
