@@ -1096,7 +1096,7 @@ def get_system_context() -> str:
 
 async def tools_change_messages(request: ChatRequest, settings: dict):
     global HA_client, ChromeMCP_client, sql_client
-    
+    newttsList = []
     if request.messages and request.messages[0]['role'] == 'system' and request.messages[0]['content'] != '':
         basic_message = "你必须使用用户使用的语言与之交流，例如：当用户使用中文时，你也必须尽可能地使用中文！当用户使用英文时，你也必须尽可能地使用英文！以此类推！"
         request.messages[0]['content'] += basic_message
@@ -1678,7 +1678,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         arxiv_tool 
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode,get_local_tools_for_mode
+    from py.cli_tool import claude_code_tool,qwen_code_tool,get_tools_for_mode,get_local_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
     m0 = None
@@ -3322,7 +3322,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         arxiv_tool
     ) 
     from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,docker_sandbox_tool,get_tools_for_mode,get_local_tools_for_mode
+    from py.cli_tool import claude_code_tool,qwen_code_tool,get_tools_for_mode,get_local_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     m0 = None
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
