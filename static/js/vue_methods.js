@@ -1213,6 +1213,62 @@ let vue_methods = {
           this.behaviorSettings = data.data.behaviorSettings || this.behaviorSettings;
           this.autoSaveSettings();
       }
+      else if (data.type === 'settings_update') {
+          this.settings = {
+            model: data.data.model || '',
+            base_url: data.data.base_url || '',
+            api_key: data.data.api_key || '',
+            temperature: data.data.temperature || 0.7,
+            max_tokens: data.data.max_tokens || 4096,
+            max_rounds: data.data.max_rounds || 0,
+            selectedProvider: data.data.selectedProvider || '',
+            top_p: data.data.top_p || 1,
+            reasoning_effort: data.data.reasoning_effort || null,
+            enableOmniTTS: data.data.enableOmniTTS || false,
+            omniVoice: data.data.omniVoice || 'Cherry',
+            extra_params: data.data.extra_params || [],
+          };
+          this.qqBotConfig = data.data.qqBotConfig || this.qqBotConfig;
+          this.feishuBotConfig = data.data.feishuBotConfig || this.feishuBotConfig;
+          this.dingtalkBotConfig = data.data.dingtalkBotConfig || this.dingtalkBotConfig;
+          this.discordBotConfig = data.data.discordBotConfig || this.discordBotConfig;
+          this.telegramBotConfig = data.data.telegramBotConfig || this.telegramBotConfig;
+          this.slackBotConfig = data.data.slackBotConfig || this.slackBotConfig;
+          this.targetLangSelected = data.data.targetLangSelected || this.targetLangSelected;
+          this.BotConfig = data.data.BotConfig || this.BotConfig;
+          this.liveConfig = data.data.liveConfig || this.liveConfig;
+          this.WXBotConfig = data.data.WXBotConfig || this.WXBotConfig;
+          this.stickerPacks = data.data.stickerPacks || this.stickerPacks;
+          this.toolsSettings = data.data.tools || this.toolsSettings;
+          this.llmTools = data.data.llmTools || this.llmTools;
+          this.reasonerSettings = data.data.reasoner || this.reasonerSettings;
+          this.visionSettings = data.data.vision || this.visionSettings;
+          this.webSearchSettings = data.data.webSearch || this.webSearchSettings;
+          this.codeSettings = data.data.codeSettings || this.codeSettings;
+          this.CLISettings = data.data.CLISettings || this.CLISettings;
+          this.ccSettings = data.data.ccSettings || this.ccSettings;
+          this.qcSettings = data.data.qcSettings || this.qcSettings;
+          this.dsSettings = data.data.dsSettings || this.dsSettings;
+          this.localEnvSettings = data.data.localEnvSettings || this.localEnvSettings;
+          this.ocSettings = data.data.ocSettings || this.ocSettings;
+          this.HASettings = data.data.HASettings || this.HASettings;
+          this.chromeMCPSettings = data.data.chromeMCPSettings || this.chromeMCPSettings;
+          this.sqlSettings = data.data.sqlSettings || this.sqlSettings;
+          this.KBSettings = data.data.KBSettings || this.KBSettings;
+          this.mcpServers = data.data.mcpServers || this.mcpServers;
+          this.a2aServers = data.data.a2aServers || this.a2aServers;
+          this.memories = data.data.memories || this.memories;
+          this.memorySettings = data.data.memorySettings || this.memorySettings;
+          this.text2imgSettings = data.data.text2imgSettings || this.text2imgSettings;
+          this.asrSettings = data.data.asrSettings || this.asrSettings;
+          this.ttsSettings = data.data.ttsSettings || this.ttsSettings;
+          this.behaviorSettings = data.data.behaviorSettings || this.behaviorSettings;
+          this.VRMConfig = data.data.VRMConfig || this.VRMConfig;
+          this.comfyuiServers = data.data.comfyuiServers || this.comfyuiServers;
+          this.comfyuiAPIkey = data.data.comfyuiAPIkey || this.comfyuiAPIkey;
+          this.workflows = data.data.workflows || this.workflows;
+          this.customHttpTools = data.data.custom_http || this.customHttpTools;
+      }
       else if (data.type === 'settings') {
           this.isdocker = data.data.isdocker || false;
           this.settings = {
@@ -1260,10 +1316,6 @@ let vue_methods = {
           this.dsSettings = data.data.dsSettings || this.dsSettings;
           this.localEnvSettings = data.data.localEnvSettings || this.localEnvSettings;
           this.ocSettings = data.data.ocSettings || this.ocSettings;
-          this.prefrontalCortexSettings = data.data.prefrontalCortexSettings || this.prefrontalCortexSettings;
-          this.NeocortexSettings = data.data.NeocortexSettings || this.NeocortexSettings;
-          this.LimbicSystemSettings = data.data.LimbicSystemSettings || this.LimbicSystemSettings;
-          this.ReptilianBrainSettings = data.data.ReptilianBrainSettings || this.ReptilianBrainSettings;
           this.HASettings = data.data.HASettings || this.HASettings;
           this.chromeMCPSettings = data.data.chromeMCPSettings || this.chromeMCPSettings;
           this.sqlSettings = data.data.sqlSettings || this.sqlSettings;
@@ -2679,10 +2731,6 @@ let vue_methods = {
           dsSettings: this.dsSettings,
           localEnvSettings: this.localEnvSettings,
           ocSettings: this.ocSettings,
-          prefrontalCortexSettings: this.prefrontalCortexSettings,
-          NeocortexSettings: this.NeocortexSettings,
-          LimbicSystemSettings: this.LimbicSystemSettings,
-          ReptilianBrainSettings: this.ReptilianBrainSettings,
           HASettings: this.HASettings,
           chromeMCPSettings: this.chromeMCPSettings,
           sqlSettings: this.sqlSettings,

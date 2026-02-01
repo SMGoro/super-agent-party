@@ -8397,6 +8397,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     "correlationId": data.get("correlationId"),
                     "success": True
                 })
+                for connection in [conn for conn in active_connections if conn != websocket]:
+                    await connection.send_json({
+                        "type": "settings_update",
+                        "data": data.get("data", {})
+                    })
+
             elif data.get("type") == "save_conversations":
                 await save_covs(data.get("data", {}))
                 await websocket.send_json({
