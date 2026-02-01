@@ -7427,7 +7427,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="full-width-input"
                         >
                           <el-option :label="t('localEnvironment')" value="local" ></el-option>
-                          <el-option label="Docker Sandbox" value="ds" ></el-option> 
+                          <el-option :label="t('dockerSandbox')" value="ds" ></el-option> 
                           <el-option label="Claude Code" value="cc" ></el-option>
                           <el-option label="Qwen Code" value="qc" ></el-option>
                         </el-select>
@@ -7467,6 +7467,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                     </div>
+                    <el-alert
+                      type="info"
+                      :closable="false"
+                      class="mb-2"
+                    >
+                      <template #default>
+                        <div class="alert-content">
+                          {{ t('localEnvironmentNotice1') }}
+                        </div>
+                      </template>
+                    </el-alert>
                   </div>
 
                   <!-- Docker Sandbox 配置 -->
@@ -7475,7 +7486,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <div class="header-left">
                         <span>
                           <el-icon><i class="fa-brands fa-docker"></i></el-icon>
-                          Docker Sandbox
+                          {{t('dockerSandbox')}}
                         </span>
                       </div>
                     </div>

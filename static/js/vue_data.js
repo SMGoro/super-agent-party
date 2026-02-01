@@ -334,7 +334,7 @@ let vue_data = {
     },
     CLISettings: {
       enabled: false,
-      engine: 'cc',
+      engine: 'local',
       cc_path: '',
     },
     ccSettings: {
