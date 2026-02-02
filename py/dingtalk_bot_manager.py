@@ -70,6 +70,14 @@ class DingtalkBotManager:
             except: pass
         self.is_running = False
 
+    def get_status(self):
+        return {
+            "is_running": self.is_running,
+            "has_error": self._startup_error is not None,
+            "error_message": self._startup_error,
+            "config_loaded": self.config is not None
+        }
+
 class DingtalkInternalHandler(dingtalk_stream.ChatbotHandler):
     def __init__(self, bot_logic):
         super(DingtalkInternalHandler, self).__init__()
