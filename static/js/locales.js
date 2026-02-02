@@ -1355,6 +1355,8 @@ key3`,
         'firecrawlURLPlaceholder': 'https://api.firecrawl.dev/v2  或 http://localhost:3002/v1',
         'firecrawlAPIKeyPlaceholder': 'fc-xxxxxxxx 或自部署的API密钥',
         'firecrawlKeyHint': '使用官方API需要有效的API Key，自部署版本可为空',
+        'serverNotReady': '服务器未就绪',
+        'error': '错误',
     },
     'en-US': {
         'chat': 'Chat',
@@ -2710,6 +2712,7 @@ Key3`,
         'firecrawlURLPlaceholder': 'https://api.firecrawl.dev/v2  or http://localhost:3002/v1',
         'firecrawlAPIKeyPlaceholder': 'fc-xxxxxxxx or self-hosted API key',
         'firecrawlKeyHint': 'Official API requires valid API Key, self-hosted can be empty',
-
+        'serverNotReady': 'Server not ready',
+        'error': 'Error',
     },
   };
