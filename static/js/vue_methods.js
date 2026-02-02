@@ -14321,4 +14321,12 @@ async togglePlugin(plugin) {
       this.currentEditingKey = brainKey;
       this.showBrainEditDialog = true;
     },
+    handleFirecrawlPresetChange(val) {
+      if (val === 'official') {
+        this.webSearchSettings.firecrawl_url = 'https://api.firecrawl.dev/v2';
+      } else {
+        this.webSearchSettings.firecrawl_url = 'http://localhost:3002/v1';
+      }
+      this.autoSaveSettings();
+    },
 }

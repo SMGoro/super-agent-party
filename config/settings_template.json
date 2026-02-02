@@ -121,7 +121,10 @@
       "serper_max_results":10,
       "serper_api_key": "",
       "bochaai_max_results":10,
-      "bochaai_api_key": ""
+      "bochaai_api_key": "",
+      "firecrawl_url": "https://api.firecrawl.dev/v2",
+      "firecrawl_api_key": "",
+      "firecrawl_mode": "scrape"
     },
     "targetLangSelected": "system",
     "knowledgeBases": [],
