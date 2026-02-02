@@ -692,18 +692,120 @@ async def local_net_tool(action: str, port: int = None) -> str:
 
 # ==================== 本地环境 (Local) 工具实现 ====================
 
-def get_safe_workspace_path(cwd: str, sub_path: str = "") -> Path:
-    """跨平台安全路径解析"""
+def resolve_strict_path(cwd: str, sub_path: str, check_symlink: bool = True) -> Path:
+    """
+    严格工作区路径解析
+    - 禁止绝对路径
+    - 禁止 ../ 遍历  
+    - 禁止通过符号链接指向工作区外
+    """
     base = Path(cwd).resolve()
-    if sub_path:
+    
+    if not sub_path:
+        return base
+        
+    # 清理输入（阻止空字节、换行等）
+    sub_path = sub_path.strip().replace('\x00', '').replace('\n', '')
+    
+    # 显式禁止路径遍历模式（快速失败）
+    if '..' in sub_path.split(os.sep):
+        raise PermissionError(f"Path traversal detected: {sub_path}")
+    
+    # 禁止绝对路径（Windows C:\ 和 Unix /）
+    if os.path.isabs(sub_path) or (len(sub_path) > 1 and sub_path[1] == ':'):
+        raise PermissionError(f"Absolute paths not allowed: {sub_path}")
+    
+    # 解析完整路径
+    target = (base / sub_path).resolve()
+    
+    # 关键检查：确保 resolve 后的路径仍在 base 内
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise PermissionError(f"Access denied: {sub_path} resolves outside workspace")
+    
+    # 符号链接检查（防止 /workspace/link -> /etc）
+    if check_symlink and target.exists():
+        real_path = target.resolve(strict=True)
         try:
-            target = (base / sub_path).resolve()
-            target.relative_to(base) # 简单的防路径穿越
-            return target
+            real_path.relative_to(base)
         except ValueError:
-            pass # 可能用户输入了绝对路径，这里做宽容处理，但实际生产环境应更严格
-            return Path(sub_path)
-    return base
+            raise PermissionError(f"Symlink escape detected: {sub_path} -> {real_path}")
+            
+    return target
+
+from typing import Tuple
+
+def validate_bash_command(command: str, cwd: str, mode: str = "default") -> Tuple[bool, str]:
+    """
+    分层安全策略：
+    - 硬性边界 (所有模式): 禁止路径逃逸，保护工作区外系统  
+    - 毁灭防护 (yolo也不允许): 禁止 rm -rf /、格式化、dd 设备
+    - 供应链风险 (仅严格模式): 禁止 curl|sh，yolo 模式自担风险
+    
+    返回: (是否允许, 错误信息或原命令)
+    注意：不包装命令，工作目录由 subprocess 的 cwd 参数控制
+    """
+    
+    # ===== 第一层：硬性边界（不可逃逸）=====
+    escape_patterns = [
+        (r'\.\./\.\.', "Path traversal"),                           # ../../etc
+        (r'>\s*/[a-zA-Z/]+', "Write to system path"),              # > /etc/passwd  
+        (r'cd\s+/[^/]', "Chdir to system root"),                   # cd /etc
+        (r'~\s*/', "Home directory access"),                       # ~/.ssh
+        (r'\$\{?HOME\}?', "HOME env variable"),                    # $HOME
+    ]
+    
+    for pattern, reason in escape_patterns:
+        if re.search(pattern, command, re.IGNORECASE):
+            return False, f"{reason} blocked: {pattern}"
+    
+    # ===== 第二层：毁灭性操作（yolo 也不允许）=====
+    destructive_patterns = [
+        (r'rm\s+-rf\s*/', "Recursive delete root"),                # rm -rf / 或 /xxx
+        (r'mkfs\.[a-z]+', "Filesystem format"),                    # mkfs.ext4 /dev/sda
+        (r'dd\s+if=.*of=/dev/[a-z]', "Direct device write"),       # dd of=/dev/sda
+        (r'>?\s*/dev/(sda|hd|nvme|mmcblk)', "Block device access"), # 直接写磁盘设备
+    ]
+    
+    for pattern, reason in destructive_patterns:
+        if re.search(pattern, command, re.IGNORECASE):
+            return False, f"Destructive operation blocked: {reason}"
+    
+    # ===== 第三层：供应链风险（仅严格模式拦截）=====
+    if mode != "yolo":
+        supply_chain_patterns = [
+            (r'curl.*\|.*sh', "Remote pipe to shell"),
+            (r'wget.*\|.*sh', "Remote pipe to shell"), 
+            (r'fetch.*\|.*sh', "Remote pipe to shell"),
+        ]
+        for pattern, reason in supply_chain_patterns:
+            if re.search(pattern, command, re.I):
+                return False, f"{reason} blocked in {mode} mode (use yolo to allow)"
+    
+    # 不包装命令！直接返回原命令，依靠 subprocess 的 cwd 参数
+    return True, command
+
+
+# ===== 修复乱码：增加 GBK 解码支持 =====
+async def read_stream(stream, *, is_error: bool = False):
+    """读取流并添加错误前缀，支持 Windows 中文编码"""
+    if stream is None:
+        return
+    async for line in stream:
+        prefix = "[ERROR] " if is_error else ""
+        
+        # Windows 中文系统通常用 GBK，先尝试 UTF-8，失败则尝试 GBK
+        try:
+            decoded = line.decode('utf-8').rstrip()
+        except UnicodeDecodeError:
+            try:
+                decoded = line.decode('gbk').rstrip()
+            except:
+                decoded = line.decode('utf-8', errors='replace').rstrip()
+                
+        yield f"{prefix}{decoded}"
+
 
 async def bash_tool_local(command: str, background: bool = False) -> str | AsyncIterator[str]:
     """[Local] 执行命令，支持后台"""
@@ -711,12 +813,15 @@ async def bash_tool_local(command: str, background: bool = False) -> str | Async
     cwd = settings.get("CLISettings", {}).get("cc_path")
     perm = settings.get("localEnvSettings", {}).get("permissionMode", "default")
     
-    if not cwd: return "Error: No workspace."
+    if not cwd: 
+        return "Error: No workspace."
     
-    if perm != "yolo":
-        dangerous = [r'rm\s+-rf', r'mkfs', r'format\s+[a-z]:']
-        if any(re.search(p, command, re.I) for p in dangerous):
-            return f"[Error] Command blocked in {perm} mode."
+    # 安全检查（不再包装 cd 命令）
+    allowed, result = validate_bash_command(command, cwd, mode=perm)
+    if not allowed:
+        return f"[Security] Command blocked: {result}"
+    
+    # 保持和原版完全一致：不修改 command，只检查
 
     system = platform.system()
     if system == "Windows":
@@ -730,8 +835,10 @@ async def bash_tool_local(command: str, background: bool = False) -> str | Async
     try:
         proc = await asyncio.create_subprocess_exec(
             exe, *args,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            cwd=cwd, env=os.environ.copy()
+            stdout=asyncio.subprocess.PIPE, 
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,  # ← 原版逻辑：靠这个设置目录，不在命令里 cd
+            env=os.environ.copy()
         )
 
         if background:
@@ -744,16 +851,19 @@ async def bash_tool_local(command: str, background: bool = False) -> str | Async
                 yield line
                 yielded = True
             await proc.wait()
-            if proc.returncode != 0: yield f"[EXIT] {proc.returncode}"
-            elif not yielded: yield "[SUCCESS] No output."
+            if proc.returncode != 0: 
+                yield f"[EXIT] {proc.returncode}"
+            elif not yielded: 
+                yield "[SUCCESS] No output."
         return _stream()
-    except Exception as e: return str(e)
+    except Exception as e: 
+        return str(e)
 
 # 恢复原有的 Local 文件工具
 async def list_files_tool_local(path: str = ".", show_all: bool = False) -> str:
     try:
         cwd = await _get_current_cwd()
-        target = get_safe_workspace_path(cwd, path)
+        target = resolve_strict_path(cwd, path, check_symlink=True)
         entries = []
         for e in target.iterdir():
             if not show_all and e.name.startswith('.'): continue
@@ -765,7 +875,12 @@ async def list_files_tool_local(path: str = ".", show_all: bool = False) -> str:
 async def read_file_tool_local(path: str) -> str:
     try:
         cwd = await _get_current_cwd()
-        target = get_safe_workspace_path(cwd, path)
+        target = resolve_strict_path(cwd, path, check_symlink=True)
+
+        # 额外的权限检查：确保不是设备文件等危险类型
+        if not target.is_file():
+            return f"[Error] Not a regular file: {path}"
+        
         async with aiofiles.open(target, 'r', encoding='utf-8', errors='replace') as f:
             lines = (await f.read()).splitlines()
         return "\n".join([f"{i+1:6}\t{l}" for i, l in enumerate(lines)])
@@ -774,7 +889,11 @@ async def read_file_tool_local(path: str) -> str:
 async def edit_file_tool_local(path: str, content: str) -> str:
     try:
         cwd = await _get_current_cwd()
-        target = get_safe_workspace_path(cwd, path)
+        target = resolve_strict_path(cwd, path, check_symlink=True)
+
+        # 确保父目录也在工作区内
+        resolve_strict_path(cwd, str(target.parent), check_symlink=True)
+
         await aiofiles.os.makedirs(target.parent, exist_ok=True)
         async with aiofiles.open(target, 'w', encoding='utf-8') as f:
             await f.write(content)
@@ -785,7 +904,7 @@ async def search_files_tool_local(pattern: str, path: str = ".") -> str:
     # 简单的本地 Python 实现 grep
     try:
         cwd = await _get_current_cwd()
-        target_dir = get_safe_workspace_path(cwd, path)
+        target_dir = resolve_strict_path(cwd, path, check_symlink=True)
         matches = []
         regex = re.compile(pattern)
         for root, _, files in os.walk(target_dir):
@@ -806,22 +925,41 @@ async def search_files_tool_local(pattern: str, path: str = ".") -> str:
 async def glob_files_tool_local(pattern: str, exclude: str = "") -> str:
     try:
         cwd = await _get_current_cwd()
-        base = Path(cwd)
-        files = std_glob.glob(str(base / pattern), recursive=True)
+        base = Path(cwd).resolve()
+        
+        # 禁止 glob 模式中的遍历（如 ../../../etc/*）
+        if '..' in pattern:
+            return "[Security] Glob pattern cannot contain '..'"
+            
+        # 使用安全的基础路径拼接
+        search_path = base / pattern
+        # 确保 glob 不会解析到 base 外（glob 本身会跟随 ..，但会被 resolve_strict_path 捕获）
+        
+        files = std_glob.glob(str(search_path), recursive=True)
         excludes = [e.strip() for e in exclude.split(",") if e.strip()]
+        
         res = []
         for f in files:
-            rel = str(Path(f).relative_to(base))
-            if not any(fnmatch.fnmatch(rel, ex) for ex in excludes):
-                res.append(rel)
-        return "\n".join(res[:50])
-    except Exception as e: return str(e)
+            try:
+                p = Path(f).resolve()
+                # 验证每个结果都在工作区内
+                p.relative_to(base)
+                rel = str(p.relative_to(base))
+                if not any(fnmatch.fnmatch(rel, ex) for ex in excludes):
+                    res.append(rel)
+            except ValueError:
+                continue  # 忽略逃逸的路径
+                
+        return "\n".join(res[:100])  # 限制返回数量防止 DOS
+        
+    except Exception as e:
+        return f"[Error] {str(e)}"
 
 async def edit_file_patch_tool_local(path: str, old_string: str, new_string: str) -> str:
     # 本地 Patch 实现
     try:
         cwd = await _get_current_cwd()
-        target = get_safe_workspace_path(cwd, path)
+        target = resolve_strict_path(cwd, path, check_symlink=True)
         async with aiofiles.open(target, 'r', encoding='utf-8') as f:
             content = await f.read()
         
