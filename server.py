@@ -512,19 +512,7 @@ async def broadcast_settings_update(settings):
     for connection in active_connections:  # 需要维护全局连接列表
         try:
             await connection.send_json({
-                "type": "settings",
-                "data": settings  # 直接使用内存中的最新配置
-            })
-            print("Settings broadcasted to client")
-        except Exception as e:
-            logger.error(f"Broadcast failed: {e}")
-
-async def broadcast_behavior_update(settings):
-    """向所有WebSocket连接推送行为更新"""
-    for connection in active_connections:  # 需要维护全局连接列表
-        try:
-            await connection.send_json({
-                "type": "behavior",
+                "type": "settings_update",
                 "data": settings  # 直接使用内存中的最新配置
             })
             print("Settings broadcasted to client")
@@ -953,7 +941,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         ret_out = await tool_call(**tool_params)
         if tool_name == "auto_behavior":
             settings = ret_out
-            await broadcast_behavior_update(settings)
+            await broadcast_settings_update(settings)
             ret_out = "任务设置成功！"
         return ret_out
     except Exception as e:
@@ -8397,6 +8385,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     "correlationId": data.get("correlationId"),
                     "success": True
                 })
+                for connection in [conn for conn in active_connections if conn != websocket]:
+                    await connection.send_json({
+                        "type": "settings_update",
+                        "data": data.get("data", {})
+                    })
+
             elif data.get("type") == "save_conversations":
                 await save_covs(data.get("data", {}))
                 await websocket.send_json({
