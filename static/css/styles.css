@@ -8069,3 +8069,178 @@ hr.footnotes-sep {
 [data-theme="midnight"] .approval-card {
     background-color: color-mix(in srgb, var(--el-color-warning) 12%, var(--bg-color)) !important;
 }
+
+/* =========================================
+   MCP 工具列表样式适配
+   ========================================= */
+
+/* 1. 区域容器 */
+.tools-section {
+  margin-top: 20px;
+  /* 使用变量作为分割线颜色 */
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 15px;
+}
+
+.tools-section h3 {
+  /* 跟随主题文字颜色 */
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+/* 2. 列表滚动容器 */
+.tools-list-container {
+  max-height: 300px;
+  overflow-y: auto;
+  /* 背景色：使用页面背景色（通常比卡片背景稍深或有区分度） */
+  background-color: var(--el-bg-color-page);
+  padding: 10px;
+  border-radius: 8px;
+  /* 边框跟随主题 */
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+/* 自定义滚动条适配 */
+.tools-list-container::-webkit-scrollbar {
+  width: 4px;
+}
+.tools-list-container::-webkit-scrollbar-thumb {
+  background: var(--el-border-color);
+  border-radius: 2px;
+}
+
+/* 3. 单个工具卡片 */
+.tool-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 卡片背景：使用组件背景色（亮色模式是白，暗色模式是深灰） */
+  background-color: var(--el-bg-color);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  /* 边框颜色 */
+  border: 1px solid var(--el-border-color);
+  transition: all 0.2s ease;
+}
+
+.tool-item-card:last-child {
+  margin-bottom: 0;
+}
+
+/* 悬停效果：轻微上浮 + 边框高亮 */
+.tool-item-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* 4. 左侧信息区 */
+.tool-info-left {
+  flex: 1;
+  overflow: hidden;
+  margin-right: 12px;
+}
+
+.tool-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  /* 名字很长时截断 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-info-icon {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  cursor: help;
+  transition: color 0.2s;
+}
+
+.tool-info-icon:hover {
+  color: var(--el-color-primary);
+}
+
+.tool-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  /* 描述文字单行截断 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* 5. 空状态 */
+.tools-empty-state {
+  text-align: center;
+  color: var(--el-text-color-placeholder);
+  padding: 30px 0;
+  background-color: var(--el-bg-color-page);
+  border-radius: 8px;
+  border: 1px dashed var(--el-border-color);
+  font-size: 13px;
+}
+
+
+/* =========================================
+   v-loading 遮罩层主题适配
+   ========================================= */
+
+/* 1. 遮罩背景适配 */
+.el-loading-mask {
+  /* 使用主题背景色，并设置 70% 的透明度 */
+  background-color: color-mix(in srgb, var(--el-bg-color) 70%, transparent) !important;
+  
+  /* 添加毛玻璃效果，符合你整体的 iOS/现代风格 */
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  
+  transition: background-color 0.3s var(--transition-function);
+  z-index: 2000;
+}
+
+/* 2. 加载图标（旋转圆圈）颜色 */
+.el-loading-spinner .path {
+  stroke: var(--el-color-primary) !important;
+  stroke-width: 3;
+}
+
+/* 3. 加载文字颜色 */
+.el-loading-spinner .el-loading-text {
+  color: var(--el-color-primary) !important;
+  font-weight: 500;
+  margin-top: 10px;
+  letter-spacing: 0.5px;
+  /* 也可以使用主题字体 */
+  font-family: var(--el-font-family);
+}
+
+/* 4. 特殊主题下的微调 (可选) */
+
+/* Rainbow 主题下让加载圈带点霓虹感 */
+[data-theme="rainbow"] .el-loading-spinner .path {
+  filter: drop-shadow(0 0 5px var(--el-color-primary));
+}
+
+/* Neon 主题下文字发光 */
+[data-theme="neon"] .el-loading-spinner .el-loading-text {
+  text-shadow: 0 0 8px var(--el-color-primary);
+}
+
+/* 5. 针对 Dialog 内部 loading 的圆角修正 */
+/* 确保遮罩层不会超出 Dialog 的圆角边缘 */
+.el-dialog .el-loading-mask {
+  border-radius: 12px;
+}

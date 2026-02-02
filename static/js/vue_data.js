@@ -1969,4 +1969,8 @@ main();`,
     receivedMsgIds: new Set(), 
     lastProcessedContent: '', 
     approvalMap: {},
+    isSubmitting: false,      // 控制弹窗内的加载状态
+    isEditMode: false,        // 控制弹窗是添加还是编辑模式
+    currentEditingMCPId: null, // 当前正在编辑/添加的 MCP ID
+    activeDialogTab: 'config', 
 };
