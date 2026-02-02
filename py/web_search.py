@@ -462,7 +462,7 @@ async def jina_crawler_async(original_url):
 
     try:
         if not await check_robots_txt(original_url):
-            raise PermissionError(f"合规拒绝: 目标网站禁止爬虫抓取")
+            raise PermissionError(f"合规拒绝: 目标网站禁止抓取")
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, sync_crawler)
     except Exception as e:
@@ -529,7 +529,7 @@ async def Crawl4Ai_search_async(original_url):
 
     try:
         if not await check_robots_txt(original_url):
-            raise PermissionError(f"合规拒绝: 目标网站禁止爬虫抓取")
+            raise PermissionError(f"合规拒绝: 目标网站禁止抓取")
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, sync_search)
     except Exception as e:
@@ -554,3 +554,406 @@ Crawl4Ai_tool = {
     },
 }
 
+from typing import Optional, Dict, Any
+
+# ============== 1. Pure Request ==============
+
+async def request_crawler_async(original_url: str) -> str:
+    """
+    最纯粹的HTTP请求，使用requests库直接获取网页内容
+    """
+    settings = await load_settings()
+    
+    def sync_crawler():
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            # 设置超时和重试
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(max_retries=2)
+            session.mount('http://', adapter)
+            session.mount('https://', adapter)
+            
+            response = session.get(
+                original_url, 
+                headers=headers, 
+                timeout=(10, 30),  # (连接超时, 读取超时)
+                allow_redirects=True,
+                verify=True
+            )
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding  # 自动检测编码
+            
+            # 简单的HTML到文本转换（去除script和style标签）
+            import re
+            from html import unescape
+            
+            html_content = response.text
+            
+            # 移除 script 和 style 标签及其内容
+            html_content = re.sub(r'<(script|style)[^>]*>[\s\S]*?</\1>', '', html_content, flags=re.IGNORECASE)
+            
+            # 移除 HTML 标签
+            text = re.sub(r'<[^>]+>', ' ', html_content)
+            
+            # 转换 HTML 实体
+            text = unescape(text)
+            
+            # 清理空白字符
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            # 限制长度避免超出token限制
+            max_length = 100000
+            if len(text) > max_length:
+                text = text[:max_length] + "\n\n[内容过长，已截断]"
+            
+            return text if text else f"未能从 {original_url} 提取到有效文本内容"
+            
+        except requests.Timeout:
+            return f"获取{original_url}网页信息失败：请求超时"
+        except requests.TooManyRedirects:
+            return f"获取{original_url}网页信息失败：重定向过多"
+        except requests.RequestException as e:
+            return f"获取{original_url}网页信息失败，错误信息：{str(e)}"
+        except Exception as e:
+            return f"处理{original_url}时发生未知错误：{str(e)}"
+
+    try:
+        # 检查 robots.txt
+        if not await check_robots_txt(original_url):
+            raise PermissionError(f"合规拒绝: 目标网站禁止抓取")
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, sync_crawler)
+    except Exception as e:
+        print(f"Async execution error: {e}")
+        return str(e)
+
+
+request_crawler_tool = {
+    "type": "function",
+    "function": {
+        "name": "request_crawler_async",
+        "description": "通过纯HTTP请求获取指定URL的网页文本内容。适用于简单的网页抓取，不执行JavaScript。指定URL可以为其他搜索引擎搜索出来的网页链接，也可以是用户给出的网站链接。但不要将本机地址或内网地址开头的URL作为参数传入。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "original_url": {
+                    "type": "string",
+                    "description": "需要爬取的原始URL地址。",
+                },
+            },
+            "required": ["original_url"],
+        },
+    },
+}
+
+
+# ============== 2. Firecrawl ==============
+
+class FirecrawlClient:
+    """
+    Firecrawl API 客户端
+    支持官方API和自部署实例
+    """
+    
+    def __init__(self, base_url: str, api_key: Optional[str] = None):
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.headers = {
+            'Content-Type': 'application/json',
+        }
+        if api_key:
+            self.headers['Authorization'] = f'Bearer {api_key}'
+    
+    def _get_api_path(self, endpoint: str) -> str:
+        """根据基础URL自动判断API版本路径"""
+        if '/v2/' in self.base_url:
+            # 官方API v2
+            return f"{self.base_url}/{endpoint}"
+        elif '/v1/' in self.base_url:
+            # 自部署通常是v1
+            return f"{self.base_url}/{endpoint}"
+        else:
+            # 默认追加路径
+            return f"{self.base_url}/{endpoint}"
+    
+    def scrape(self, url: str, formats: list = None, **kwargs) -> Dict[str, Any]:
+        """
+        单页面抓取 (Scrape)
+        """
+        formats = formats or ["markdown"]
+        endpoint = self._get_api_path("scrape")
+        
+        payload = {
+            "url": url,
+            "formats": formats,
+            **kwargs
+        }
+        
+        response = requests.post(
+            endpoint,
+            headers=self.headers,
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    def crawl(self, url: str, limit: int = 10, **kwargs) -> str:
+        """
+        整站爬取 (Crawl) - 异步作业，需要轮询
+        """
+        # 提交爬取任务
+        submit_endpoint = self._get_api_path("crawl")
+        payload = {
+            "url": url,
+            "limit": limit,
+            **kwargs
+        }
+        
+        submit_resp = requests.post(
+            submit_endpoint,
+            headers=self.headers,
+            json=payload,
+            timeout=30
+        )
+        submit_resp.raise_for_status()
+        job_data = submit_resp.json()
+        
+        if not job_data.get("success"):
+            raise Exception(f"Failed to submit crawl job: {job_data}")
+        
+        job_id = job_data.get("id")
+        check_url = job_data.get("url") or f"{self.base_url}/crawl/{job_id}"
+        
+        # 轮询等待完成
+        max_wait = 300  # 5分钟超时
+        interval = 2
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait:
+            status_resp = requests.get(
+                check_url,
+                headers=self.headers,
+                timeout=30
+            )
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            
+            if status_data.get("status") == "completed":
+                return status_data
+            elif status_data.get("status") == "failed":
+                raise Exception(f"Crawl job failed: {status_data.get('error', 'Unknown error')}")
+            
+            time.sleep(interval)
+        
+        raise TimeoutError(f"Crawl job {job_id} timeout after {max_wait}s")
+    
+    def search(self, query: str, limit: int = 5, scrape_options: dict = None) -> Dict[str, Any]:
+        """
+        搜索 (Search)
+        """
+        endpoint = self._get_api_path("search")
+        
+        payload = {
+            "query": query,
+            "limit": limit
+        }
+        if scrape_options:
+            payload["scrapeOptions"] = scrape_options
+        
+        response = requests.post(
+            endpoint,
+            headers=self.headers,
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    def map(self, url: str, search: str = None) -> Dict[str, Any]:
+        """
+        网站地图 (Map)
+        """
+        endpoint = self._get_api_path("map")
+        
+        payload = {"url": url}
+        if search:
+            payload["search"] = search
+        
+        response = requests.post(
+            endpoint,
+            headers=self.headers,
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def firecrawl_search_async(original_url: str, query: str = None) -> str:
+    """
+    Firecrawl 主函数
+    支持多种模式：scrape(单页), crawl(整站), search(搜索), map(地图)
+    """
+    settings = await load_settings()
+    
+    def sync_crawler():
+        try:
+            # 获取配置
+            base_url = settings['webSearch'].get('firecrawl_url', 'https://api.firecrawl.dev/v2')
+            api_key = settings['webSearch'].get('firecrawl_api_key', '')
+            mode = settings['webSearch'].get('firecrawl_mode', 'scrape')
+            
+            # 初始化客户端
+            client = FirecrawlClient(base_url, api_key)
+            
+            # 根据模式执行不同操作
+            if mode == 'scrape':
+                # 单页抓取
+                result = client.scrape(
+                    original_url,
+                    formats=["markdown", "html"],
+                    onlyMainContent=True  # 只获取主要内容
+                )
+                
+                if result.get("success") and result.get("data"):
+                    data = result["data"]
+                    markdown = data.get("markdown", "")
+                    metadata = data.get("metadata", {})
+                    title = metadata.get("title", "未命名页面")
+                    
+                    return f"# {title}\n\n{markdown}"
+                else:
+                    return f"Firecrawl抓取失败：{result.get('error', '未知错误')}"
+            
+            elif mode == 'crawl':
+                # 整站爬取
+                result = client.crawl(
+                    original_url,
+                    limit=10,  # 限制页面数避免过长
+                    scrapeOptions={
+                        "formats": ["markdown"],
+                        "onlyMainContent": True
+                    }
+                )
+                
+                if result.get("status") == "completed":
+                    pages = result.get("data", [])
+                    total = result.get("total", 0)
+                    
+                    content_parts = [f"# 站点爬取结果\n\n共获取 {total} 个页面：\n"]
+                    
+                    for i, page in enumerate(pages[:5], 1):  # 最多显示5页
+                        md = page.get("markdown", "")
+                        meta = page.get("metadata", {})
+                        title = meta.get("title", f"页面{i}")
+                        url = meta.get("sourceURL", original_url)
+                        
+                        content_parts.append(f"\n## {title}\n{md[:2000]}...\n[来源]({url})")
+                    
+                    return "\n".join(content_parts)
+                else:
+                    return f"Firecrawl爬取失败：{result.get('error', '未知错误')}"
+            
+            elif mode == 'search':
+                # 搜索模式 - 当传入的是查询词而非URL时
+                search_query = query or original_url  # 如果没有单独提供query，将URL作为查询词
+                result = client.search(
+                    search_query,
+                    limit=5,
+                    scrape_options={"formats": ["markdown"]}
+                )
+                
+                if result.get("success") and result.get("data"):
+                    items = result["data"]
+                    content_parts = [f"# 搜索结果: {search_query}\n"]
+                    
+                    for i, item in enumerate(items, 1):
+                        title = item.get("title", "无标题")
+                        url = item.get("url", "")
+                        desc = item.get("description", "")
+                        markdown = item.get("markdown", "")
+                        
+                        content_parts.append(f"\n## {i}. {title}\n{desc}\n")
+                        if markdown:
+                            content_parts.append(f"{markdown[:1500]}...")
+                        content_parts.append(f"[来源]({url})")
+                    
+                    return "\n".join(content_parts)
+                else:
+                    return f"Firecrawl搜索失败：{result.get('error', '未知错误')}"
+            
+            elif mode == 'map':
+                # 网站地图模式
+                result = client.map(original_url)
+                
+                if result.get("success") and result.get("links"):
+                    links = result["links"]
+                    content_parts = [f"# 网站地图: {original_url}\n\n发现 {len(links)} 个链接：\n"]
+                    
+                    for link in links[:20]:  # 限制显示数量
+                        title = link.get("title", "无标题")
+                        url = link.get("url", "")
+                        desc = link.get("description", "")
+                        content_parts.append(f"- [{title}]({url}) - {desc}")
+                    
+                    return "\n".join(content_parts)
+                else:
+                    return f"Firecrawl地图生成失败：{result.get('error', '未知错误')}"
+            
+            else:
+                return f"未知的Firecrawl模式: {mode}"
+                
+        except requests.RequestException as e:
+            return f"Firecrawl请求失败：{str(e)}"
+        except Exception as e:
+            return f"Firecrawl处理失败：{str(e)}"
+
+    try:
+        # Firecrawl自部署版本通常不需要检查robots.txt（由服务内部处理）
+        # 但官方API版本建议保留检查
+        settings = await load_settings()
+        base_url = settings['webSearch'].get('firecrawl_url', '')
+        
+        # 如果是官方API，检查robots.txt
+        if 'api.firecrawl.dev' in base_url:
+            if not await check_robots_txt(original_url):
+                raise PermissionError(f"合规拒绝: 目标网站禁止抓取")
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, sync_crawler)
+    except Exception as e:
+        print(f"Async execution error: {e}")
+        return str(e)
+
+
+firecrawl_tool = {
+    "type": "function",
+    "function": {
+        "name": "firecrawl_search_async",
+        "description": "通过Firecrawl服务获取网页内容。支持单页抓取、整站爬取、搜索和网站地图模式。可以处理JavaScript渲染的页面，返回结构化的Markdown内容。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "original_url": {
+                    "type": "string",
+                    "description": "需要处理的URL地址或搜索查询词（当模式为search时）。",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "可选，当使用search模式时的具体搜索词。如果不提供，将使用original_url作为查询词。",
+                }
+            },
+            "required": ["original_url"],
+        },
+    },
+}
