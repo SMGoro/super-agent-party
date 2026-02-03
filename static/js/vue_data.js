@@ -1988,4 +1988,5 @@ main();`,
     skillPreviewLoading: false,
     renderedSkillContent: '',
     extensionsPollingTimer: null,
+    skillsInProject: [], 
 };

@@ -14462,14 +14462,69 @@ async processSkillUpload(file) {
   }
 },
 
-  // 核心逻辑：判断并控制轮询
-  handleSkillsPolling(activeMenu,menu, tab) {
-    if (activeMenu==='toolkit' && menu === 'CLI' && tab === 'skills') {
-      this.startSkillsPolling();
+isSkillInProject(skillId) {
+  return this.skillsInProject && this.skillsInProject.includes(skillId);
+},
+
+// 获取当前项目下的技能状态
+async fetchProjectSkillsStatus() {
+  if (!this.CLISettings.cc_path) {
+    this.skillsInProject = [];
+    return;
+  }
+  try {
+    const res = await fetch(`/api/skills/project-status?path=${encodeURIComponent(this.CLISettings.cc_path)}`);
+    const data = await res.json();
+    this.skillsInProject = data.installed_ids || [];
+  } catch (e) {
+    console.error("获取项目技能状态失败", e);
+  }
+},
+
+// 切换技能同步状态
+async toggleSkillInProject(skillId, isInstall) {
+  if (!this.CLISettings.cc_path) return;
+
+  const action = isInstall ? 'install' : 'remove';
+  try {
+    const response = await fetch('/api/skills/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skill_id: skillId,
+        project_path: this.CLISettings.cc_path,
+        action: action
+      })
+    });
+
+    if (!response.ok) throw new Error('Sync failed');
+
+    // 更新本地状态列表
+    if (isInstall) {
+      if (!this.skillsInProject.includes(skillId)) this.skillsInProject.push(skillId);
     } else {
-      this.stopSkillsPolling();
+      this.skillsInProject = this.skillsInProject.filter(id => id !== skillId);
     }
-  },
+    
+    showNotification(this.t('operationSuccess'), 'success');
+  } catch (error) {
+    showNotification(this.t('operationFailed'), 'error');
+    // 刷新状态以回滚 UI 开关
+    this.fetchProjectSkillsStatus();
+  }
+},
+
+// --- 增强原有的监听和初始化 ---
+
+// 修改 handleSkillsPolling，在进入技能标签页时同时刷新项目状态
+handleSkillsPolling(activeMenu, menu, tab) {
+  if (activeMenu === 'toolkit' && menu === 'CLI' && tab === 'skills') {
+    this.fetchProjectSkillsStatus(); // 额外执行这一步
+    this.startSkillsPolling();
+  } else {
+    this.stopSkillsPolling();
+  }
+},
 
   // 启动轮询
   startSkillsPolling() {

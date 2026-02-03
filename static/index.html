@@ -7729,8 +7729,16 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <!-- 已安装的 Skills 卡片 -->
                     <div class="provider-card knowledge-card" v-for="skill in skillsList" :key="skill.id">
                       <div class="card-header">
-                        <!-- 开关暂留，未来可用于启用/禁用技能 -->
-                        <el-switch :active-value="true" :inactive-value="false"></el-switch>
+                        <el-tooltip 
+                          :content="!CLISettings.cc_path ? t('pleaseSelectWorkspaceFirst') : t('syncToProject')" 
+                          placement="top"
+                        >
+                          <el-switch 
+                            :model-value="isSkillInProject(skill.id)"
+                            :disabled="!CLISettings.cc_path"
+                            @change="(val) => toggleSkillInProject(skill.id, val)"
+                          ></el-switch>
+                        </el-tooltip>
                         <div class="card-actions">
                           <el-button @click="previewSkill(skill.id)" type="info" circle size="small">
                             <i class="fa-solid fa-eye"></i>

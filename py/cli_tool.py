@@ -551,7 +551,8 @@ async def todo_write_tool(action: str, id: str = None, content: str = None, prio
                 "content": content,
                 "priority": priority,
                 "status": "pending",
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now().isoformat(),
+                "completed_at": None  # 初始化完成时间
             }
             todos.append(new_todo)
             msg = f"[Success] Created {new_todo['id']}"
@@ -559,7 +560,8 @@ async def todo_write_tool(action: str, id: str = None, content: str = None, prio
         elif action == "list":
             if not todos: return "No todos."
             lines = ["📋 Tasks:"]
-            for t in sorted(todos, key=lambda x: x.get('status') == 'done'):
+            # 排序逻辑：未完成在前，高优先级在前
+            for t in sorted(todos, key=lambda x: (x.get('status') == 'done', x.get('priority') != 'high')):
                 icon = "✅" if t.get('status') == 'done' else "⏳"
                 lines.append(f"{icon} [{t['id']}] {t['content'][:40]}")
             return "\n".join(lines)
@@ -572,29 +574,50 @@ async def todo_write_tool(action: str, id: str = None, content: str = None, prio
             if action == "delete":
                 todos.remove(target)
                 msg = f"Deleted {id}"
+
             elif action == "toggle":
-                target['status'] = 'done' if target.get('status') != 'done' else 'pending'
-                msg = f"Toggled {id}"
+                # 核心逻辑：切换状态并记录/重置完成时间
+                if target.get('status') != 'done':
+                    target['status'] = 'done'
+                    target['completed_at'] = datetime.now().isoformat()
+                else:
+                    target['status'] = 'pending'
+                    target['completed_at'] = None
+                msg = f"Toggled {id} to {target['status']}"
+
             elif action == "update":
                 if content: target['content'] = content
-                if status: target['status'] = status
+                if priority: target['priority'] = priority
+                
+                # 核心逻辑：如果 status 被明确修改
+                if status:
+                    if status == "done" and target.get('status') != "done":
+                        target['completed_at'] = datetime.now().isoformat()
+                    elif status != "done" and target.get('status') == "done":
+                        target['completed_at'] = None
+                    target['status'] = status
+                
+                target['updated_at'] = datetime.now().isoformat()
                 msg = f"Updated {id}"
         else:
             return "Unknown action."
 
-        # 写回
+        # 写回逻辑 (保持不变)
         with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
-            tmp.write(json.dumps(todos, indent=2))
+            tmp.write(json.dumps(todos, indent=2, ensure_ascii=False))
             tmp_path = tmp.name
+        
         await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", "/workspace/.party"])
         dest = f"{container_name}:{todo_file}"
         proc = await asyncio.create_subprocess_exec("docker", "cp", tmp_path, dest, stdout=asyncio.subprocess.PIPE)
         await proc.wait()
-        os.unlink(tmp_path)
+        
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+            
         return msg
     except Exception as e:
         return f"[Error] Todo failed: {str(e)}"
-
 # 恢复原有的 Docker 基础文件工具
 async def list_files_tool(path: str = ".", show_all: bool = False) -> str:
     try:
@@ -973,22 +996,107 @@ async def edit_file_patch_tool_local(path: str, old_string: str, new_string: str
     except Exception as e: return str(e)
 
 async def todo_write_tool_local(action: str, id: str = None, content: str = None, priority: str = "medium", status: str = None) -> str:
-    # 本地 Todo 实现 (逻辑同Docker版，只是文件操作不同)
+    """本地环境任务管理"""
     try:
+        # 1. 获取当前工作目录并确保 .party 文件夹存在
         cwd = await _get_current_cwd()
         party_dir = Path(cwd) / ".party"
-        await aiofiles.os.makedirs(party_dir, exist_ok=True)
+        if not party_dir.exists():
+            await aiofiles.os.makedirs(party_dir, exist_ok=True)
+        
         todo_file = party_dir / "ai_todos.json"
         
-        try:
-            async with aiofiles.open(todo_file, 'r') as f: todos = json.loads(await f.read())
-        except: todos = []
+        # 2. 读取现有数据
+        todos = []
+        if todo_file.exists():
+            try:
+                async with aiofiles.open(todo_file, 'r', encoding='utf-8') as f:
+                    file_content = await f.read()
+                    if file_content.strip():
+                        todos = json.loads(file_content)
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"读取 Todo 文件失败，将初始化为空列表: {e}")
+                todos = []
+            
+        msg = ""
 
-        # ... (简化：逻辑与 Docker 版一致，略去重复的CRUD代码，实际使用请复制Docker版逻辑并改为本地操作) ...
-        # 为节省篇幅，这里假设实现了相同的逻辑
-        return "Local Todo Updated (Simplified for brevity)"
-    except Exception as e: return str(e)
+        # 3. 执行逻辑操作
+        if action == "create":
+            if not content: 
+                return "[Error] Content required for creation."
+            new_todo = {
+                "id": id or str(uuid.uuid4())[:8],
+                "content": content,
+                "priority": priority,
+                "status": "pending",
+                "created_at": datetime.now().isoformat()
+            }
+            todos.append(new_todo)
+            msg = f"[Success] Created local todo: {new_todo['id']}"
+            
+        elif action == "list":
+            if not todos: 
+                return "No todos found in this project."
+            lines = ["📋 **Project Todos (Local)**:"]
+            # 排序：未完成的在前，已完成的在后
+            sorted_todos = sorted(todos, key=lambda x: x.get('status') == 'done')
+            for t in sorted_todos:
+                status_icon = "✅" if t.get('status') == 'done' else "⏳"
+                priority_map = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                p_icon = priority_map.get(t.get('priority', 'medium'), "⚪")
+                lines.append(f"{status_icon} {p_icon} [{t['id']}] {t['content'][:50]}")
+            return "\n".join(lines)
 
+        elif action in ["update", "toggle", "delete"]:
+            if not id: 
+                return "[Error] ID required for update/toggle/delete."
+            
+            target = next((t for t in todos if t['id'] == id), None)
+            if not target: 
+                return f"[Error] ID {id} not found."
+            
+            if action == "delete":
+                todos.remove(target)
+                msg = f"[Success] Deleted local todo: {id}"
+
+            elif action == "toggle":
+                # 切换逻辑
+                if target.get('status') != 'done':
+                    target['status'] = 'done'
+                    target['completed_at'] = datetime.now().isoformat() # 记录完成时间
+                else:
+                    target['status'] = 'pending'
+                    target['completed_at'] = None # 重置完成时间
+                msg = f"[Success] Toggled local todo {id} to {target['status']}"
+
+            elif action == "update":
+                if content: target['content'] = content
+                if priority: target['priority'] = priority
+                
+                # 处理状态更新和完成时间
+                if status:
+                    # 如果状态从非 done 变为 done
+                    if status == "done" and target.get('status') != "done":
+                        target['completed_at'] = datetime.now().isoformat()
+                    # 如果状态从 done 变为非 done
+                    elif status != "done" and target.get('status') == "done":
+                        target['completed_at'] = None
+                    
+                    target['status'] = status
+                
+                target['updated_at'] = datetime.now().isoformat()
+                msg = f"[Success] Updated local todo: {id}"
+        else:
+            return f"[Error] Unknown action: {action}"
+
+        # 4. 异步写回本地文件
+        async with aiofiles.open(todo_file, 'w', encoding='utf-8') as f:
+            await f.write(json.dumps(todos, indent=2, ensure_ascii=False))
+            
+        return msg
+
+    except Exception as e:
+        return f"[Error] Local Todo operation failed: {str(e)}"
 # ==================== Claude & Qwen Agents (恢复) ====================
 
 cli_info = "这是一个交互式命令行工具..."
@@ -1176,7 +1284,7 @@ LOCAL_TOOLS_REGISTRY = {
     "todo_write_local": {
         "type": "function", "function": {
             "name": "todo_write_tool_local", "description": "Manage local tasks.",
-            "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "content": {"type": "string"}}, "required": ["action"]}
+            "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["create","list","update","delete","toggle"]}, "content": {"type": "string"}, "id": {"type": "string"}}, "required": ["action"]}
         }
     },
     # --- 基础设施 (核心更新) ---

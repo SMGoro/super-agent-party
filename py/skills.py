@@ -243,3 +243,56 @@ async def upload_skill_zip(file: UploadFile = File(...)):
         shutil.copytree(source, target_dir)
         
     return {"status": "success", "skill_id": skill_id}
+
+
+
+class SkillSyncRequest(BaseModel):
+    skill_id: str
+    project_path: str
+    action: str  # "install" 或 "remove"
+
+@router.get("/project-status")
+async def get_project_skills_status(path: str):
+    """获取指定项目路径下 .party/skills/ 已存在的技能 ID 列表"""
+    if not path or not os.path.exists(path):
+        return {"installed_ids": []}
+    
+    project_skills_dir = Path(path) / ".party" / "skills"
+    if not project_skills_dir.exists():
+        return {"installed_ids": []}
+    
+    # 返回该目录下所有的文件夹名称
+    installed_ids = [item.name for item in project_skills_dir.iterdir() if item.is_dir()]
+    return {"installed_ids": installed_ids}
+
+@router.post("/sync")
+async def sync_skill_to_project(req: SkillSyncRequest):
+    """将全局技能复制到项目目录，或从中移除"""
+    if not req.project_path or not os.path.exists(req.project_path):
+        raise HTTPException(status_code=400, detail="项目路径无效")
+
+    global_skill_path = Path(SKILLS_DIR) / req.skill_id
+    project_skills_dir = Path(req.project_path) / ".party" / "skills"
+    target_path = project_skills_dir / req.skill_id
+
+    if req.action == "install":
+        if not global_skill_path.exists():
+            raise HTTPException(status_code=404, detail="全局技能不存在")
+        
+        # 确保目录存在
+        project_skills_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 如果已存在则先删除
+        if target_path.exists():
+            robust_rmtree(target_path)
+            
+        # 复制文件夹
+        shutil.copytree(global_skill_path, target_path)
+        return {"status": "success", "message": f"Skill {req.skill_id} installed to project"}
+
+    elif req.action == "remove":
+        if target_path.exists():
+            robust_rmtree(target_path)
+        return {"status": "success", "message": f"Skill {req.skill_id} removed from project"}
+    
+    raise HTTPException(status_code=400, detail="无效的操作类型")

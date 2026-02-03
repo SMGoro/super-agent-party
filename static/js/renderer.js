@@ -975,6 +975,10 @@ const app = Vue.createApp({
     activeCLITab(newVal) {
       this.handleSkillsPolling(this.activeMenu,this.subMenu, newVal);
     },
+    'CLISettings.cc_path': function(newPath) {
+      console.log('工作区路径变化，更新技能状态');
+      this.fetchProjectSkillsStatus();
+    },
     'searchEngine': function(newVal) {
       if (newVal === 'party') {
         this.searchEngineplaceholder = this.t('searchWithParty')
