@@ -8570,6 +8570,10 @@ from py.extensions import router as extensions_router
 
 app.include_router(extensions_router)
 
+from py.skills import router as skills_router
+
+app.include_router(skills_router)
+
 from py.sherpa_model_manager import router as sherpa_model_router
 app.include_router(sherpa_model_router)
 

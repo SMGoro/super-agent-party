@@ -1391,6 +1391,7 @@ let vue_methods = {
           this.checkDiscordBotStatus();
           this.checkLiveStatus();
           this.fetchRemotePlugins();
+          this.fetchSkills();
           this.fetchTetosVoices(this.ttsSettings.engine);
           if (this.asrSettings.enabled) {
             this.startASR();
@@ -14329,4 +14330,253 @@ async togglePlugin(plugin) {
       }
       this.autoSaveSettings();
     },
+
+// Methods
+
+// 1. 获取技能列表
+async fetchSkills() {
+  try {
+    const response = await fetch('/api/skills/list');
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    this.skillsList = data.skills;
+  } catch (error) {
+    showNotification(this.t('fetchSkillsFailed'), 'error');
+  }
+},
+
+// 2. 删除技能
+async removeSkill(id) {
+  try {
+    const response = await fetch(`/api/skills/${id}`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Delete failed');
+    }
+    
+    showNotification(this.t('deleteSuccess'), 'success');
+    this.fetchSkills(); // 刷新
+  } catch (error) {
+    showNotification(this.t('deleteFailed'), 'error');
+  }
+},
+
+// 3. GitHub 安装
+async installSkillFromGithub() {
+  if (!this.newSkillUrl) return;
+  this.isSkillInstalling = true;
+  
+  try {
+    const response = await fetch('/api/skills/install-from-github', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: this.newSkillUrl
+      })
+    });
+
+    if (!response.ok) {
+      // 尝试解析后端返回的 JSON 错误信息
+      const errorData = await response.json().catch(() => ({})); 
+      const errorMessage = errorData.detail || response.statusText || 'Unknown Error';
+      throw new Error(errorMessage);
+    }
+
+    showNotification(this.t('installSuccess'), 'success');
+    this.showAddSkillDialog = false;
+    this.newSkillUrl = '';
+    // 稍微延迟后刷新一下，虽然是后台任务，但可能很快完成
+    setTimeout(() => this.fetchSkills(), 2000);
+  } catch (error) {
+    showNotification(this.t('installFailed') + ': ' + error.message, 'error');
+  } finally {
+    this.isSkillInstalling = false;
+  }
+},
+
+// 4. 点击 DIV 时，模拟点击隐藏的 input
+triggerSkillFileSelect() {
+  // 注意：如果你使用的是 Vue 3 <script setup>，需要 const skillFileInput = ref(null) 并使用 skillFileInput.value.click()
+  // 如果是 Options API (export default):
+  this.$refs.skillFileInput.click();
+},
+
+// 5. 处理“点击选择”后的文件变化
+handleSkillFileChange(e) {
+  const files = e.target.files;
+  if (files && files.length > 0) {
+    this.processSkillUpload(files[0]);
+  }
+  // 清空 input，防止同一个文件无法再次触发 change
+  e.target.value = ''; 
+},
+
+// 6. 处理“拖拽释放”后的文件
+handleSkillDrop(e) {
+  const files = e.dataTransfer.files;
+  if (files && files.length > 0) {
+    this.processSkillUpload(files[0]);
+  }
+},
+
+// 7. 统一的上传逻辑 (核心)
+async processSkillUpload(file) {
+  // 校验文件类型
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    // 这里原来的 ElMessage.error 改为了 showNotification
+    showNotification(this.t('skillZipNote'), 'error'); 
+    return;
+  }
+
+  this.isUploading = true; // 开启遮罩
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await fetch('/api/skills/upload-zip', {
+      method: 'POST',
+      body: formData
+      // 注意：使用 fetch 发送 FormData 时，千万不要手动设置 Content-Type！
+      // 浏览器会自动计算 boundary 并设置为 multipart/form-data
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || this.t('installFailed'));
+    }
+
+    showNotification(this.t('installSuccess'), 'success');
+    this.showAddSkillDialog = false;
+    this.fetchSkills(); // 刷新列表
+  } catch (error) {
+    showNotification(error.message, 'error');
+  } finally {
+    this.isUploading = false; // 关闭遮罩
+  }
+},
+
+  // 核心逻辑：判断并控制轮询
+  handleSkillsPolling(activeMenu,menu, tab) {
+    if (activeMenu==='toolkit' && menu === 'CLI' && tab === 'skills') {
+      this.startSkillsPolling();
+    } else {
+      this.stopSkillsPolling();
+    }
+  },
+
+  // 启动轮询
+  startSkillsPolling() {
+    if (this.skillsPollingTimer) return; // 如果已经在轮询了，就不重复启动
+    
+    // 立即先执行一次，不要等第一个 5 秒
+    this.fetchSkills(); 
+
+    // 设置每 5 秒执行一次
+    this.skillsPollingTimer = setInterval(() => {
+      console.log('正在轮询获取 Skills...');
+      this.fetchSkills();
+    }, 5000);
+  },
+
+  // 停止轮询
+  stopSkillsPolling() {
+    if (this.skillsPollingTimer) {
+      clearInterval(this.skillsPollingTimer);
+      this.skillsPollingTimer = null;
+      console.log('已停止轮询 Skills');
+    }
+  },
+  // 核心逻辑：判断并控制扩展页面的轮询
+  handleExtensionsPolling(menu, sub) {
+    if (menu === 'api-group' && sub === 'extension') {
+      this.startExtensionsPolling();
+    } else {
+      this.stopExtensionsPolling();
+    }
+  },
+
+  // 启动扩展轮询
+  startExtensionsPolling() {
+    if (this.extensionsPollingTimer) return; // 避免重复启动
+    
+    // 立即执行一次刷新
+    this.scanExtensions(); 
+
+    this.extensionsPollingTimer = setInterval(() => {
+      console.log('正在轮询获取 Extensions...');
+      this.scanExtensions();
+    }, 5000);
+  },
+
+  // 停止扩展轮询
+  stopExtensionsPolling() {
+    if (this.extensionsPollingTimer) {
+      clearInterval(this.extensionsPollingTimer);
+      this.extensionsPollingTimer = null;
+      console.log('已停止轮询 Extensions');
+    }
+  },
+
+  // 修改原来的 scanExtensions，确保它能正常工作
+  async scanExtensions() {
+    try {
+      const response = await fetch('/api/extensions/list');
+      if (!response.ok) throw new Error('Fetch failed');
+      const data = await response.json();
+      this.extensions = data.extensions;
+      
+      // 如果此时弹窗是打开的，可能还需要刷新远程插件状态以同步“已安装”按钮
+      if (this.showExtensionForm) {
+        this.updateRemotePluginsStatus(); 
+      }
+    } catch (e) {
+      console.error('刷新扩展列表失败', e);
+    }
+  },
+  
+  // 辅助方法：对比本地和远程，更新 UI 上的“安装/卸载”状态
+  updateRemotePluginsStatus() {
+    if (!this.remotePlugins) return;
+    this.remotePlugins = this.remotePlugins.map(r => ({
+      ...r,
+      installed: this.extensions.some(l => l.repository.trim() === r.repository.trim()),
+    }));
+  },
+// 预览技能
+async previewSkill(id) {
+  this.showSkillPreviewDialog = true;
+  this.skillPreviewLoading = true;
+  this.renderedSkillContent = '';
+
+  try {
+    const response = await fetch(`/api/skills/${id}/content`);
+    if (!response.ok) throw new Error('Fetch failed');
+    const data = await response.json();
+    let rawContent = data.content || '';
+
+    // 1. 剥离 YAML Frontmatter (--- ... ---)
+    // 这样预览时不会显示冗余的元数据
+    const yamlRegex = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
+    const contentToRender = rawContent.replace(yamlRegex, '');
+
+    // 2. 使用你已有的 md 实例进行渲染
+    // 注意：这里直接调用 md.render。
+    // 如果你希望保持和聊天框完全一致的逻辑（含 LaTeX、think 标签处理等），
+    // 可以调用你写的 this.formatMessage(contentToRender)
+    this.renderedSkillContent = this.formatMessage(contentToRender);
+
+  } catch (error) {
+    showNotification(this.t('fetchFailed'), 'error');
+    this.showSkillPreviewDialog = false;
+  } finally {
+    this.skillPreviewLoading = false;
+  }
+},
 }
