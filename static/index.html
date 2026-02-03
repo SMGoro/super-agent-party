@@ -7406,324 +7406,324 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
               <!-- 终端工具界面 -->
               <div v-show="subMenu === 'CLI'" class="page">
-                <el-form v-if="isElectron" :model="CLISettings" class="settings-form"  label-position="top">
-                  <div class="tool-item">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-terminal"></i>
-                          </el-icon>
-                          {{ t('CLItool') }}
-                        </span>
-                      </div>
-                      <el-switch v-model="CLISettings.enabled" @click.stop @change="autoSaveSettings"/>
-                    </div>
-                    <div class="tool-content">
-                      <el-form-item :label="t('CLIEngine')" class="form-item-align">
-                        <el-select
-                          v-model="CLISettings.engine"
-                          @change="autoSaveSettings"
-                          class="full-width-input"
-                        >
-                          <el-option :label="t('localEnvironment')" value="local" ></el-option>
-                          <el-option :label="t('dockerSandbox')" value="ds" ></el-option> 
-                          <el-option label="Claude Code" value="cc" ></el-option>
-                          <el-option label="Qwen Code" value="qc" ></el-option>
-                        </el-select>
-                      </el-form-item>
-                    </div>
-                  </div>
-
-                  <!-- 本地环境配置 -->
-                  <div class="tool-item" v-show="CLISettings.engine === 'local'">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon><i class="fa-solid fa-laptop"></i></el-icon>
-                          {{t('localEnvironment')}}
-                        </span>
-                      </div>
-                    </div>
-                    <div class="tool-content">
-                      <!-- 工作空间选择 -->
-                      <el-form-item required :label="t('workspace')" class="form-item-align">
-                        <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
-                          <template #append>
-                            <el-button @click="browseDirectory">
-                              <i class="fa-solid fa-folder"></i>
-                            </el-button>
-                          </template>
-                        </el-input>
-                      </el-form-item>
-
-                      <!-- 权限模式选择 -->
-                      <el-form-item :label="t('permissionMode')" class="form-item-align">
-                        <el-select v-model="localEnvSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
-                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
-                          <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
-                          <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                          <el-option :label="t('planMode')" value="plan" ></el-option>
-                        </el-select>
-                      </el-form-item>
-                    </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('localEnvironmentNotice1') }}
+              <el-tabs v-model="activeCLITab">
+                <el-tab-pane :label="t('CLItoolSettings')" name="config">
+                  <el-form :model="CLISettings" class="settings-form"  label-position="top">
+                    <div class="tool-item">
+                      <div class="tool-header">
+                        <div class="header-left">
+                          <span>
+                            <el-icon>
+                              <i class="fa-solid fa-terminal"></i>
+                            </el-icon>
+                            {{ t('CLItool') }}
+                          </span>
                         </div>
-                      </template>
-                    </el-alert>
-                  </div>
-
-                  <!-- Docker Sandbox 配置 -->
-                  <div class="tool-item" v-show="CLISettings.engine === 'ds'">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon><i class="fa-brands fa-docker"></i></el-icon>
-                          {{t('dockerSandbox')}}
-                        </span>
-                        <el-link
-                          type="primary"
-                          :underline="false"
-                          href="https://www.docker.com/get-started" 
-                          target="_blank"
-                        >
-                          <el-icon class="mr-1">
-                            <i class="fa-brands fa-docker"></i>
-                          </el-icon>{{ t('downloadDocker') }}
-                        </el-link>
+                        <el-switch v-model="CLISettings.enabled" @click.stop @change="autoSaveSettings"/>
+                      </div>
+                      <div class="tool-content">
+                        <el-form-item :label="t('CLIEngine')" class="form-item-align">
+                          <el-select
+                            v-model="CLISettings.engine"
+                            @change="autoSaveSettings"
+                            class="full-width-input"
+                          >
+                            <el-option :label="t('localEnvironment')" value="local" ></el-option>
+                            <el-option :label="t('dockerSandbox')" value="ds" ></el-option> 
+                            <el-option label="Claude Code" value="cc" ></el-option>
+                            <el-option label="Qwen Code" value="qc" ></el-option>
+                          </el-select>
+                        </el-form-item>
                       </div>
                     </div>
-                    <div class="tool-content">
-                      <!-- 工作空间选择 -->
-                      <el-form-item required :label="t('workspace')" class="form-item-align">
-                        <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
-                          <template #append>
-                            <el-button @click="browseDirectory">
-                              <i class="fa-solid fa-folder"></i>
-                            </el-button>
-                          </template>
-                        </el-input>
-                      </el-form-item>
 
-                      <!-- 权限模式选择 -->
-                      <el-form-item :label="t('permissionMode')" class="form-item-align">
-                        <el-select v-model="dsSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
-                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
-                          <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
-                          <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                          <el-option :label="t('planMode')" value="plan" ></el-option>
-                        </el-select>
-                      </el-form-item>
-                    </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('DockerSandboxNotice1') }}
+                    <!-- 本地环境配置 -->
+                    <div class="tool-item" v-show="CLISettings.engine === 'local'">
+                      <div class="tool-header">
+                        <div class="header-left">
+                          <span>
+                            <el-icon><i class="fa-solid fa-laptop"></i></el-icon>
+                            {{t('localEnvironment')}}
+                          </span>
                         </div>
-                      </template>
-                    </el-alert>
-                  </div>
-                  
-                  <div class="tool-item" v-show="CLISettings.engine === 'cc'">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-terminal"></i>
-                          </el-icon>
-                          Claude Code
+                      </div>
+                      <div class="tool-content">
+                        <!-- 工作空间选择 -->
+                        <el-form-item required :label="t('workspace')" class="form-item-align">
+                          <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
+                            <template #append>
+                              <el-button @click="browseDirectory">
+                                <i class="fa-solid fa-folder"></i>
+                              </el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+
+                        <!-- 权限模式选择 -->
+                        <el-form-item :label="t('permissionMode')" class="form-item-align">
+                          <el-select v-model="localEnvSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
+                            <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                            <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
+                            <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        class="mb-2"
+                      >
+                        <template #default>
+                          <div class="alert-content">
+                            {{ t('localEnvironmentNotice1') }}
+                          </div>
+                        </template>
+                      </el-alert>
+                    </div>
+
+                    <!-- Docker Sandbox 配置 -->
+                    <div class="tool-item" v-show="CLISettings.engine === 'ds'">
+                      <div class="tool-header">
+                        <div class="header-left">
+                          <span>
+                            <el-icon><i class="fa-brands fa-docker"></i></el-icon>
+                            {{t('dockerSandbox')}}
+                          </span>
                           <el-link
                             type="primary"
                             :underline="false"
-                            href="https://github.com/anthropics/claude-code" 
+                            href="https://www.docker.com/get-started" 
                             target="_blank"
                           >
                             <el-icon class="mr-1">
-                              <i class="fa-solid fa-key"></i>
-                            </el-icon>{{ t('gotoGithub') }}
+                              <i class="fa-brands fa-docker"></i>
+                            </el-icon>{{ t('downloadDocker') }}
                           </el-link>
-                        </span>
-                      </div>
-                    </div>
-                    <div class="tool-content">
-                      <el-form-item required :label="t('workspace')" class="form-item-align">
-                        <el-input
-                          v-model="CLISettings.cc_path"
-                          @input="autoSaveSettings"
-                          class="full-width-input"
-                        >
-                          <template #append>
-                            <el-button @click="browseDirectory">
-                                <i class="fa-solid fa-folder"></i>
-                            </el-button>
-                          </template>
-                        </el-input>
-                      </el-form-item>
-                      <el-form-item :label="t('permissionMode')" class="form-item-align">
-                        <el-select
-                          v-model="ccSettings.permissionMode"
-                          @change="autoSaveSettings"
-                          class="full-width-input"
-                        >
-                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
-                          <el-option :label="t('acceptEdits')" value="acceptEdits" ></el-option>
-                          <el-option :label="t('bypassPermissions')" value="bypassPermissions" ></el-option>
-                          <el-option :label="t('planMode')" value="plan" ></el-option>
-                        </el-select>
-                      </el-form-item>
-                      <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
-                        <el-switch
-                          v-model="ccSettings.enabled"
-                          @change="autoSaveSettings"
-                          class="tool-switch"
-                        ></el-switch>
-                      </el-form-item>
-                      <el-form-item :label="t('anthropicSupportedProviders')" class="form-item-align">
-                        <el-select
-                          v-model="ccSettings.selectedProvider"
-                          :placeholder="t('selectProvider')"
-                          filterable
-                          @change="selectCCProvider"
-                          @visible-change="handleCCProviderVisibleChange"
-                          class="full-width-input"
-                        >
-                          <el-option
-                            v-for="provider in filteredClaudeModelProviders"
-                            :key="provider.id"
-                            :label="provider.vendor+' - '+provider.modelId"
-                            :value="provider.id"
-                          >
-                            <div class="provider-option">
-                              <img 
-                                :src="getVendorLogo(provider.vendor)" 
-                                class="mini-vendor-logo"
-                              />
-                              <span class="model-id">{{ provider.modelId }}</span>
-                            </div>
-                          </el-option>
-                        </el-select>
-                      </el-form-item>
-                    </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('ClaudeCodeNotice1') }}
                         </div>
-                      </template>
-                    </el-alert>
-                  </div>
-                  <div class="tool-item" v-show="CLISettings.engine === 'qc'">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-terminal"></i>
-                          </el-icon>
-                          Qwen Code
-                          <el-link
-                            type="primary"
-                            :underline="false"
-                            href="https://github.com/QwenLM/qwen-code" 
-                            target="_blank"
-                          >
-                            <el-icon class="mr-1">
-                              <i class="fa-solid fa-key"></i>
-                            </el-icon>{{ t('gotoGithub') }}
-                          </el-link>
-                        </span>
                       </div>
-                    </div>
-                    <div class="tool-content">
-                      <el-form-item required :label="t('workspace')" class="form-item-align">
-                        <el-input
-                          v-model="CLISettings.cc_path"
-                          @input="autoSaveSettings"
-                          class="full-width-input"
-                        >
-                          <template #append>
-                            <el-button @click="browseDirectory">
+                      <div class="tool-content">
+                        <!-- 工作空间选择 -->
+                        <el-form-item required :label="t('workspace')" class="form-item-align">
+                          <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
+                            <template #append>
+                              <el-button @click="browseDirectory">
                                 <i class="fa-solid fa-folder"></i>
-                            </el-button>
-                          </template>
-                        </el-input>
-                      </el-form-item>
-                      <el-form-item :label="t('permissionMode')" class="form-item-align">
-                        <el-select
-                          v-model="qcSettings.permissionMode"
-                          @change="autoSaveSettings"
-                          class="full-width-input"
-                        >
-                          <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
-                          <el-option :label="t('acceptEdits')" value="auto-edit" ></el-option>
-                          <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                          <el-option :label="t('planMode')" value="plan" ></el-option>
-                        </el-select>
-                      </el-form-item>
-                      <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
-                        <el-switch
-                          v-model="qcSettings.enabled"
-                          @change="autoSaveSettings"
-                          class="tool-switch"
-                        ></el-switch>
-                      </el-form-item>
-                      <el-form-item :label="t('provider')" class="form-item-align">
-                        <el-select
-                          v-model="qcSettings.selectedProvider"
-                          :placeholder="t('selectProvider')"
-                          filterable
-                          @change="selectQCProvider"
-                          @visible-change="handleQCProviderVisibleChange"
-                          class="full-width-input"
-                        >
-                          <el-option
-                            v-for="provider in modelProviders"
-                            :key="provider.id"
-                            :label="provider.vendor+' - '+provider.modelId"
-                            :value="provider.id"
-                          >
-                            <div class="provider-option">
-                              <img 
-                                :src="getVendorLogo(provider.vendor)" 
-                                class="mini-vendor-logo"
-                              />
-                              <span class="model-id">{{ provider.modelId }}</span>
-                            </div>
-                          </el-option>
-                        </el-select>
-                      </el-form-item>
+                              </el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+
+                        <!-- 权限模式选择 -->
+                        <el-form-item :label="t('permissionMode')" class="form-item-align">
+                          <el-select v-model="dsSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
+                            <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                            <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
+                            <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        class="mb-2"
+                      >
+                        <template #default>
+                          <div class="alert-content">
+                            {{ t('DockerSandboxNotice1') }}
+                          </div>
+                        </template>
+                      </el-alert>
                     </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('QwenCodeNotice1') }}
+                    
+                    <div class="tool-item" v-show="CLISettings.engine === 'cc'">
+                      <div class="tool-header">
+                        <div class="header-left">
+                          <span>
+                            <el-icon>
+                              <i class="fa-solid fa-terminal"></i>
+                            </el-icon>
+                            Claude Code
+                            <el-link
+                              type="primary"
+                              :underline="false"
+                              href="https://github.com/anthropics/claude-code" 
+                              target="_blank"
+                            >
+                              <el-icon class="mr-1">
+                                <i class="fa-solid fa-key"></i>
+                              </el-icon>{{ t('gotoGithub') }}
+                            </el-link>
+                          </span>
                         </div>
-                      </template>
-                    </el-alert>
-                  </div>
-                </el-form> 
-                <!-- Web端提示 -->
-                <div v-else >
-                  <el-empty :description="t('webNotSupported')" />
-                </div>
+                      </div>
+                      <div class="tool-content">
+                        <el-form-item required :label="t('workspace')" class="form-item-align">
+                          <el-input
+                            v-model="CLISettings.cc_path"
+                            @input="autoSaveSettings"
+                            class="full-width-input"
+                          >
+                            <template #append>
+                              <el-button @click="browseDirectory">
+                                  <i class="fa-solid fa-folder"></i>
+                              </el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+                        <el-form-item :label="t('permissionMode')" class="form-item-align">
+                          <el-select
+                            v-model="ccSettings.permissionMode"
+                            @change="autoSaveSettings"
+                            class="full-width-input"
+                          >
+                            <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                            <el-option :label="t('acceptEdits')" value="acceptEdits" ></el-option>
+                            <el-option :label="t('bypassPermissions')" value="bypassPermissions" ></el-option>
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                          </el-select>
+                        </el-form-item>
+                        <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
+                          <el-switch
+                            v-model="ccSettings.enabled"
+                            @change="autoSaveSettings"
+                            class="tool-switch"
+                          ></el-switch>
+                        </el-form-item>
+                        <el-form-item :label="t('anthropicSupportedProviders')" class="form-item-align">
+                          <el-select
+                            v-model="ccSettings.selectedProvider"
+                            :placeholder="t('selectProvider')"
+                            filterable
+                            @change="selectCCProvider"
+                            @visible-change="handleCCProviderVisibleChange"
+                            class="full-width-input"
+                          >
+                            <el-option
+                              v-for="provider in filteredClaudeModelProviders"
+                              :key="provider.id"
+                              :label="provider.vendor+' - '+provider.modelId"
+                              :value="provider.id"
+                            >
+                              <div class="provider-option">
+                                <img 
+                                  :src="getVendorLogo(provider.vendor)" 
+                                  class="mini-vendor-logo"
+                                />
+                                <span class="model-id">{{ provider.modelId }}</span>
+                              </div>
+                            </el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        class="mb-2"
+                      >
+                        <template #default>
+                          <div class="alert-content">
+                            {{ t('ClaudeCodeNotice1') }}
+                          </div>
+                        </template>
+                      </el-alert>
+                    </div>
+                    <div class="tool-item" v-show="CLISettings.engine === 'qc'">
+                      <div class="tool-header">
+                        <div class="header-left">
+                          <span>
+                            <el-icon>
+                              <i class="fa-solid fa-terminal"></i>
+                            </el-icon>
+                            Qwen Code
+                            <el-link
+                              type="primary"
+                              :underline="false"
+                              href="https://github.com/QwenLM/qwen-code" 
+                              target="_blank"
+                            >
+                              <el-icon class="mr-1">
+                                <i class="fa-solid fa-key"></i>
+                              </el-icon>{{ t('gotoGithub') }}
+                            </el-link>
+                          </span>
+                        </div>
+                      </div>
+                      <div class="tool-content">
+                        <el-form-item required :label="t('workspace')" class="form-item-align">
+                          <el-input
+                            v-model="CLISettings.cc_path"
+                            @input="autoSaveSettings"
+                            class="full-width-input"
+                          >
+                            <template #append>
+                              <el-button @click="browseDirectory">
+                                  <i class="fa-solid fa-folder"></i>
+                              </el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+                        <el-form-item :label="t('permissionMode')" class="form-item-align">
+                          <el-select
+                            v-model="qcSettings.permissionMode"
+                            @change="autoSaveSettings"
+                            class="full-width-input"
+                          >
+                            <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
+                            <el-option :label="t('acceptEdits')" value="auto-edit" ></el-option>
+                            <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                          </el-select>
+                        </el-form-item>
+                        <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
+                          <el-switch
+                            v-model="qcSettings.enabled"
+                            @change="autoSaveSettings"
+                            class="tool-switch"
+                          ></el-switch>
+                        </el-form-item>
+                        <el-form-item :label="t('provider')" class="form-item-align">
+                          <el-select
+                            v-model="qcSettings.selectedProvider"
+                            :placeholder="t('selectProvider')"
+                            filterable
+                            @change="selectQCProvider"
+                            @visible-change="handleQCProviderVisibleChange"
+                            class="full-width-input"
+                          >
+                            <el-option
+                              v-for="provider in modelProviders"
+                              :key="provider.id"
+                              :label="provider.vendor+' - '+provider.modelId"
+                              :value="provider.id"
+                            >
+                              <div class="provider-option">
+                                <img 
+                                  :src="getVendorLogo(provider.vendor)" 
+                                  class="mini-vendor-logo"
+                                />
+                                <span class="model-id">{{ provider.modelId }}</span>
+                              </div>
+                            </el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        class="mb-2"
+                      >
+                        <template #default>
+                          <div class="alert-content">
+                            {{ t('QwenCodeNotice1') }}
+                          </div>
+                        </template>
+                      </el-alert>
+                    </div>
+                  </el-form> 
+                </el-tab-pane>
+              </el-tabs>
               </div>
               <!-- 联网搜索界面 -->
               <div v-show="subMenu === 'websearch'" class="page">
@@ -9220,7 +9220,6 @@ function updateElement(el, rawMarkdown, formatFn) {
               <!-- MCP页面 -->
               <div v-show="subMenu === 'mcp'" class="page mcp-container">
                 <el-tabs v-model="activeMCPTab">
-                  <!-- 记忆配置标签页 -->
                   <el-tab-pane :label="t('addNewMCP')" name="config">
                     <!-- 磁贴网格 -->
                     <div class="provider-grid">
@@ -13089,50 +13088,6 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
               <!-- 扩展页面 -->
               <div v-show="subMenu === 'extension'" class="page extension-container">
-                <!-- Git 卡片：已安装 & 未安装 双状态 -->
-                <el-card
-                  shadow="hover"
-                  class="sherpa-card"
-                >
-                  <!-- 头部：标题 + 状态标签 -->
-                  <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><strong>Git</strong></span>
-
-                    <div class="d-flex gap-2">
-                      <!-- 未安装 -->
-                      <el-button
-                        v-if="!gitInstalled"
-                        type="primary"
-                        :loading="gitInstalling"
-                        @click="installGit"
-                      >
-                        <i class="fa-solid fa-download"></i>
-                        {{ t('installGit') }}
-                      </el-button>
-
-                      <!-- 已安装 -->
-                      <el-tag
-                        v-else
-                        type="success"
-                        effect="dark"
-                        size="large"
-                      >
-                      <i class="fa-solid fa-circle-check"></i>
-                        {{ t('installed') }}
-                      </el-tag>
-                    </div>
-                  </div>
-
-                  <!-- 进度条：只在安装过程中出现 -->
-                  <el-progress
-                    v-if="gitInstalling && gitProgress > 0"
-                    :percentage="gitProgress"
-                    :status="gitProgress === 100 ? 'success' : null"
-                    style="margin-top: 16px;"
-                    :stroke-width="10"
-                  />
-                </el-card>
-                <el-divider></el-divider>
                 <div class="plugin-header">
                   <h3>{{t('availableExtensions')}}</h3>
                   <div class="plugin-button-group">
