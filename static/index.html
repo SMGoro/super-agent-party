@@ -7724,8 +7724,33 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </el-form> 
                 </el-tab-pane>
                 <el-tab-pane :label="t('agentSkills')" name="skills">
+                  <div class="plugin-header">
+                    <h3>{{ t('agentSkills') }}</h3>
+                    <div class="plugin-button-group">
+                      <el-button 
+                        @click="showAddSkillDialog = true" 
+                        type="primary">
+                        {{ t('addSkill') }}
+                      </el-button>
+                      <el-button 
+                        @click="openSkillsFolder" 
+                        type="primary">
+                        {{ t('openSkillsFolder') }}
+                      </el-button>
+                      <el-button 
+                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io')" 
+                        type="primary">
+                        {{ t('addYourSkills') }}
+                      </el-button>
+                      <el-button 
+                        @click="handleRefreshSkills" 
+                        type="primary"
+                        :loading="skillsLoading">
+                        {{ t('refresh') }}
+                      </el-button>
+                    </div>
+                  </div>
                   <div class="provider-grid">
-                    
                     <!-- 已安装的 Skills 卡片 -->
                     <div class="provider-card knowledge-card" v-for="skill in skillsList" :key="skill.id">
                       <div class="card-header">
