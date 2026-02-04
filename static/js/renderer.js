@@ -895,45 +895,60 @@ const app = Vue.createApp({
     });
     this.loadFavorites();
 
-  const handleRemoteInstall = (repoUrl) => {
-    if (!repoUrl) return;
+const handleRemoteInstall = (data) => {
+  const { repo, type } = data;
+  if (!repo) return;
 
-    // 1. 切换界面
-    this.activeMenu = 'api-group'; 
+  // 1. 根据 type 自动切换菜单和子菜单
+  if (type === 'skill') {
+    this.activeMenu = 'toolkit'; // 假设 Skills 在这个组
+    this.subMenu = 'CLI';      // 切换到 Skills 子菜单
+    this.activeCLITab = 'skills';
+    this.newSkillUrl = repo;      
+  } else {
+    this.activeMenu = 'api-group';
     this.subMenu = 'extension';
-    
-    // 2. 赋值给输入框
-    this.newExtensionUrl = repoUrl;
+    this.newExtensionUrl = repo;
+  }
 
-    // 3. 使用 this.$confirm 代替 ElMessageBox (Vue 3 标准写法)
-    this.$confirm(
-      `${this.t('confirmInstallExtensionFrom')}：\n${repoUrl}`, 
-      this.t('confirmInstallExtension'), 
-      { 
-        confirmButtonText: this.t('confirm'), 
-        cancelButtonText: this.t('cancel'),
-        type: 'info' 
-      }
-    ).then(() => {
-      // 4. 用户点击确定，执行安装
-      this.addExtension(); 
-    }).catch(() => {
-      console.log('用户取消了安装');
-    });
-  };
+  // 2. 确认弹窗
+  const confirmMsg = type === 'skill' 
+    ? `${this.t('confirmInstallSkillFrom')}：\n${repo}`
+    : `${this.t('confirmInstallExtensionFrom')}：\n${repo}`;
+
+  this.$confirm(
+    confirmMsg, 
+    this.t('confirmInstall'), 
+    { 
+      confirmButtonText: this.t('confirm'), 
+      cancelButtonText: this.t('cancel'),
+      type: 'info' 
+    }
+  ).then(() => {
+    // 3. 执行对应的安装方法
+    if (type === 'skill') {
+      this.installSkillFromGithub();
+    } else {
+      this.addExtension(); // 执行安装 Extension 的方法
+    }
+  }).catch(() => {
+    console.log('用户取消了安装');
+  });
+};
 
   // --- 挂载监听 ---
   if (window.electronAPI) {
-    // 软件运行中点击链接触发
-    window.electronAPI.onRemoteInstall((url) => {
-      handleRemoteInstall(url);
+    // 软件运行中触发
+    window.electronAPI.onRemoteInstall((payload) => {
+      // 这里的 payload 包含 { repo, type }
+      handleRemoteInstall(payload);
     });
 
-    // 软件刚启动时检查
+    // 软件启动时检查
     setTimeout(async () => {
-      const pendingRepo = await window.electronAPI.checkPendingInstall();
-      if (pendingRepo) {
-        handleRemoteInstall(pendingRepo);
+      const pendingData = await window.electronAPI.checkPendingInstall();
+      if (pendingData) {
+        handleRemoteInstall(pendingData);
       }
     }, 1000);
   }

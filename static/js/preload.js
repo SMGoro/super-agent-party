@@ -120,7 +120,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExtensionWindow: (url, extension) => ipcRenderer.invoke('open-extension-window', { url, extension }),
   getBackendLogs: () => ipcRenderer.invoke('get-backend-logs'),
 
-  onRemoteInstall: (callback) => ipcRenderer.on('remote-install-extension', (_, url) => callback(url)),
+  onRemoteInstall: (callback) => ipcRenderer.on('remote-install-any', (_, payload) => callback(payload)),
   checkPendingInstall: () => ipcRenderer.invoke('check-pending-install'),
 
 });
