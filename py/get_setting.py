@@ -64,7 +64,7 @@ KB_DIR = os.path.join(USER_DATA_DIR, 'kb')
 EXT_DIR = os.path.join(USER_DATA_DIR, "ext")
 DEFAULT_ASR_DIR = os.path.join(USER_DATA_DIR, 'asr')
 DEFAULT_EBD_DIR = os.path.join(USER_DATA_DIR, 'ebd')
-
+SKILLS_DIR = os.path.join(USER_DATA_DIR, 'skills')
 # --- 配置文件路径 ---
 SETTINGS_FILE = os.path.join(USER_DATA_DIR, 'settings.json')
 CONFIG_BASE_PATH = os.path.join(base_path, 'config')
@@ -90,7 +90,7 @@ COVS_PATH = os.path.join(USER_DATA_DIR, "conversations.db")
 dirs_to_create = [
     LOG_DIR, MEMORY_CACHE_DIR, UPLOAD_FILES_DIR, TOOL_TEMP_DIR,
     AGENT_DIR, KB_DIR, EXT_DIR, DEFAULT_ASR_DIR, DEFAULT_EBD_DIR,
-    CONFIG_BASE_PATH
+    CONFIG_BASE_PATH,SKILLS_DIR
 ]
 for d in dirs_to_create:
     os.makedirs(d, exist_ok=True)

@@ -2305,7 +2305,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                             @drop.prevent="handleJsonDrop"
                             @click="browseJsonFile"
                           >
-                            <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                            <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                             <p>{{ t('clickOrDropCharacterCards') }}</p>
                           </div>
                         </div>
@@ -4002,7 +4002,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         @drop.prevent="handleVrmModelDrop"
                         @click="browseVrmModelFile"
                       >
-                        <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                        <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                         <p>{{ t('clickOrDropVrm') }}</p>
                       </div>
                       
@@ -4048,7 +4048,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         @drop.prevent="handleVrmaMotionDrop"
                         @click="browseVrmaMotionFile"
                       >
-                        <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                        <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                         <p>{{ t('clickOrDropVrma') }}</p>
                       </div>
                       
@@ -4392,7 +4392,7 @@ function updateElement(el, rawMarkdown, formatFn) {
               @drop.prevent="handleGsvRefAudioDrop"
               @click="browseGsvRefAudioFile"
             >
-              <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+              <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
               <p>{{ t('clickOrDrop') }}</p>
             </div>
             
@@ -7723,7 +7723,142 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </el-form> 
                 </el-tab-pane>
+                <el-tab-pane :label="t('agentSkills')" name="skills">
+                  <div class="provider-grid">
+                    
+                    <!-- 已安装的 Skills 卡片 -->
+                    <div class="provider-card knowledge-card" v-for="skill in skillsList" :key="skill.id">
+                      <div class="card-header">
+                        <el-tooltip 
+                          :content="!CLISettings.cc_path ? t('pleaseSelectWorkspaceFirst') : t('syncToProject')" 
+                          placement="top"
+                        >
+                          <el-switch 
+                            :model-value="isSkillInProject(skill.id)"
+                            :disabled="!CLISettings.cc_path"
+                            @change="(val) => toggleSkillInProject(skill.id, val)"
+                          ></el-switch>
+                        </el-tooltip>
+                        <div class="card-actions">
+                          <el-button @click="previewSkill(skill.id)" type="info" circle size="small">
+                            <i class="fa-solid fa-eye"></i>
+                          </el-button>
+                          <el-button @click="removeSkill(skill.id)" type="danger" circle size="small">
+                            <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </div>
+                      </div>
+                      <div class="kb-content">
+                        <div class="kb-header">
+                          <h3 class="kb-title">{{ skill.name }}</h3>
+                          <el-tag type="info" size="small">v{{ skill.version }}</el-tag>
+                        </div>
+                        <div class="kb-meta">
+                          <p style="font-size: 12px; color: #666; margin-bottom: 5px;">{{ skill.description }}</p>
+                          <div style="font-size: 11px; color: #909399;">
+                            <i class="fa-regular fa-file"></i> {{ skill.files.length }} files
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 添加新 Skill 卡片 -->
+                    <div class="provider-card add-tile" @click="showAddSkillDialog = true">
+                      <el-icon :size="40" color="#909399"><i class="fa-solid fa-plus"></i></el-icon>
+                      <div style="color: #606266; margin-top: 10px;">{{ t('addSkill') }}</div>
+                    </div>
+
+                  </div>
+                </el-tab-pane>
               </el-tabs>
+                <!-- 技能预览对话框 -->
+                <el-dialog 
+                  v-model="showSkillPreviewDialog" 
+                  :title="t('skillPreview')" 
+                  width="80%"
+                  top="5vh"
+                  custom-class="skill-preview-dialog"
+                >
+                  <div 
+                    v-loading="skillPreviewLoading" 
+                    class="markdown-body skill-preview-content"
+                    v-html="renderedSkillContent"
+                  ></div>
+                  <template #footer>
+                    <el-button @click="showSkillPreviewDialog = false">{{ t('close') }}</el-button>
+                  </template>
+                </el-dialog>
+                <!-- === 新增: 添加 Skill 对话框 === -->
+                <el-dialog v-model="showAddSkillDialog" :title="t('addSkill')" width="80%">
+                  <el-tabs v-model="addSkillTab">
+                    
+                    <!-- GitHub 安装 -->
+                    <el-tab-pane label="GitHub" name="github">
+                      <el-alert type="info" :closable="false" class="mb-2">
+                        {{ t('skillGithubNote') }}
+                      </el-alert>
+                      <el-form label-position="top">
+                        <el-form-item :label="t('repoUrl')">
+                          <el-input v-model="newSkillUrl" placeholder="https://github.com/owner/repo"></el-input>
+                        </el-form-item>
+                        <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                          <el-button 
+                            type="primary" 
+                            @click="installSkillFromGithub" 
+                            :loading="isSkillInstalling" 
+                            :disabled="!newSkillUrl"
+                          >
+                            {{ t('downloadAndInstall') }}
+                          </el-button>
+                        </div>
+                      </el-form>
+                    </el-tab-pane>
+
+                    <el-tab-pane :label="t('localZip')" name="zip">
+                      <el-alert type="info" :closable="false" class="mb-2">
+                        {{ t('skillZipNote') }}
+                      </el-alert>
+                      
+                      <!-- 这是一个普通的 div 容器，加上 loading 遮罩 -->
+                      <div 
+                        class="upload-container"
+                        v-loading="isUploading"
+                        :element-loading-text="t('uploading')"
+                      >
+                        <!-- 
+                          1. @click: 点击触发 triggerSkillFileSelect
+                          2. @dragover.prevent: 允许拖拽（必须阻止默认行为）
+                          3. @drop.prevent: 获取拖拽的文件
+                        -->
+                        <div
+                          class="drop-zone"
+                          @dragover.prevent
+                          @drop.prevent="handleSkillDrop"
+                          @click="triggerSkillFileSelect"
+                          style="cursor: pointer;"
+                        >
+                          <!-- 这里你可以换成 fa-solid fa-cloud-arrow-up 或者保持 upload 组件 -->
+                          <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
+                          <p>{{ t('clickOrDrop') }}</p>
+                        </div>
+
+                        <!-- 
+                          隐藏的原生文件输入框 
+                          ref="skillFileInput": 用于 JS 找到它
+                          accept=".zip": 限制文件类型
+                          @change: 选中文件后触发
+                        -->
+                        <input 
+                          type="file" 
+                          ref="skillFileInput" 
+                          accept=".zip" 
+                          style="display: none" 
+                          @change="handleSkillFileChange"
+                        >
+                      </div>
+                    </el-tab-pane>
+                  </el-tabs>
+                </el-dialog>
               </div>
               <!-- 联网搜索界面 -->
               <div v-show="subMenu === 'websearch'" class="page">
@@ -8771,7 +8906,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           @click="browseKbFiles"
                           class="add-server-btn"
                         >
-                          <i class="fa-solid fa-upload"></i>
+                          <i class="fa-solid fa-cloud-arrow-up"></i>
                           {{t('uploadFile')}}
                         </el-button>
                         <!-- 紧凑型文件列表 -->
@@ -9059,7 +9194,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       @drop.prevent="handleWorkflowDrop"
                       @click="browseWorkflowFile"
                     >
-                      <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                      <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                       <p>{{ t('clickOrDrop') }}</p>
                     </div>
                     
@@ -11942,7 +12077,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         @drop.prevent="handleVrmModelDrop"
                         @click="browseVrmModelFile"
                       >
-                        <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                        <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                         <p>{{ t('clickOrDropVrm') }}</p>
                       </div>
                       
@@ -11988,7 +12123,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         @drop.prevent="handleVrmaMotionDrop"
                         @click="browseVrmaMotionFile"
                       >
-                        <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                        <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                         <p>{{ t('clickOrDropVrma') }}</p>
                       </div>
                       
@@ -12034,7 +12169,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         @drop.prevent="handleGaussSceneDrop"
                         @click="browseGaussSceneFile"
                       >
-                        <el-icon :size="50"><i class="fa-solid fa-upload"></i></el-icon>
+                        <el-icon :size="50"><i class="fa-solid fa-cloud-arrow-up"></i></el-icon>
                         <p>{{ t('clickOrDropGaussScene') }}</p>
                       </div>
                       

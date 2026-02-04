@@ -942,6 +942,8 @@ const app = Vue.createApp({
   },
   beforeUnmount() {
     this.stopEdgeScroll();
+    this.stopSkillsPolling();
+    this.stopExtensionsPolling();
     clearInterval(this.nodeTimer);
     clearInterval(this.uvTimer); 
     clearInterval(this.gitTimer);
@@ -960,6 +962,23 @@ const app = Vue.createApp({
     window.removeEventListener('resize', this.handleResize);
   },
   watch: {
+    activeMenu(newVal) {
+      this.handleExtensionsPolling(newVal, this.subMenu);
+      this.handleSkillsPolling(newVal, this.subMenu, this.activeCLITab);
+    },
+    // 监听子菜单
+    subMenu(newVal) {
+      this.handleExtensionsPolling(this.activeMenu, newVal);
+      this.handleSkillsPolling(this.activeMenu,newVal, this.activeCLITab);
+    },
+    // 监听 CLI 内部的 Tab
+    activeCLITab(newVal) {
+      this.handleSkillsPolling(this.activeMenu,this.subMenu, newVal);
+    },
+    'CLISettings.cc_path': function(newPath) {
+      console.log('工作区路径变化，更新技能状态');
+      this.fetchProjectSkillsStatus();
+    },
     'searchEngine': function(newVal) {
       if (newVal === 'party') {
         this.searchEngineplaceholder = this.t('searchWithParty')

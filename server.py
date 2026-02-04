@@ -1096,9 +1096,46 @@ def get_system_context() -> str:
 5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
 """
 
+async def get_project_skills_summary(cwd: str) -> str:
+    """
+    扫描项目中的 .party/skills 目录，生成技能清单
+    """
+    skills_root = Path(cwd) / ".party" / "skills"
+    if not skills_root.exists() or not skills_root.is_dir():
+        return ""
+
+    found_skills = []
+    # 遍历 .party/skills 下的每一个文件夹
+    for skill_dir in skills_root.iterdir():
+        if skill_dir.is_dir():
+            skill_id = skill_dir.name
+            # 查找元数据文件以确认它是规范的 Skill
+            doc_file = None
+            for name in ["SKILL.md", "skill.md", "SKILLS.md", "skills.md"]:
+                if (skill_dir / name).exists():
+                    doc_file = name
+                    break
+            
+            if doc_file:
+                # 提示 AI 该技能的 ID 和文档的相对路径
+                relative_path = f".party/skills/{skill_id}/{doc_file}"
+                found_skills.append(f"- **{skill_id}**: 说明文档位于 `{relative_path}`")
+            else:
+                # 如果没有 md 文件，仅列出 ID
+                found_skills.append(f"- **{skill_id}**: (未找到标准说明文件)")
+
+    if not found_skills:
+        return ""
+
+    summary = "\n\n🛠️ **当前项目可用技能 (Agent Skills)**：\n"
+    summary += "以下是本项目特有的增强技能，定义了特定任务的操作流程和规范。如果你需要执行相关任务，**必须先阅读**对应的说明文档以确保符合项目规范：\n"
+    summary += "\n".join(found_skills)
+    summary += "\n\n*提示：你可以使用文件读取工具（如 `cat` 或 `bash_tool_local`）查看上述路径的详细内容。*"
+    return summary
+
 async def tools_change_messages(request: ChatRequest, settings: dict):
     global HA_client, ChromeMCP_client, sql_client
-    newttsList = []
+    
     if request.messages and request.messages[0]['role'] == 'system' and request.messages[0]['content'] != '':
         basic_message = "你必须使用用户使用的语言与之交流，例如：当用户使用中文时，你也必须尽可能地使用中文！当用户使用英文时，你也必须尽可能地使用英文！以此类推！"
         request.messages[0]['content'] += basic_message
@@ -1197,6 +1234,16 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             print(f"[Todo Loader] 跳过待办事项加载: {e}")
             pass
 
+        try:
+            # 无论是在 docker 还是 local，逻辑路径通常是一致的（通过挂载）
+            # 如果是 Docker 环境且 backend 无法直接访问 cwd，则需通过 docker exec ls 扫描，
+            # 但通常项目路径是共享的。
+            skills_message = await get_project_skills_summary(cwd)
+            if skills_message:
+                content_append(request.messages, 'system', skills_message)
+        except Exception as e:
+            print(f"[Skill Loader] 扫描技能失败: {e}")
+
         # 权限模式提示（原有逻辑，但修复了变量名）
         if permissionMode != "plan":
             permission_message = "你当前处于执行阶段，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
@@ -1226,6 +1273,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             selectedGroupAgents.append(userName)
             group_message = f"\n\n你当前处于群聊模式，群聊中的角色有：{selectedGroupAgents}\n\n你在扮演{selectedMemory}"
             content_append(request.messages, 'system', group_message)
+    newttsList = []
     if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
         # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
         for key in settings['ttsSettings']['newtts']:
@@ -8569,6 +8617,10 @@ app.include_router(git_router)
 from py.extensions import router as extensions_router
 
 app.include_router(extensions_router)
+
+from py.skills import router as skills_router
+
+app.include_router(skills_router)
 
 from py.sherpa_model_manager import router as sherpa_model_router
 app.include_router(sherpa_model_router)
