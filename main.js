@@ -1860,16 +1860,18 @@ function handleProtocolUrl(url) {
   if (!url) return;
   try {
     const urlObj = new URL(url);
-    // 检查是不是 install 指令，并且带有 repo 参数
     if (urlObj.hostname === 'install') {
       const repo = urlObj.searchParams.get('repo');
+      // 提取 type，默认为 extension 保持向后兼容
+      const type = urlObj.searchParams.get('type') || 'extension'; 
+      
       if (repo) {
-        // 如果窗口已经加载完毕，直接发
+        const payload = { repo, type };
         if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isLoading()) {
-          mainWindow.webContents.send('remote-install-extension', repo);
+          // 修改点：发送带 type 的载荷
+          mainWindow.webContents.send('remote-install-any', payload); 
         } else {
-          // 如果窗口还没好，存入缓存
-          pendingExtensionUrl = url;
+          pendingExtensionUrl = url; 
         }
       }
     }
@@ -1884,15 +1886,15 @@ app.on('open-url', (event, url) => {
   handleProtocolUrl(url);
 });
 
-// 让 Vue 主动来取缓存的 URL (解决冷启动问题)
+// 修改 check-pending-install 处理器，支持返回 type
 ipcMain.handle('check-pending-install', () => {
   if (pendingExtensionUrl) {
-    // 这里重新解析一下，提取 repo
     try {
       const urlObj = new URL(pendingExtensionUrl);
       const repo = urlObj.searchParams.get('repo');
-      pendingExtensionUrl = null; // 取完清空
-      return repo;
+      const type = urlObj.searchParams.get('type') || 'extension';
+      pendingExtensionUrl = null; 
+      return { repo, type }; // 返回对象
     } catch (e) { return null; }
   }
   return null;
