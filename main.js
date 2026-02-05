@@ -720,43 +720,55 @@ function setupAutoUpdater() {
   });
 }
 
-const PROTOCOL = 'sap'; // 协议名称 sap://
-let pendingExtensionUrl = null; // 用于存放“软件还没启动完成时”传来的链接
+const PROTOCOL = 'sap';
 
-// --- [修改 2] 单例锁与协议监听 ---
-const gotTheLock = app.requestSingleInstanceLock()
+// --- 1. 尽早获取单实例锁 ---
+const gotTheLock = app.requestSingleInstanceLock();
 
+// --- 2. 如果不是第一个实例，直接退出，不要执行任何其他代码 ---
 if (!gotTheLock) {
-  app.quit()
-} else {
-  // 当第二个实例启动时（Windows/Linux 下点击链接会触发这里）
-  app.on('second-instance', (event, commandLine) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
-    // 解析命令行参数中的 URL
-    const url = commandLine.find(arg => arg.startsWith(`${PROTOCOL}://`));
-    handleProtocolUrl(url);
-  })
-}
-
-// 注册为默认协议客户端
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
+  // 在 Windows 上，第二个实例启动是因为点击了协议链接
+  // 我们需要解析参数传给第一个实例，然后立即退出
+  const startUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL}://`));
+  if (startUrl) {
+    // 这里其实不需要做什么，因为 second-instance 事件会在第一个实例触发
+    // 第二个实例直接退出即可
+    console.log('Second instance detected with URL:', startUrl);
   }
-} else {
-  app.setAsDefaultProtocolClient(PROTOCOL)
+  app.quit();
+  return; // ← 关键：直接返回，阻止后续所有代码执行
 }
 
-// Windows 冷启动处理：检查启动参数里有没有 sap://
+// --- 3. 只有第一个实例才会执行到这里 ---
+let pendingExtensionUrl = null;
+
+// Windows 冷启动处理（第一个实例启动时就带有协议参数）
 const startUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL}://`));
 if (startUrl) {
-  pendingExtensionUrl = startUrl; // 存起来，等 Vue 好了再发给它
+  pendingExtensionUrl = startUrl;
 }
 
+app.on('second-instance', (event, commandLine) => {
+  // 第二个实例启动时触发，在这里激活第一个实例的窗口并处理 URL
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  
+  // 解析命令行参数中的 URL
+  const url = commandLine.find(arg => arg.startsWith(`${PROTOCOL}://`));
+  handleProtocolUrl(url);
+});
+
+// 注册协议（只在第一个实例中执行）
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
 
 ipcMain.handle('get-window-size', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);

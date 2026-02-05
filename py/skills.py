@@ -1,5 +1,3 @@
-# py/skills.py
-
 import shutil
 import tempfile
 import json
@@ -11,8 +9,8 @@ import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 
 from py.get_setting import SKILLS_DIR
 
@@ -32,12 +30,18 @@ class SkillsResponse(BaseModel):
     skills: List[Skill]
 
 class GitHubSkillInstallRequest(BaseModel):
-    url: str
+    url: str = Field(..., description="GitHub URL，支持仓库或具体路径")
 
 class SkillSyncRequest(BaseModel):
     skill_id: str
     project_path: str
     action: str  # "install" 或 "remove"
+
+class InstallResponse(BaseModel):
+    status: str
+    message: str
+    installed_ids: Optional[List[str]] = None
+    error: Optional[str] = None
 
 # ==================== 工具函数 ====================
 
@@ -52,7 +56,7 @@ def robust_rmtree(path: Path):
 def parse_github_url(url: str):
     """
     解析 GitHub URL，支持深度链接。
-    例如: https://github.com/anthropics/skills/tree/main/skills/docx
+    例如: https://github.com/anthropics/skills/tree/main/skills/docx 
     返回: (zip_download_url, branch, subpath)
     """
     url = url.strip().rstrip('/').removesuffix('.git')
@@ -151,15 +155,18 @@ def _install_skills_from_directory(source_dir: Path) -> List[str]:
     
     return installed_ids
 
-def _process_github_install(url: str):
-    """后台任务：解析 -> 下载 -> 智能安装"""
+async def _process_github_install(url: str) -> Dict[str, Any]:
+    """
+    处理 GitHub 安装：解析 -> 下载 -> 智能安装
+    返回包含状态、安装ID列表或错误信息的字典
+    """
     temp_dir = Path(tempfile.mkdtemp())
     try:
         zip_url, branch, subpath = parse_github_url(url)
         zip_path = temp_dir / "repo.zip"
         
         # 1. 下载
-        asyncio.run(download_zip(zip_url, zip_path))
+        await download_zip(zip_url, zip_path)
         
         # 2. 解压
         extract_dir = temp_dir / "extracted"
@@ -177,10 +184,24 @@ def _process_github_install(url: str):
         
         # 5. 调用统一安装器
         ids = _install_skills_from_directory(target_source)
-        print(f"GitHub 安装完成: {ids}")
+        
+        if not ids:
+            return {
+                "success": False,
+                "error": "未检测到有效的 Agent Skill 结构（缺少 SKILL.md）",
+                "installed_ids": []
+            }
+        
+        return {
+            "success": True,
+            "installed_ids": ids,
+            "message": f"成功安装 {len(ids)} 个技能: {', '.join(ids)}"
+        }
 
+    except ValueError as e:
+        return {"success": False, "error": f"URL 解析失败: {str(e)}", "installed_ids": []}
     except Exception as e:
-        print(f"GitHub 安装失败: {str(e)}")
+        return {"success": False, "error": f"安装过程出错: {str(e)}", "installed_ids": []}
     finally:
         robust_rmtree(temp_dir)
 
@@ -195,9 +216,11 @@ async def list_skills():
     
     skills_list = []
     base = Path(SKILLS_DIR)
-    for item in sorted(base.iterdir()):
-        if item.is_dir() and not item.name.startswith('.'):
-            skills_list.append(get_skill_metadata(item, item.name))
+    # 只遍历存在的目录
+    if base.exists():
+        for item in sorted(base.iterdir()):
+            if item.is_dir() and not item.name.startswith('.'):
+                skills_list.append(get_skill_metadata(item, item.name))
     return SkillsResponse(skills=skills_list)
 
 @router.get("/{skill_id}/content")
@@ -215,13 +238,34 @@ async def get_skill_content(skill_id: str):
                 
     raise HTTPException(status_code=404, detail="未找到元数据文件 (SKILL.md)")
 
-@router.post("/install-from-github")
-async def install_skill_github(req: GitHubSkillInstallRequest, bg_tasks: BackgroundTasks):
-    """从 GitHub 安装，支持具体路径或整个仓库"""
-    bg_tasks.add_task(_process_github_install, req.url)
-    return {"status": "processing", "message": "后台安装任务已启动"}
+@router.post("/install-from-github", response_model=InstallResponse)
+async def install_skill_github(req: GitHubSkillInstallRequest):
+    """
+    从 GitHub 安装技能（同步执行，立即返回结果）
+    支持具体路径或整个仓库
+    """
+    try:
+        result = await _process_github_install(req.url)
+        
+        if result["success"]:
+            return InstallResponse(
+                status="success",
+                message=result["message"],
+                installed_ids=result["installed_ids"]
+            )
+        else:
+            # 返回 400 错误，前端可以捕获并显示
+            raise HTTPException(
+                status_code=400, 
+                detail=result["error"]
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
-@router.post("/upload-zip")
+@router.post("/upload-zip", response_model=InstallResponse)
 async def upload_skill_zip(file: UploadFile = File(...)):
     """本地 ZIP 上传，支持单技能压缩包或多技能仓库压缩包"""
     if not file.filename.lower().endswith(".zip"):
@@ -236,24 +280,30 @@ async def upload_skill_zip(file: UploadFile = File(...)):
         extract_dir = temp_path / "extracted"
         shutil.unpack_archive(zip_file, extract_dir)
         
-        # 处理可能的“包一层”目录结构
+        # 处理可能的"包一层"目录结构
         items = [i for i in extract_dir.iterdir() if not i.name.startswith('.')]
         source = items[0] if len(items) == 1 and items[0].is_dir() else extract_dir
 
         installed_ids = _install_skills_from_directory(source)
         
     if not installed_ids:
-        raise HTTPException(status_code=400, detail="未检测到有效的 Agent Skill 结构")
+        raise HTTPException(status_code=400, detail="未检测到有效的 Agent Skill 结构（缺少 SKILL.md）")
         
-    return {"status": "success", "installed": installed_ids}
+    return InstallResponse(
+        status="success",
+        message=f"成功安装 {len(installed_ids)} 个技能",
+        installed_ids=installed_ids
+    )
 
 @router.delete("/{skill_id}")
 async def delete_skill(skill_id: str):
     """从全局存储中删除技能"""
     target = Path(SKILLS_DIR) / skill_id
-    if target.exists():
-        robust_rmtree(target)
-    return {"status": "success"}
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="技能不存在")
+    
+    robust_rmtree(target)
+    return {"status": "success", "message": f"技能 {skill_id} 已删除"}
 
 @router.get("/project-status")
 async def get_project_skills_status(path: str):
@@ -287,12 +337,11 @@ async def sync_skill_to_project(req: SkillSyncRequest):
         return {"status": "success", "message": f"技能 {req.skill_id} 已同步至项目"}
 
     elif req.action == "remove":
-        robust_rmtree(target_path)
+        if target_path.exists():
+            robust_rmtree(target_path)
         return {"status": "success", "message": f"技能 {req.skill_id} 已从项目移除"}
     
-    raise HTTPException(status_code=400, detail="无效的操作类型")
-
-# 在 py/skills.py 中添加
+    raise HTTPException(status_code=400, detail="无效的操作类型，仅支持 'install' 或 'remove'")
 
 @router.get("/get_path")
 async def get_skills_path():
@@ -305,3 +354,10 @@ async def get_skills_path():
         return {"path": abs_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== 健康检查 ====================
+
+@router.get("/health")
+async def health_check():
+    """服务健康检查"""
+    return {"status": "ok", "skills_dir": SKILLS_DIR, "exists": os.path.exists(SKILLS_DIR)}

@@ -11730,26 +11730,48 @@ clearSegments() {
     async onZipSelected(e) {
       const file = e.target.files?.[0];
       if (!file) return;
+      
       this.installLoading = true;
       const form = new FormData();
       form.append('file', file);
+      
       try {
         const res = await fetch('/api/extensions/upload-zip', {
           method: 'POST',
           body: form,
         });
+        
+        if (res.status === 409) throw new Error(this.t('extensionExists'));
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.detail || '上传失败');
         }
-        showNotification(this.t('waitExtensionInstall'));
+        
+        const resData = await res.json();
+        const extId = resData.ext_id;
+        
+        // 开始轮询，与 GitHub 安装一致
+        showNotification(this.t('waitExtensionInstall'), 'info');
         this.showExtensionForm = false;
-        this.scanExtensions(); // 刷新
+        
+        this.pollInstallStatus(
+          extId,
+          (msg) => {
+            this.installLoading = false;
+            showNotification(msg || this.t('installSuccess'), 'success');
+            this.scanExtensions();
+          },
+          (errMsg) => {
+            this.installLoading = false;
+            showNotification(`${this.t('installFailed')}: ${errMsg}`, 'error');
+          }
+        );
+        
       } catch (err) {
-        showNotification(err.message,'error');
-      } finally {
         this.installLoading = false;
-        e.target.value = ''; // 允许重复选同一文件
+        showNotification(err.message, 'error');
+      } finally {
+        e.target.value = '';
       }
     },
 
@@ -14369,7 +14391,7 @@ async removeSkill(id) {
 async installSkillFromGithub() {
   if (!this.newSkillUrl) return;
   this.isSkillInstalling = true;
-  
+  showNotification(this.t('waitSkillInstall'), 'success');
   try {
     const response = await fetch('/api/skills/install-from-github', {
       method: 'POST',
