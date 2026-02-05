@@ -896,10 +896,13 @@ const app = Vue.createApp({
     this.loadFavorites();
 
 const handleRemoteInstall = (data) => {
+  // 1. 根据 type 自动切换菜单和子菜单
+  if (data.type === 'mcp') {
+      this.handleRemoteMCPInstall(data);
+      return;
+  }
   const { repo, type } = data;
   if (!repo) return;
-
-  // 1. 根据 type 自动切换菜单和子菜单
   if (type === 'skill') {
     this.activeMenu = 'toolkit'; // 假设 Skills 在这个组
     this.subMenu = 'CLI';      // 切换到 Skills 子菜单

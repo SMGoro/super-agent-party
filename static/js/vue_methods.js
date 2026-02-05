@@ -14634,4 +14634,64 @@ async previewSkill(id) {
     this.skillPreviewLoading = false;
   }
 },
+
+  handleRemoteMCPInstall(data) {
+    console.log('handleRemoteMCPInstall', data);
+
+    // 1. 自动切换路由/菜单到 MCP 管理页面
+    this.activeMenu = 'toolkit'; 
+    this.subMenu = 'mcp';
+
+    // 2. 初始化对话框状态为“添加模式”
+    this.isEditMode = false;
+    this.activeDialogTab = 'config'; // 默认显示配置标签
+    
+    if (data.mcpType) {
+        this.newMCPType = data.mcpType;
+    } else {
+        this.newMCPType = 'stdio'; // 默认值
+    }
+
+    // 3. 设置输入模式为 JSON（因为远程传来的通常是完整配置对象）
+    this.mcpInputType = 'json';
+    this.updateMCPExample(); // 更新示例配置
+    // data 现在包含 { type: 'mcp', config: '...', repo: null }
+    let configStr = data.config;
+    
+    // 1. 尝试解码（因为主进程发过来的是原始 URL 参数，可能还带着编码）
+    try {
+      configStr = decodeURIComponent(configStr);
+    } catch(e) {}
+
+    this.newMCPJson = configStr; // 填入文本框
+    this.showAddMCPDialog = true; // 弹窗
+  },
+// 在 methods 中添加
+async openSkillsFolder() {
+  try {
+    const response = await fetch('/api/skills/get_path', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (this.isElectron && data.path) {
+        // 调用 Electron 接口打开本地路径
+        window.electronAPI.openPath(data.path);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to open skills folder:", error);
+  }
+},
+
+async handleRefreshSkills() {
+  this.skillsLoading = true;
+  try {
+    // 假设你已定义了 fetchSkills 方法来获取列表
+    await this.fetchSkills(); 
+  } finally {
+    this.skillsLoading = false;
+  }
+},
 }

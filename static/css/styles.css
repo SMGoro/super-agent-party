@@ -8244,3 +8244,115 @@ hr.footnotes-sep {
 .el-dialog .el-loading-mask {
   border-radius: 12px;
 }
+/* 彻底独立的跳转横幅样式 */
+.market-link-banner {
+  /* 布局控制 */
+  display: flex;
+  flex-direction: column;
+  
+  /* 核心修改：宽度占满，去掉最大宽度限制 */
+  width: 100%;
+  max-width: none !important; 
+  box-sizing: border-box; /* 确保 padding 不会撑破宽度 */
+  
+  height: 110px;
+  margin-bottom: 20px;
+  
+  /* 样式保持不变 */
+  background-color: var(--bg-color) !important;
+  border: 2px solid var(--text-color) !important;
+  box-shadow: 6px 6px 0px var(--text-color) !important;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+/* 顶部极细装饰条 */
+.banner-accent-bar {
+  background: var(--text-color);
+  color: #FFD700;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 10px;
+  text-align: right;
+  letter-spacing: 2px;
+}
+
+/* 主体内容横向排列 */
+.banner-main {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  flex: 1;
+  gap: 15px;
+}
+
+/* 图标：保持 54px 但居中 */
+.banner-icon-box {
+  width: 54px;
+  height: 54px;
+  background: #FFD700;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  border: 2px solid var(--text-color);
+  box-shadow: 3px 3px 0px var(--text-color);
+  flex-shrink: 0;
+}
+
+/* 文字区：垂直居中，移除间距 */
+.banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.banner-text h3 {
+  margin: 0 !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: var(--text-color) !important;
+  text-transform: uppercase;
+}
+
+.banner-text p {
+  margin: 2px 0 0 0 !important;
+  font-size: 12px !important;
+  color: var(--el-text-color-secondary) !important;
+  line-height: 1.2;
+}
+
+/* 右侧箭头区域 */
+.banner-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 900;
+  font-size: 14px;
+  padding-left: 10px;
+  border-left: 1px dashed var(--border-color);
+}
+
+/* ----------------------------------------------------
+   交互反馈
+------------------------------------------------------- */
+
+.market-link-banner:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 10px 10px 0px #FFD700 !important;
+}
+
+.market-link-banner:hover .banner-action {
+  color: #FFD700;
+}
+
+/* 针对 Rainbow/Marshmallow 等半透明主题适配 */
+[data-theme="rainbow"] .market-link-banner,
+[data-theme="marshmallow"] .market-link-banner {
+    background-color: rgba(255, 255, 255, 0.7) !important;
+    backdrop-filter: blur(10px);
+}

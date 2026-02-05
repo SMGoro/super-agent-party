@@ -1853,49 +1853,52 @@ app.on('web-contents-created', (event, contents) => {
 });
 app.commandLine.appendSwitch('disable-http-cache');
 
-// --- [新增 3] 协议处理核心函数 & IPC ---
+// --- [修改后的 3] 协议处理核心函数 & IPC ---
 
 // 处理 URL 的逻辑
+// main.js 里的 handleProtocolUrl 关键部分
 function handleProtocolUrl(url) {
   if (!url) return;
   try {
     const urlObj = new URL(url);
     if (urlObj.hostname === 'install') {
+      const type = urlObj.searchParams.get('type'); // 'mcp'
       const repo = urlObj.searchParams.get('repo');
-      // 提取 type，默认为 extension 保持向后兼容
-      const type = urlObj.searchParams.get('type') || 'extension'; 
-      
-      if (repo) {
-        const payload = { repo, type };
+      const mcpType = urlObj.searchParams.get('mcpType'); // 'stdio' / 'sse'
+      const config = urlObj.searchParams.get('config'); // JSON 字符串
+
+      if (repo || config) {
+        const payload = { type, repo, mcpType, config };
         if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isLoading()) {
-          // 修改点：发送带 type 的载荷
           mainWindow.webContents.send('remote-install-any', payload); 
         } else {
           pendingExtensionUrl = url; 
         }
       }
     }
-  } catch (e) {
-    console.error('协议解析失败:', e);
-  }
+  } catch (e) { console.error('协议解析失败:', e); }
 }
+
+// 对应的 check-pending-install 也要改
+ipcMain.handle('check-pending-install', () => {
+  if (pendingExtensionUrl) {
+    try {
+      const urlObj = new URL(pendingExtensionUrl);
+      const res = {
+        type: urlObj.searchParams.get('type'),
+        repo: urlObj.searchParams.get('repo'),
+        config: urlObj.searchParams.get('config'),
+        mcpType: urlObj.searchParams.get('mcpType') // 新增
+      };
+      pendingExtensionUrl = null;
+      return res;
+    } catch (e) { return null; }
+  }
+  return null;
+});
 
 // macOS 监听 (Mac 下点击链接触发这里)
 app.on('open-url', (event, url) => {
   event.preventDefault();
   handleProtocolUrl(url);
-});
-
-// 修改 check-pending-install 处理器，支持返回 type
-ipcMain.handle('check-pending-install', () => {
-  if (pendingExtensionUrl) {
-    try {
-      const urlObj = new URL(pendingExtensionUrl);
-      const repo = urlObj.searchParams.get('repo');
-      const type = urlObj.searchParams.get('type') || 'extension';
-      pendingExtensionUrl = null; 
-      return { repo, type }; // 返回对象
-    } catch (e) { return null; }
-  }
-  return null;
 });
