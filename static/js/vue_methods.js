@@ -14842,16 +14842,6 @@ async handleRefreshSkills() {
       return map[type] || 'fa-solid fa-bolt';
     },
 
-    // 根据动作类型返回 Tag 样式
-    getActionTagType(type) {
-      const map = {
-        'prompt': '', // default blue
-        'random': 'warning',
-        'topic': 'success'
-      };
-      return map[type] || 'info';
-    },
-
     // 生成卡片上的摘要文本
     getBehaviorSummary(b) {
       if (!b || !b.trigger) return '';
