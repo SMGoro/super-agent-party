@@ -4166,7 +4166,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </h3>
                         
                         <!-- 标签：动作类型 -->
-                        <el-tag size="small" :type="getActionTagType(b.action.type)">
+                        <el-tag size="small">
                           {{ t(b.action.type) }}
                         </el-tag>
                       </div>
@@ -4202,7 +4202,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <el-form :model="tempBehavior" label-position="top">
                       
                       <!-- 触发条件配置 -->
-                      <el-divider content-position="left">{{ t('triggerSettings') }}</el-divider>
+                      <h2>{{ t('triggerSettings') }}</h2>
                       
                       <el-form-item :label="t('triggerType')">
                         <el-select v-model="tempBehavior.trigger.type" class="full-width-input">
@@ -4281,9 +4281,9 @@ function updateElement(el, rawMarkdown, formatFn) {
                           <el-switch v-model="tempBehavior.trigger.cycle.isInfiniteLoop"></el-switch>
                         </el-form-item>
                       </div>
-
+                      <el-divider></el-divider>
                       <!-- 执行动作配置 -->
-                      <el-divider content-position="left" class="mt-4">{{ t('actionSettings') }}</el-divider>
+                      <h2>{{ t('actionSettings') }}</h2>
 
                       <el-form-item :label="t('actionType')">
                         <el-select v-model="tempBehavior.action.type" class="full-width-input">

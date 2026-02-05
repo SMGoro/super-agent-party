@@ -10214,18 +10214,18 @@ stopTTSActivities() {
       }
       if (b.action.type === 'prompt' && b.action.prompt) {
         console.log('Prompt:', b.action.prompt)
-        this.userInput= b.action.prompt
+        this.userInput= '[system]:'+ b.action.prompt
         // 这里把 prompt 发给你的模型即可，举例：
-        this.sendMessage(role = 'system')   // 你需要实现这个函数
+        this.sendMessage();
       }
       if (b.action.type === 'random' && b.action.random) {
         if(b.action.random.events.length > 0){
           if (b.action.random.type === 'random'){
             let randomEvent = b.action.random.events[Math.floor(Math.random() * b.action.random.events.length)];
             if(randomEvent){
-              this.userInput= randomEvent;
+              this.userInput= '[system]:'+randomEvent;
               // 这里把 prompt 发给你的模型即可，举例：
-              this.sendMessage(role = 'system')   // 你需要实现这个函数
+              this.sendMessage();
             }
           }else if( b.action.random.type === 'order'){
             if(b.action.random.orderIndex >= b.action.random.events.length){
@@ -10235,9 +10235,9 @@ stopTTSActivities() {
               let randomEvent = b.action.random.events[b.action.random.orderIndex];
               b.action.random.orderIndex += 1;
               if(randomEvent){
-                this.userInput= randomEvent;
+                this.userInput= '[system]:'+randomEvent;
                 // 这里把 prompt 发给你的模型即可，举例：
-                this.sendMessage(role = 'system')   // 你需要实现这个函数
+                this.sendMessage();
               }
             }
           }
@@ -14840,16 +14840,6 @@ async handleRefreshSkills() {
         'cycle': 'fa-solid fa-arrows-spin'
       };
       return map[type] || 'fa-solid fa-bolt';
-    },
-
-    // 根据动作类型返回 Tag 样式
-    getActionTagType(type) {
-      const map = {
-        'prompt': '', // default blue
-        'random': 'warning',
-        'topic': 'success'
-      };
-      return map[type] || 'info';
     },
 
     // 生成卡片上的摘要文本
