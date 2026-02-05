@@ -1499,6 +1499,9 @@ const handleRemoteInstall = (data) => {
     formValid() {
       return !!this.newLLMTool.name && !!this.newLLMTool.type
     },
+    isEditingBehavior() {
+      return this.currentBehaviorIndex !== -1;
+    },
     defaultBaseURL() {
       switch(this.newLLMTool.type) {
         case 'openai': 

@@ -14716,4 +14716,177 @@ async handleRefreshSkills() {
     this.skillsLoading = false;
   }
 },
+
+    // 打开编辑/新增对话框
+    openBehaviorDialog(index) {
+      this.currentBehaviorIndex = index;
+      
+      if (index === -1) {
+        // 新增模式：创建默认模板的深拷贝
+        this.tempBehavior = this.createDefaultBehavior();
+      } else {
+        // 编辑模式：创建现有数据的深拷贝（切断引用）
+        // 假设您的数据在 behaviorSettings.behaviorList 中
+        this.tempBehavior = JSON.parse(JSON.stringify(this.behaviorSettings.behaviorList[index]));
+      }
+      
+      this.showBehaviorDialog = true;
+    },
+
+    // 创建默认行为模板
+    createDefaultBehavior() {
+      return {
+        enabled: true,
+        trigger: {
+          type: 'time',
+          time: { timeValue: '08:00:00', days: [1, 2, 3, 4, 5] },
+          noInput: { latency: 60 },
+          cycle: { cycleValue: '00:30:00', repeatNumber: 1, isInfiniteLoop: true }
+        },
+        action: {
+          type: 'prompt',
+          prompt: '',
+          topicLimit: 3,
+          random: { type: 'random', events: [''] }
+        }
+      };
+    },
+
+    // 关闭对话框后的清理
+    resetBehaviorDialogState() {
+      this.tempBehavior = null;
+      this.currentBehaviorIndex = -1;
+    },
+
+    // 保存行为设置（新增或更新）
+    saveBehavior() {
+      if (!this.tempBehavior) return;
+
+      if (this.currentBehaviorIndex === -1) {
+        // 新增：推入数组
+        this.behaviorSettings.behaviorList.push(this.tempBehavior);
+      } else {
+        // 编辑：替换原数组中的项
+        this.behaviorSettings.behaviorList[this.currentBehaviorIndex] = this.tempBehavior;
+      }
+
+      // 关闭弹窗
+      this.showBehaviorDialog = false;
+      
+      // 触发保存和计时器重置
+      this.resetCycleTimers();
+      this.autoSaveSettings();
+    },
+
+    // 确认删除行为
+    confirmRemoveBehavior(index) {
+      this.$confirm(
+        this.t('confirmDeleteBehavior') || 'Are you sure you want to delete this behavior?',
+        this.t('warning') || 'Warning',
+        {
+          confirmButtonText: this.t('confirm'),
+          cancelButtonText: this.t('cancel'),
+          type: 'warning',
+        }
+      ).then(() => {
+        this.removeBehavior(index);
+      }).catch(() => {});
+    },
+
+    // 执行删除
+    removeBehavior(index) {
+      this.behaviorSettings.behaviorList.splice(index, 1);
+      this.resetCycleTimers();
+      this.autoSaveSettings();
+    },
+
+    // 处理全局开关变化
+    handleGlobalSwitchChange() {
+      this.resetCycleTimers();
+      this.autoSaveSettings();
+    },
+
+    // 处理单个行为开关变化
+    handleBehaviorChange() {
+      this.resetCycleTimers();
+      this.autoSaveSettings();
+    },
+
+    // --- 弹窗内部的辅助方法 (Random Events) ---
+
+    // 添加临时随机事件条目
+    addTempEvent() {
+      if (this.tempBehavior && this.tempBehavior.action.random) {
+        this.tempBehavior.action.random.events.push('');
+      }
+    },
+
+    // 删除临时随机事件条目
+    removeTempEvent(eIdx) {
+      if (this.tempBehavior && 
+          this.tempBehavior.action.random && 
+          this.tempBehavior.action.random.events.length > 1) {
+        this.tempBehavior.action.random.events.splice(eIdx, 1);
+      }
+    },
+
+    // --- UI 显示辅助方法 ---
+
+    // 根据触发类型返回图标类名
+    getTriggerIcon(type) {
+      const map = {
+        'time': 'fa-regular fa-clock',
+        'noInput': 'fa-solid fa-hourglass-half',
+        'cycle': 'fa-solid fa-arrows-spin'
+      };
+      return map[type] || 'fa-solid fa-bolt';
+    },
+
+    // 根据动作类型返回 Tag 样式
+    getActionTagType(type) {
+      const map = {
+        'prompt': '', // default blue
+        'random': 'warning',
+        'topic': 'success'
+      };
+      return map[type] || 'info';
+    },
+
+    // 生成卡片上的摘要文本
+    getBehaviorSummary(b) {
+      if (!b || !b.trigger) return '';
+      
+      if (b.trigger.type === 'time') {
+        const time = b.trigger.time.timeValue;
+        const days = b.trigger.time.days.length;
+        const daysText = this.t('repeatDays') || 'Days'; // 简单处理，实际根据你的 t 函数逻辑
+        return `${time} (${daysText}: ${days})`;
+      } else if (b.trigger.type === 'noInput') {
+        return `${this.t('noInputLatency') || 'Latency'}: ${b.trigger.noInput.latency}s`;
+      } else if (b.trigger.type === 'cycle') {
+        const loopText = b.trigger.cycle.isInfiniteLoop ? '∞' : b.trigger.cycle.repeatNumber;
+        return `${this.t('cycleValue') || 'Cycle'}: ${b.trigger.cycle.cycleValue} (x${loopText})`;
+      }
+      return '';
+    },
+  // 添加新事件行
+  addTempEvent() {
+    if (this.tempBehavior && this.tempBehavior.action.random) {
+      this.tempBehavior.action.random.events.push(''); // 增加一个空字符串（即空输入框）
+    }
+  },
+
+  // 删除指定行
+  removeTempEvent(index) {
+    if (this.tempBehavior && this.tempBehavior.action.random) {
+      // 检查：如果只剩一个了，就不让删了（或者您可以去掉这个判断，允许删光）
+      if (this.tempBehavior.action.random.events.length > 1) {
+        this.tempBehavior.action.random.events.splice(index, 1);
+      } else {
+        // 如果只剩一个，清空内容而不是删除行
+        this.tempBehavior.action.random.events[0] = '';
+      }
+    }
+  },
+
 }
