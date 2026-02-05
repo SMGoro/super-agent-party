@@ -8255,7 +8255,7 @@ hr.footnotes-sep {
   max-width: none !important; 
   box-sizing: border-box; /* 确保 padding 不会撑破宽度 */
   
-  height: 110px;
+  min-height: 110px; 
   margin-bottom: 20px;
   
   /* 样式保持不变 */
@@ -8355,4 +8355,45 @@ hr.footnotes-sep {
 [data-theme="marshmallow"] .market-link-banner {
     background-color: rgba(255, 255, 255, 0.7) !important;
     backdrop-filter: blur(10px);
+}
+
+
+/* 容器：给整个列表加点背景区分 */
+.events-management-list {
+  background: var(--el-bg-color-page);
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+/* 每一行的布局 */
+.event-row-item {
+  display: flex;         /* 启用弹性布局 */
+  align-items: center;   /* 垂直居中 */
+  margin-bottom: 16px;   /* 重要：每个输入框之间的间隔 */
+  gap: 12px;             /* 输入框和删除按钮之间的间隔 */
+}
+
+/* 输入框占据左侧所有空间 */
+.input-col {
+  flex: 1;
+}
+
+/* 按钮固定在右侧，不缩放 */
+.action-col {
+  flex-shrink: 0;
+}
+
+/* 弹窗内的次级标签 */
+.sub-label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 10px;
+  font-weight: bold;
+}
+
+/* 调整输入框和按钮的对齐（如果用了 textarea） */
+.event-row-item .el-textarea {
+  display: block;
 }

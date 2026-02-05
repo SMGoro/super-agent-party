@@ -4089,291 +4089,304 @@ function updateElement(el, rawMarkdown, formatFn) {
                 </el-dialog>
                 </div>
               </div>
-              <!-- 角色行为 -->
-              <div v-show="subMenu === 'behavior'" class="page">
-                <el-tabs v-model="activeBehaviorTab">
-                  <!-- 角色行为标签页 -->
-                  <el-tab-pane :label="t('behaviorConfig')" name="config">
-                    <el-form :model="behaviorSettings" class="settings-form"  label-position="top">
-                      <div class="tool-item">
-                        <div class="tool-header">
-                          <div class="header-left">
-                            <span>
-                              <el-icon>
-                                <i class="fa-solid fa-person-running"></i>
-                              </el-icon>
-                              {{ t('AutoBehavior') }}
-                            </span>
-                          </div>
-                          <el-switch v-model="behaviorSettings.enabled" @click.stop @change="resetCycleTimers();autoSaveSettings()" />
-                        </div>
-                        <div class="tool-content">
-                          <el-form-item :label="t('enableAutoBehaviorTool')" class="form-item-align" label-position="left">
-                            <el-switch 
-                              v-model="toolsSettings.autoBehavior.enabled" 
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-                          <el-alert type="info" :closable="false" class="mb-2">
-                            <template #default>
-                              <div class="alert-content">
-                                {{ t('autoBehaviorToolNotice') }}
-                              </div>
-                            </template>
-                          </el-alert>
-                          <div v-show ="behaviorSettings.behaviorList.length > 0" style="display: flex; justify-content: flex-end;margin-bottom: 16px;">
-                            <el-tooltip :content="t('addBehavior')" placement="top">
-                              <el-button 
-                                type="primary" 
-                                @click="addBehavior()"
-                                circle
-                              >
-                                <i class="fa-solid fa-plus"></i>
-                              </el-button>
-                            </el-tooltip>
-                            <el-tooltip :content="t('removeAllBehavior')" placement="top">
-                              <el-button 
-                                type="danger" 
-                                @click="removeAllBehavior()" 
-                                circle
-                              >
-                                <i class="fa-solid fa-trash-can"></i>
-                              </el-button>
-                            </el-tooltip>
-                          </div>
-                          <!-- 行为块列表 -->
-                          <div v-for="(b, idx) in behaviorSettings.behaviorList" :key="idx" class="behavior-block">
-                            <!-- 行为块标题 + 开关 + 删除 -->
-                            <div class="tool-header">
-                              <div class="header-left">
-                                <span>{{t(behaviorNameDict[b.trigger.type])}}</span>
-                              </div>
-                              <el-switch v-model="b.enabled" @change="resetCycleTimers();autoSaveSettings()" />
-                            </div>
-
-                            <!-- 触发条件 -->
-                            <el-form-item :label="t('triggerType')">
-                              <el-select v-model="b.trigger.type" @change="resetCycleTimers();autoSaveSettings()">
-                                <el-option :label="t('timeName')"   value="time"></el-option>
-                                <el-option :label="t('noInputName')" value="noInput"></el-option>
-                                <el-option :label="t('cycleName')" value="cycle"></el-option>
-                              </el-select>
-                            </el-form-item>
-
-                            <!-- 时间触发 -->
-                            <div v-if="b.trigger.type === 'time'">
-                              <el-row :gutter="12">
-                                <el-col :span="24">
-                                  <el-form-item :label="t('time')">
-                                    <el-time-picker
-                                      v-model="b.trigger.time.timeValue"
-                                      value-format="HH:mm:ss"
-                                      format="HH:mm:ss"
-                                      :placeholder="t('selectTime')"
-                                      @change="autoSaveSettings"
-                                      style="width: 100%"
-                                    />
-                                  </el-form-item>
-                                </el-col>
-                              </el-row>
-                              <el-form-item :label="t('repeatDays')">
-                                <el-select v-model="b.trigger.time.days" multiple @change="autoSaveSettings">
-                                  <el-option :label="t('monday')"    :value="1"></el-option>
-                                  <el-option :label="t('tuesday')"   :value="2"></el-option>
-                                  <el-option :label="t('wednesday')" :value="3"></el-option>
-                                  <el-option :label="t('thursday')"  :value="4"></el-option>
-                                  <el-option :label="t('friday')"    :value="5"></el-option>
-                                  <el-option :label="t('saturday')"  :value="6"></el-option>
-                                  <el-option :label="t('sunday')"    :value="0"></el-option>
-                                </el-select>
-                              </el-form-item>
-                            </div>
-
-                            <!-- 无输入触发 -->
-                            <div v-if="b.trigger.type === 'noInput'">
-                              <el-form-item :label="t('noInputLatency')">
-                                <el-slider
-                                  v-model="b.trigger.noInput.latency"
-                                  :min="10"
-                                  :max="600"
-                                  :step="5"
-                                  show-input
-                                  @change="autoSaveSettings">
-                                </el-slider>
-                              </el-form-item>
-                            </div>
-
-                            <!-- 周期触发 - 新增部分 -->
-                            <div v-if="b.trigger.type === 'cycle'">
-                              <el-row :gutter="12">
-                                <el-col :span="24">
-                                  <el-form-item :label="t('cycleValue')">
-                                    <el-time-picker
-                                      v-model="b.trigger.cycle.cycleValue"
-                                      value-format="HH:mm:ss"
-                                      format="HH:mm:ss"
-                                      :placeholder="t('selectTime')"
-                                      @change="resetCycleTimers();autoSaveSettings()"
-                                      style="width: 100%"
-                                    />
-                                  </el-form-item>
-                                </el-col>
-                              </el-row>
-                              <el-form-item :label="t('repeatNumber')">
-                                <el-slider
-                                  v-model="b.trigger.cycle.repeatNumber"
-                                  :min="1"
-                                  :max="100"
-                                  :step="1"
-                                  show-input
-                                  @change="resetCycleTimers();autoSaveSettings()">
-                                </el-slider>
-                              </el-form-item>
-                              <el-form-item :label="t('isInfiniteLoop')" class="form-item-align" label-position="left">
-                                <el-switch v-model="b.trigger.cycle.isInfiniteLoop" @change="resetCycleTimers();autoSaveSettings()"></el-switch>
-                              </el-form-item>
-                            </div>
-
-                            <el-divider></el-divider>
-                            <!-- 执行内容 -->
-                            <el-form-item :label="t('actionType')">
-                              <el-select v-model="b.action.type" @change="autoSaveSettings">
-                                <el-option :label="t('prompt')" value="prompt"></el-option>
-                                <el-option :label="t('randomEvent')" value="random"></el-option>
-                                <el-option :label="t('randomTopic')" value="topic"></el-option>
-                              </el-select>
-                            </el-form-item>
-
-                            <el-form-item v-if="b.action.type === 'prompt'" :label="t('promptAction')">
-                              <el-input
-                                type="textarea"
-                                v-model="b.action.prompt"
-                                :rows="3"
-                                :placeholder="t('promptPlaceholder')"
-                                @input="autoSaveSettings"
-                                class="full-width-input"/>
-                            </el-form-item>
-
-                            <el-form-item v-if="b.action.type === 'random'" :label="t('eventType')">
-                              <el-select v-model="b.action.random.type" @change="autoSaveSettings">
-                                <el-option :label="t('random')" value="random"></el-option>
-                                <el-option :label="t('order')" value="order"></el-option>
-                              </el-select>
-                            </el-form-item>
-                            <div v-for="(event, eventIdx) in b.action.random.events" :key="eventIdx">
-                              <div class="event-button-group" v-if="b.action.type === 'random'">
-                                <el-button @click="addNewEvent(idx)" type="primary" circle size="small">
-                                  <el-icon><i class="fa-solid fa-plus"></i></el-icon>
-                                </el-button>
-                                <el-button v-show="eventIdx>0" @click="removeEvent(idx,eventIdx)" type="danger" circle size="small">
-                                  <el-icon><i class="fa-solid fa-trash"></i></el-icon>
-                                </el-button>
-                              </div>
-                              <el-form-item v-if="b.action.type === 'random'">
-                                <el-input
-                                  type="textarea"
-                                  v-model="b.action.random.events[eventIdx]"
-                                  :rows="3"
-                                  :placeholder="t('promptPlaceholder')"
-                                  @input="autoSaveSettings"
-                                  class="full-width-input"/>
-                              </el-form-item>
-                            </div>
-
-                            <el-form-item v-if="b.action.type === 'topic'" :label="t('baseURL')">
-                              <el-input
-                                v-model="toolsSettings.randomTopic.baseURL"
-                                @change="autoSaveSettings"
-                                :placeholder="t('randomTopicPlaceholder')"
-                              ></el-input>
-                            </el-form-item>
-
-                            <el-form-item v-if="b.action.type === 'topic'" :label="t('topicLimit')">
-                              <el-slider
-                                  v-model="b.action.topicLimit"
-                                  :min="1"
-                                  :max="5"
-                                  :step="1"
-                                  show-input
-                                  @change="autoSaveSettings"
-                              ></el-slider>
-                            </el-form-item>
-
-                            <el-alert v-if="b.action.type === 'topic'" type="info" :closable="false" class="mb-2" style="margin-bottom: 20px;">
-                              <div class="alert-content">
-                                {{ t('randomTopicNotice') }}
-                                <el-link
-                                  type="primary"
-                                  :underline="false"
-                                  href="https://github.com/heshengtao/topics-after-party" 
-                                  target="_blank"
-                                >
-                                  <el-icon class="mr-1">
-                                    <i class="fa-solid fa-key"></i>
-                                  </el-icon>{{ t('gotoGithub') }}
-                                </el-link>
-                              </div>
-                            </el-alert>
-
-                            <div style="display: flex; justify-content: flex-end;margin-bottom: 16px;">
-                              <el-tooltip :content="t('resetBehavior')" placement="top">
-                                <el-button 
-                                  type="default" 
-                                  @click="resetBehavior(idx)" 
-                                  circle
-                                >
-                                  <i class="fa-solid fa-rotate-right"></i>
-                                </el-button>
-                              </el-tooltip>
-                              
-                              <el-tooltip :content="t('removeBehavior')" placement="top">
-                                <el-button 
-                                  type="danger" 
-                                  @click="removeBehavior(idx)" 
-                                  circle
-                                >
-                                  <i class="fa-solid fa-trash"></i>
-                                </el-button>
-                              </el-tooltip>
-                            </div>
-                          </div>
-                          <div style="display: flex; justify-content: flex-end;margin-bottom: 16px;">
-                            <el-tooltip :content="t('addBehavior')" placement="top">
-                              <el-button 
-                                type="primary" 
-                                @click="addBehavior()"
-                                circle
-                              >
-                                <i class="fa-solid fa-plus"></i>
-                              </el-button>
-                            </el-tooltip>
-                            <el-tooltip :content="t('removeAllBehavior')" placement="top">
-                              <el-button 
-                                type="danger" 
-                                @click="removeAllBehavior()" 
-                                circle
-                              >
-                                <i class="fa-solid fa-trash-can"></i>
-                              </el-button>
-                            </el-tooltip>
-                          </div>
-
-                        </div>
+              <!-- 角色行为页面 -->
+              <div v-show="subMenu === 'behavior'" class="page mcp-container">
+                
+                <!-- 顶部全局设置区域 (保留原有逻辑，但样式优化) -->
+                <div class="market-link-banner behavior-banner">
+                  <div class="banner-accent-bar">{{ t('AutoBehavior') }}</div>
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明 -->
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-person-running"></i>
                       </div>
-                    </el-form>
-                  </el-tab-pane>
-                  <!-- 添加新记忆标签页 -->
-                  <el-tab-pane :label="t('addNewBehaviorChain')" name="add">
-                    <div class="provider-grid">
-                      
-                      <!-- 添加新记忆磁贴 -->
-                      <div class="provider-card add-tile">
-                        <el-icon :size="40" color="#909399"><i class="fa-solid fa-plus"></i></el-icon>
-                        <div style="color: #606266; margin-top: 10px;">{{ t('addNewBehaviorChain') }}</div>
+                      <div class="banner-text">
+                        <h3>{{ t('AutoBehavior') || 'Behavior Settings' }}</h3>
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px;">
+                          {{ t('autoBehaviorNotice') }}
+                        </p>
                       </div>
                     </div>
-                  </el-tab-pane>
-                </el-tabs>
+
+                    <!-- 右侧：全局开关 -->
+                    <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-end;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-weight: bold;">{{ t('enable') }}</span>
+                        <el-switch 
+                          v-model="behaviorSettings.enabled" 
+                          @change="resetCycleTimers();autoSaveSettings()"
+                          style="--el-switch-on-color: #13ce66;"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 行为卡片网格 -->
+                <div class="provider-grid">
+                  <div class="provider-card knowledge-card" v-for="(b, idx) in behaviorSettings.behaviorList" :key="idx">
+                    <div class="card-header">
+                      <!-- 单个行为开关 -->
+                      <el-switch
+                        v-model="b.enabled"
+                        @change="resetCycleTimers();autoSaveSettings()"
+                        class="kb-switch"
+                      ></el-switch>
+                      
+                      <div class="card-actions">
+                        <!-- 编辑按钮 -->
+                        <el-button
+                          @click="openBehaviorDialog(idx)"
+                          type="primary"
+                          circle
+                          size="small"
+                        >
+                          <i class="fa-solid fa-pen-to-square"></i>
+                        </el-button>
+                        <!-- 删除按钮 -->
+                        <el-button
+                          @click="confirmRemoveBehavior(idx)"
+                          type="danger"
+                          circle
+                          size="small"
+                        >
+                          <i class="fa-solid fa-trash"></i>
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <div class="kb-content" @click="openBehaviorDialog(idx)" style="cursor: pointer;">
+                      <div class="kb-header">
+                        <!-- 标题：触发类型 -->
+                        <h3 class="kb-title">
+                          <i :class="getTriggerIcon(b.trigger.type)" style="margin-right: 8px;"></i>
+                          {{ t(behaviorNameDict[b.trigger.type]) }}
+                        </h3>
+                        
+                        <!-- 标签：动作类型 -->
+                        <el-tag size="small" :type="getActionTagType(b.action.type)">
+                          {{ t(b.action.type) }}
+                        </el-tag>
+                      </div>
+
+                      <div class="kb-meta">
+                        <!-- 描述信息概览 -->
+                        <div class="kb-meta-item">
+                          <span style="font-size: 12px; color: #909399; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                            {{ getBehaviorSummary(b) }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 添加新行为卡片 -->
+                  <div class="provider-card add-tile" @click="openBehaviorDialog(-1)">
+                    <el-icon :size="40" color="#909399"><i class="fa-solid fa-plus"></i></el-icon>
+                    <div style="color: #606266; margin-top: 10px;">{{ t('addBehavior') }}</div>
+                  </div>
+                </div>
+
+                <!-- 添加/编辑 行为对话框 -->
+                <el-dialog
+                  v-model="showBehaviorDialog"
+                  :title="isEditingBehavior ? t('editBehavior') : t('addBehavior')"
+                  width="600px"
+                  :close-on-click-modal="false"
+                  class="mcp-dialog"
+                  @closed="resetBehaviorDialogState"
+                >
+                  <div v-if="tempBehavior" class="behavior-dialog-content">
+                    <el-form :model="tempBehavior" label-position="top">
+                      
+                      <!-- 触发条件配置 -->
+                      <el-divider content-position="left">{{ t('triggerSettings') }}</el-divider>
+                      
+                      <el-form-item :label="t('triggerType')">
+                        <el-select v-model="tempBehavior.trigger.type" class="full-width-input">
+                          <el-option :label="t('timeName')"   value="time"></el-option>
+                          <el-option :label="t('noInputName')" value="noInput"></el-option>
+                          <el-option :label="t('cycleName')" value="cycle"></el-option>
+                        </el-select>
+                      </el-form-item>
+
+                      <!-- 时间触发详情 -->
+                      <div v-if="tempBehavior.trigger.type === 'time'" class="sub-config-box">
+                        <el-row :gutter="12">
+                          <el-col :span="24">
+                            <el-form-item :label="t('time')">
+                              <el-time-picker
+                                v-model="tempBehavior.trigger.time.timeValue"
+                                value-format="HH:mm:ss"
+                                format="HH:mm:ss"
+                                :placeholder="t('selectTime')"
+                                style="width: 100%"
+                              />
+                            </el-form-item>
+                          </el-col>
+                        </el-row>
+                        <el-form-item :label="t('repeatDays')">
+                          <el-select v-model="tempBehavior.trigger.time.days" multiple style="width: 100%">
+                            <el-option :label="t('monday')"    :value="1"></el-option>
+                            <el-option :label="t('tuesday')"   :value="2"></el-option>
+                            <el-option :label="t('wednesday')" :value="3"></el-option>
+                            <el-option :label="t('thursday')"  :value="4"></el-option>
+                            <el-option :label="t('friday')"    :value="5"></el-option>
+                            <el-option :label="t('saturday')"  :value="6"></el-option>
+                            <el-option :label="t('sunday')"    :value="0"></el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+
+                      <!-- 无输入触发详情 -->
+                      <div v-if="tempBehavior.trigger.type === 'noInput'" class="sub-config-box">
+                        <el-form-item :label="t('noInputLatency') + ' (s)'">
+                          <el-slider
+                            v-model="tempBehavior.trigger.noInput.latency"
+                            :min="10"
+                            :max="600"
+                            :step="5"
+                            show-input>
+                          </el-slider>
+                        </el-form-item>
+                      </div>
+
+                      <!-- 周期触发详情 -->
+                      <div v-if="tempBehavior.trigger.type === 'cycle'" class="sub-config-box">
+                        <el-row :gutter="12">
+                          <el-col :span="24">
+                            <el-form-item :label="t('cycleValue')">
+                              <el-time-picker
+                                v-model="tempBehavior.trigger.cycle.cycleValue"
+                                value-format="HH:mm:ss"
+                                format="HH:mm:ss"
+                                :placeholder="t('selectTime')"
+                                style="width: 100%"
+                              />
+                            </el-form-item>
+                          </el-col>
+                        </el-row>
+                        <el-form-item :label="t('repeatNumber')">
+                          <el-slider
+                            v-model="tempBehavior.trigger.cycle.repeatNumber"
+                            :min="1"
+                            :max="100"
+                            :step="1"
+                            show-input>
+                          </el-slider>
+                        </el-form-item>
+                        <el-form-item :label="t('isInfiniteLoop')">
+                          <el-switch v-model="tempBehavior.trigger.cycle.isInfiniteLoop"></el-switch>
+                        </el-form-item>
+                      </div>
+
+                      <!-- 执行动作配置 -->
+                      <el-divider content-position="left" class="mt-4">{{ t('actionSettings') }}</el-divider>
+
+                      <el-form-item :label="t('actionType')">
+                        <el-select v-model="tempBehavior.action.type" class="full-width-input">
+                          <el-option :label="t('prompt')" value="prompt"></el-option>
+                          <el-option :label="t('randomEvent')" value="random"></el-option>
+                          <el-option :label="t('randomTopic')" value="topic"></el-option>
+                        </el-select>
+                      </el-form-item>
+
+                      <!-- Prompt 动作 -->
+                      <div v-if="tempBehavior.action.type === 'prompt'" class="sub-config-box">
+                        <el-form-item :label="t('promptAction')">
+                          <el-input
+                            type="textarea"
+                            v-model="tempBehavior.action.prompt"
+                            :rows="4"
+                            :placeholder="t('promptPlaceholder')"
+                          />
+                        </el-form-item>
+                      </div>
+
+                      <!-- Random 动作配置区 -->
+                      <div v-if="tempBehavior.action.type === 'random'" class="sub-config-box">
+                        
+                        <!-- 类型选择 -->
+                        <el-form-item :label="t('eventType')">
+                          <el-select v-model="tempBehavior.action.random.type" class="full-width-input">
+                            <el-option :label="t('random')" value="random"></el-option>
+                            <el-option :label="t('order')" value="order"></el-option>
+                          </el-select>
+                        </el-form-item>
+
+                        <!-- 事件列表 -->
+                        <div class="events-management-list">
+                          <label class="sub-label">{{ t('eventList') }}</label>
+                          
+                          <!-- 每一行：输入框 + 删除按钮 -->
+                          <div v-for="(event, eIdx) in tempBehavior.action.random.events" :key="eIdx" class="event-row-item">
+                            <!-- 左侧输入框 -->
+                            <div class="input-col">
+                              <el-input
+                                type="textarea"
+                                v-model="tempBehavior.action.random.events[eIdx]"
+                                :rows="2"
+                                :placeholder="t('promptPlaceholder')"
+                              />
+                            </div>
+                            
+                            <!-- 右侧删除按钮：紧贴输入框右侧 -->
+                            <div class="action-col">
+                              <el-button @click="removeTempEvent(eIdx)" type="danger" circle :disabled="tempBehavior.action.random.events.length <= 1">
+                                <i class="fa-solid fa-trash"></i>
+                              </el-button>
+                            </div>
+                          </div>
+
+                          <!-- 底部添加按钮 -->
+                          <el-button 
+                            type="primary" 
+                            class="add-server-btn"
+                            @click="addTempEvent"
+                          >
+                            <i class="fa-solid fa-plus"></i> {{ t('addEvent') }}
+                          </el-button>
+                        </div>
+                      </div>
+
+                      <!-- Topic 动作 -->
+                      <div v-if="tempBehavior.action.type === 'topic'" class="sub-config-box">
+                        <el-form-item :label="t('baseURL')">
+                          <el-input
+                            v-model="toolsSettings.randomTopic.baseURL"
+                            :placeholder="t('randomTopicPlaceholder')"
+                          ></el-input>
+                        </el-form-item>
+                        <el-form-item :label="t('topicLimit')">
+                          <el-slider
+                              v-model="tempBehavior.action.topicLimit"
+                              :min="1"
+                              :max="5"
+                              :step="1"
+                              show-input
+                          ></el-slider>
+                        </el-form-item>
+                        <el-alert type="info" :closable="false" show-icon>
+                          <template #default>
+                            <el-link type="primary" href="https://github.com/heshengtao/topics-after-party" target="_blank">
+                              {{ t('gotoGithub') }}
+                            </el-link>
+                          </template>
+                        </el-alert>
+                      </div>
+
+                    </el-form>
+                  </div>
+
+                  <template #footer>
+                    <span class="dialog-footer">
+                      <el-button @click="showBehaviorDialog = false">{{ t('cancel') }}</el-button>
+                      <el-button type="primary" @click="saveBehavior">{{ t('confirmSave') }}</el-button>
+                    </span>
+                  </template>
+                </el-dialog>
               </div>
             </div>
           </div>
@@ -4451,18 +4464,29 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="suite-content">
               <!-- 模型服务界面 -->
               <div v-show="subMenu === 'service'" class="page">
-               <!-- 顶部说明条 -->
-                <div class="toolbar">
-                    <el-alert
-                      :title="t('modelConfigDescription')"
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      1. {{ t('localConfigNotice') }}<br>
-                      2. {{ t('localConfigNotice02') }}<br>
-                      3. {{ t('localConfigNotice03') }}<br>
-                    </el-alert>
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('modelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5; color: white;">
+                          1. {{ t('localConfigNotice') }}<br>
+                          2. {{ t('localConfigNotice02') }}<br>
+                          3. {{ t('localConfigNotice03') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <!-- 磁贴网格 -->
                 <div class="provider-grid">
@@ -7840,7 +7864,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </template>
                 </el-dialog>
                 <!-- === 新增: 添加 Skill 对话框 === -->
-                <el-dialog v-model="showAddSkillDialog" :title="t('addSkill')" width="80%">
+                <el-dialog v-model="showAddSkillDialog" :title="t('addSkill')" width="650px">
                   <el-tabs v-model="addSkillTab">
                     
                     <!-- GitHub 安装 -->
