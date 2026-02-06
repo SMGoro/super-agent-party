@@ -1686,11 +1686,11 @@ let vue_data = {
     editingCustomHttpTool: false,
     vendorValues: [
       'custom', 'OpenAI', 'Ollama','Vllm','LMstudio','xinference','Dify','newapi','LocalAI','ttswebui', 'Deepseek', 'Volcano','302.AI',
-      'siliconflow', 'aliyun', 'ZhipuAI', 'moonshot', 'minimax', 'MiMo','longcat', 'Gemini','Anthropic', 
+      'siliconflow', 'aliyun', 'ZhipuAI', 'moonshot', 'minimax', 'Gemini','Anthropic', 
       'Grok', 'mistral', 'lingyi','baichuan', 'qianfan', 'hunyuan', 'stepfun', 'Github', 
       'openrouter','together', 'fireworks', '360', 'Nvidia',
       'jina', 'gitee', 'perplexity', 'infini',
-      'modelscope', 'tencent'
+      'modelscope', 'tencent', 'MiMo','longcat'
     ],
     vendorLogoList: {
       'custom': 'source/providers/logo.png',
