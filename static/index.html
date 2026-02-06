@@ -7837,7 +7837,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         {{ t('openSkillsFolder') }}
                       </el-button>
                       <el-button 
-                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io')" 
+                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io/blob/main/skills.json')" 
                         type="primary">
                         {{ t('addYourSkills') }}
                       </el-button>
@@ -9470,6 +9470,21 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <span>GO</span>
                         <i class="fa-solid fa-arrow-right-long"></i>
                       </div>
+                    </div>
+                  </div>
+                  <div class="plugin-header">
+                    <h3>MCP</h3>
+                    <div class="plugin-button-group">
+                      <el-button 
+                        @click="showAddMCPDialo = true" 
+                        type="primary">
+                        {{ t('addNewMCP') }}
+                      </el-button>
+                      <el-button 
+                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io/blob/main/mcp.json')" 
+                        type="primary">
+                        {{ t('addYourMCP') }}
+                      </el-button>
                     </div>
                   </div>
                   <!-- 磁贴网格 -->
