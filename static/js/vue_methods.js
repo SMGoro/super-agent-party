@@ -510,6 +510,7 @@ let vue_methods = {
               "modelscope":"https://api-inference.modelscope.cn/",
               "302.AI":"https://api.302.ai/cc/",
               "MiMo":"https://api.xiaomimimo.com/anthropic/",
+              "longcat":"https://api.longcat.chat/anthropic/",
               "newapi": provider.url.replace(/\/v1\/?$/, ''),
               "Ollama":provider.url.replace(/\/v1\/?$/, '')
             };
@@ -3369,6 +3370,7 @@ let vue_methods = {
         'moonshot': 'https://api.moonshot.cn/v1',
         'minimax': 'https://api.minimaxi.com/v1',
         'MiMo': 'https://api.xiaomimimo.com/v1',
+        'longcat':'https://api.longcat.chat/openai/v1',
         'Ollama': this.isdocker ? 'http://host.docker.internal:11434/v1' : 'http://127.0.0.1:11434/v1',
         'Vllm': this.isdocker ? 'http://host.docker.internal:8000/v1' :'http://127.0.0.1:8000/v1',
         'LMstudio': this.isdocker ? 'http://host.docker.internal:1234/v1' :'http://127.0.0.1:1234/v1',
