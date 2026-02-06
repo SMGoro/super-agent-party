@@ -1,4 +1,49 @@
 # -- coding: utf-8 --
+import sys
+import os
+import argparse
+import socket
+
+# ==========================================
+# 第一步：在加载任何沉重库之前，先搞定端口
+# ==========================================
+parser = argparse.ArgumentParser(description="Run the ASGI application server.")
+parser.add_argument("--host", default="127.0.0.1")
+parser.add_argument("--port", type=int, default=3456)
+# 使用 parse_known_args 比较稳妥，防止有其他未定义的参数导致报错
+args, _ = parser.parse_known_args()
+
+HOST = args.host
+PREFERED_PORT = args.port
+FINAL_PORT = PREFERED_PORT
+
+def is_port_in_use(host, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) == 0
+
+# 逻辑：如果 3456 被占用了，或者我们明确传了 0
+if PREFERED_PORT == 0 or is_port_in_use(HOST, PREFERED_PORT):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((HOST, 0)) # 系统自动分配
+        FINAL_PORT = s.getsockname()[1]
+else:
+    # 3456 没被占用，就用 3456
+    FINAL_PORT = PREFERED_PORT
+
+# 变量覆盖，确保你代码后续使用的 PORT 是正确的
+PORT = FINAL_PORT
+
+# 核心：立刻打印！这样 Electron 在 0.1 秒内就能拿到端口，
+# 即使后面加载 onnxruntime 花了 5 秒，Electron 也已经提前知道端口了。
+print(f"REAL_PORT_FOUND:{PORT}", flush=True)
+
+# ==========================================
+# 第二步：屏蔽掉后面库可能产生的骚扰警告
+# ==========================================
+import warnings
+warnings.filterwarnings("ignore") # 忽略普通警告
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # 如果有 tensorflow 等库，减少其日志输出
+
 import hashlib
 import importlib
 import mimetypes
@@ -22,7 +67,6 @@ import socket
 import sys
 import tempfile
 import httpx
-import socket
 import ipaddress
 from urllib.parse import urlparse, urlunparse, urljoin
 from urllib.robotparser import RobotFileParser
@@ -164,15 +208,7 @@ from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
 
-logger = None
-
-parser = argparse.ArgumentParser(description="Run the ASGI application server.")
-parser.add_argument("--host", default="127.0.0.1", help="Host for the ASGI server, default is 127.0.0.1")
-parser.add_argument("--port", type=int, default=3456, help="Port for the ASGI server, default is 3456")
-args = parser.parse_args()
-HOST = args.host
-PORT = args.port
-
+logger = None      
 os.environ["no_proxy"] = "localhost,127.0.0.1"
 local_timezone = None
 settings = None
@@ -1263,17 +1299,51 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot:
         language_message = f"\n\n当你看到被插入到对话之间的系统消息，这是自主行为系统向你发送的消息，例如用户主动或者要求你设置了一些定时任务或者延时任务，当你看到自主行为系统向你发送的消息时，说明这些任务到了需要被执行的节点，例如：用户要你三点或五分钟后提醒开会的事情，然后当你看到一个被插入的“提醒用户开会”的系统消息，你需要立刻提醒用户开会，以此类推\n\n"
         content_append(request.messages, 'system', language_message)
+
+    # 先统一获取当前选中的 memory 对象（后面多处会用到）
+    cur_memory = None
+    if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"]:
+        memoryId = settings["memorySettings"]["selectedMemory"]
+        for memory in settings["memories"]:
+            if memory["id"] == memoryId:
+                cur_memory = memory
+                break
+    
+    # 获取角色名称（用于显示），如果找不到就用 id 兜底
+    selectedMemoryName = cur_memory["name"] if cur_memory else settings["memorySettings"]["selectedMemory"]
+
+    # 辅助函数：从 memory/{id}/model 格式解析 id，并查找 name
+    def resolve_agent_name(raw_model):
+        if raw_model.startswith("memory/"):
+            # 分解 memory/{id}/rest 格式
+            parts = raw_model.split('/', 2)  # ['memory', 'id', 'rest']
+            if len(parts) >= 2:
+                memory_id = parts[1]
+                # 在 memories 中查找
+                for memory in settings["memories"]:
+                    if memory["id"] == memory_id:
+                        return memory["name"]
+                # 找不到返回原始字符串（兜底）
+                return raw_model
+        # 不是 memory/ 开头的（如普通模型名或用户自定义名），直接返回
+        return raw_model
+
     if settings["isGroupMode"]:
         selectedGroupAgents = settings['selectedGroupAgents']
-        selectedMemory = settings['memorySettings']['selectedMemory']
         if selectedGroupAgents:
             userName = "user"
             if settings["memorySettings"]["userName"]:
                 userName = settings["memorySettings"]["userName"]
             selectedGroupAgents.append(userName)
-            group_message = f"\n\n你当前处于群聊模式，群聊中的角色有：{selectedGroupAgents}\n\n你在扮演{selectedMemory}"
+            
+            # 修复：把每个 agent 的 id 转成 name
+            agent_names = [resolve_agent_name(agent) for agent in selectedGroupAgents]
+            
+            group_message = f"\n\n你当前处于群聊模式，群聊中的角色有：{agent_names}\n\n你在扮演{selectedMemoryName}"
             content_append(request.messages, 'system', group_message)
+
     newttsList = []
+    Narrator_label = "Narrator"
     if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
         # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
         for key in settings['ttsSettings']['newtts']:
@@ -1281,9 +1351,9 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
                 newttsList.append(key)
         if newttsList:
             finalttsList = ["<silence>"]
-            selectedMemory = settings['memorySettings']['selectedMemory']
-            if selectedMemory in newttsList:
-                finalttsList.append("<"+selectedMemory+">")
+            # 用 name 去匹配音色列表（假设音色配置用的也是 name）
+            if selectedMemoryName in newttsList:
+                finalttsList.append("<"+selectedMemoryName+">")
             if "Narrator" in newttsList:
                 finalttsList.append("<Narrator>")
                 Narrator_label = "Narrator"
@@ -1293,12 +1363,14 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
             finalttsList = json.dumps(finalttsList, ensure_ascii=False, indent=4)
             print("可用音色：",finalttsList)
+            
+            # 修复：示例中的角色名也用 selectedMemoryName
             newtts_messages = f"""
 你可以使用以下音色：
 
 {finalttsList}
 
-（所有的音色标签必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分会不会进入语音合成，
+（所有的音色标签必须成对出现！例如：<音色名></音色名>），被<silence></silence>标签括起来的部分不会进入语音合成，
 
 当你生成回答时，你需要以XML格式组织回答，将不同的旁白或角色的文字用<音色名></音色名>括起来，以表示这些话是使用这个音色，以控制不同TTS转换成对应音色。
 
@@ -1306,7 +1378,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
 注意！如果是你扮演的角色的名字在音色列表里，你必须用这个音色标签将你扮演的角色说话的部分括起来！
 
-只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：`<{Narrator_label}>现在是下午三点，她说道：</{Narrator_label}><角色名>天气真好哇！</角色名><silence>(眼睛笑成了一条线)</silence><{Narrator_label}>说完她伸了个懒腰。</{Narrator_label}><角色名>我们出去玩吧！</角色名>`
+只要是非人物说话的部分，都视为旁白！角色音色应该标记在人物说话的前后！例如：`<{Narrator_label}>现在是下午三点，她说道：</{Narrator_label}><{selectedMemoryName}>天气真好哇！</{selectedMemoryName}><silence>(眼睛笑成了一条线)</silence><{Narrator_label}>说完她伸了个懒腰。</{Narrator_label}><{selectedMemoryName}>我们出去玩吧！</{selectedMemoryName}>`
 
 还有注意！<音色名></音色名>之间不能嵌套，只能并列，并且<音色名>和</音色名>必须成对出现，防止出现音色混乱！
 

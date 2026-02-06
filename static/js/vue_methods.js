@@ -1762,6 +1762,44 @@ let vue_methods = {
         // 内部函数：准备发送给 API 的消息历史
         const prepareMessages = (msgs) => {
             const rawMessages = msgs.flatMap(msg => {
+
+                // 获取人类用户的名字，默认为 'User'
+                const userName = this.memorySettings?.userName || 'User';
+
+                // --- 1. 处理人类用户 (User) 的消息 ---
+                if (this.isGroupMode && msg.role === 'user') {
+                    let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
+                    // 加上名字前缀： "管理员: 你们好哇"
+                    const finalContent = `${userName}: ${textContent}`;
+
+                    if (msg.imageLinks && msg.imageLinks.length > 0) {
+                        const contentArray = [{ type: "text", text: finalContent }];
+                        msg.imageLinks.forEach(imageLink => {
+                            contentArray.push({ type: "image_url", image_url: { url: imageLink.path } });
+                        });
+                        return [{ role: 'user', content: contentArray }];
+                    } else {
+                        return [{ role: 'user', content: finalContent }];
+                    }
+                }
+
+                if (this.isGroupMode && msg.role === 'assistant' && msg.agentName !== agentDisplayName) {
+                    // 如果是其他 Agent 说的，统一转换成 user 角色
+                    let textContent = (msg.pure_content ?? msg.content) + (msg.fileLinks_content ?? '');
+                    const finalContent = `${msg.agentName}: ${textContent}`;
+
+                    if (msg.imageLinks && msg.imageLinks.length > 0) {
+                        const contentArray = [{ type: "text", text: finalContent }];
+                        msg.imageLinks.forEach(imageLink => {
+                            contentArray.push({ type: "image_url", image_url: { url: imageLink.path } });
+                        });
+                        return [{ role: 'user', content: contentArray }];
+                    } else {
+                        return [{ role: 'user', content: finalContent }];
+                    }
+                }
+
+
                 // 优先使用后端专用结构 backend_content
                 if (msg.role === 'assistant' && msg.backend_content && msg.backend_content.length > 0) {
                     return msg.backend_content.filter(m => 
@@ -1810,7 +1848,7 @@ let vue_methods = {
         };
 
         let messagesPayload = max_rounds === 0 ? prepareMessages(this.messages) : prepareMessages(this.messages.slice(-max_rounds));
-
+        console.log(messagesPayload);
         let currentMsg;
 
         // === 【修复 1】: 是恢复模式则复用最后一条消息，否则创建新消息 ===

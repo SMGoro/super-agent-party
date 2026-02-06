@@ -435,163 +435,133 @@ function createSkeletonWindow() {
 }
 
 // 修改后的启动后端函数
+/**
+ * 启动后端服务
+ * 逻辑：传 port 0 -> 捕获 REAL_PORT_FOUND -> 返回真实端口
+ */
 async function startBackend() {
-  try {
-    console.log('🔍 开始启动后端进程...')
-    
-    const availablePort = await findAvailablePort(DEFAULT_PORT)
-    PORT = availablePort
-    
-    if (PORT !== DEFAULT_PORT) {
-      console.log(`⚠️  默认端口 ${DEFAULT_PORT} 被占用，已切换到端口 ${PORT}`)
-    }
-    
-    // ★ 关键修改：无论开发还是生产模式都使用 pipe
-    const spawnOptions = {
-      stdio: ['pipe', 'pipe', 'pipe'],  // 统一使用 pipe
-      shell: false,
-      env: {
-        ...process.env,
-        NODE_ENV: isDev ? 'development' : 'production',
-        PYTHONIOENCODING: 'utf-8',
-        PYTHONUNBUFFERED: '1',
-        PYTHON_WARNINGS: 'ignore'
-      }
-    }
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('🔍 准备启动后端进程...');
 
-    if (process.platform === 'win32') {
-      spawnOptions.windowsHide = !isDev
-      spawnOptions.detached = false
-      spawnOptions.windowsVerbatimArguments = false
-    }
-
-    const BACKEND_HOST = (globalConfig?.networkVisible === 'global') ? '0.0.0.0' : '127.0.0.1';
-
-    if (isDev) {
-      console.log(`🐍 Starting development mode backend: ${pythonExec}`)
-      console.log(`🌐 Address: http://${BACKEND_HOST}:${PORT}`)
-      
-      backendProcess = spawn(pythonExec, [
-        '-u',  // 无缓冲模式，确保输出实时性
-        'server.py',
-        '--port', PORT.toString(),
-        '--host', BACKEND_HOST,
-      ], spawnOptions)
-    } else {
-      // 生产模式代码...
-      const serverExecutable = process.platform === 'win32' ? 'server.exe' : 'server'
-      const resourcesPath = process.resourcesPath || path.join(process.execPath, '..', 'resources')
-      const exePath = path.join(resourcesPath, 'server', serverExecutable)
-      
-      backendProcess = spawn(exePath, [
-        '--port', PORT.toString(),
-        '--host', BACKEND_HOST,
-      ], {
-        ...spawnOptions,
-        cwd: path.dirname(exePath)
-      })
-    }
-
-    // ★ 自定义日志处理 - 解决卡死问题的关键
-    if (backendProcess.stdout) {
-      backendProcess.stdout.setEncoding('utf8')
-      backendProcess.stdout.on('data', (data) => {
-        // [新增] 存入内存缓冲区 (Dev 和 Prod 都执行)
-        appendLogToBuffer('INFO', data);
-
-        // 开发模式：实时显示在控制台
-        if (isDev) {
-          const output = data.toString().replace(/\r?\n$/, '')
-          if (output.trim()) {
-            console.log(`[BACKEND] ${output}`)
-          }
+      const spawnOptions = {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,
+        env: {
+          ...process.env,
+          NODE_ENV: isDev ? 'development' : 'production',
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUNBUFFERED: '1', // 强制 Python 实时刷新缓冲区
         }
-      })
-    }
+      };
 
-    if (backendProcess.stderr) {
-      backendProcess.stderr.setEncoding('utf8')
-      backendProcess.stderr.on('data', (data) => {
-        // [新增] 存入内存缓冲区 (Dev 和 Prod 都执行)
-        appendLogToBuffer('ERROR', data);
+      if (process.platform === 'win32') {
+        spawnOptions.windowsHide = !isDev;
+      }
+
+      // 获取 Host 配置
+      const BACKEND_HOST = (globalConfig?.networkVisible === 'global') ? '0.0.0.0' : '127.0.0.1';
+
+      let execPath = "";
+      let backendArgs = [];
+
+      if (isDev) {
+        execPath = pythonExec;
+        // 使用 -u 确保输出不被缓存，即便在 import 很多库的情况下
+        backendArgs = ['-u', 'server.py', '--host', BACKEND_HOST, '--port', '3456'];
+      } else {
+        const serverExecutable = process.platform === 'win32' ? 'server.exe' : 'server';
+        const resourcesPath = process.resourcesPath || path.join(process.execPath, '..', 'resources');
+        execPath = path.join(resourcesPath, 'server', serverExecutable);
+        backendArgs = ['--host', BACKEND_HOST, '--port', '3456'];
+        spawnOptions.cwd = path.dirname(execPath);
+      }
+
+      console.log(`🚀 执行路径: ${execPath}`);
+      backendProcess = spawn(execPath, backendArgs, spawnOptions);
+
+      let isHandshaked = false;
+
+      // 核心监听逻辑
+      const onData = (data) => {
+        const output = data.toString();
+        // 1. 依然保留日志缓冲，供前端查看
+        appendLogToBuffer('BACKEND', output);
 
         if (isDev) {
-          const output = data.toString().replace(/\r?\n$/, '')
-          if (output.trim()) {
-            if (output.includes('WARNING') || output.includes('DeprecationWarning')) {
-              console.warn(`[BACKEND] ${output}`)
-            } else {
-              console.error(`[BACKEND] ${output}`)
-            }
+            // 开发模式下在控制台打印原始输出，方便排查
+            process.stdout.write(`[PY] ${output}`);
+        }
+
+        // 2. 尝试解析端口握手信号
+        const match = output.match(/REAL_PORT_FOUND:(\d+)/);
+        if (match && !isHandshaked) {
+          const actualPort = parseInt(match[1], 10);
+          if (actualPort > 0) {
+            isHandshaked = true;
+            PORT = actualPort; // 更新全局 PORT 变量
+            console.log(`✅ 握手成功！后端运行端口: ${PORT}`);
+            resolve(PORT);
           }
         }
-      })
+      };
+
+      backendProcess.stdout.on('data', onData);
+      backendProcess.stderr.on('data', onData);
+
+      // 进程错误处理
+      backendProcess.on('error', (err) => {
+        console.error('❌ 后端启动失败:', err);
+        reject(err);
+      });
+
+      // 进程意外退出处理
+      backendProcess.on('close', (code) => {
+        console.log(`ℹ️ 后端进程已退出 (code ${code})`);
+        if (!isHandshaked) {
+          reject(new Error(`后端进程在分配端口前已关闭，退出码: ${code}`));
+        }
+      });
+
+      // 30秒超时保护
+      setTimeout(() => {
+        if (!isHandshaked) {
+          if (backendProcess) backendProcess.kill();
+          reject(new Error('后端启动超时：未能从 Python 日志捕获 REAL_PORT_FOUND 信号'));
+        }
+      }, 30000);
+
+    } catch (err) {
+      reject(err);
     }
-
-    // 进程事件处理
-    backendProcess.on('spawn', () => {
-      console.log('✅ Backend process started successfully')
-    })
-
-    backendProcess.on('error', (err) => {
-      console.error('❌ Backend process error:', err)
-    })
-
-    backendProcess.on('close', (code, signal) => {
-    const message = signal
-      ? `Backend process terminated by signal ${signal}`
-      : `Backend process exited with code: ${code}`
-      
-      if (isDev || code !== 0) {
-        console.log(`🔄 ${message}`)
-      }
-    })
-
-    // 优雅关闭处理
-    process.on('SIGINT', () => {
-      if (backendProcess && !backendProcess.killed) {
-        console.log('🛑 正在关闭后端进程...')
-        backendProcess.kill('SIGTERM')
-      }
-    })
-
-    process.on('SIGTERM', () => {
-      if (backendProcess && !backendProcess.killed) {
-        backendProcess.kill('SIGTERM')
-      }
-    })
-
-    return PORT
-  } catch (error) {
-    console.error('❌ 启动后端服务失败:', error)
-    throw error
-  }
+  });
 }
 
 // 修改等待后端函数
 async function waitForBackend() {
-  const MAX_RETRIES = 200
-  const RETRY_INTERVAL = 500
-  let retries = 0
+  const MAX_RETRIES = 60; // 最多等 30 秒
+  const RETRY_INTERVAL = 500;
+  let retries = 0;
+
+  console.log(`⏳ 正在等待 http://127.0.0.1:${PORT}/health 响应...`);
 
   while (retries < MAX_RETRIES) {
     try {
-      const response = await fetch(`http://${HOST}:${PORT}/health`)
+      const response = await fetch(`http://127.0.0.1:${PORT}/health`);
       if (response.ok) {
-        // 后端服务准备就绪，通知骨架屏页面
+        console.log('✨ 后端健康检查通过！');
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('backend-ready', { port: PORT })
+          mainWindow.webContents.send('backend-ready', { port: PORT });
         }
-        return
+        return;
       }
     } catch (err) {
-      retries++
-      await new Promise(resolve => setTimeout(resolve, RETRY_INTERVAL))
+      retries++;
+      await new Promise(resolve => setTimeout(resolve, RETRY_INTERVAL));
     }
   }
-  throw new Error('Backend failed to start')
+  throw new Error('后端已启动但健康检查响应超时');
 }
-
 // 通用下载处理函数
 function handleDownloadItem(event, item, webContents) {
   // 获取主窗口用于发送消息
@@ -842,7 +812,7 @@ app.whenReady().then(async () => {
     createSkeletonWindow()
     if (global.vmcCfg.receive.enable) startVMCReceiver(global.vmcCfg);
     // 启动后端服务（现在会自动查找可用端口）
-    const actualPort = await startBackend()
+    await startBackend()
     ipcMain.handle('get-backend-logs', () => {
       return logBuffer.join('\n');
     });
