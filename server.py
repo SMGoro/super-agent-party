@@ -1,4 +1,49 @@
 # -- coding: utf-8 --
+import sys
+import os
+import argparse
+import socket
+
+# ==========================================
+# 第一步：在加载任何沉重库之前，先搞定端口
+# ==========================================
+parser = argparse.ArgumentParser(description="Run the ASGI application server.")
+parser.add_argument("--host", default="127.0.0.1")
+parser.add_argument("--port", type=int, default=3456)
+# 使用 parse_known_args 比较稳妥，防止有其他未定义的参数导致报错
+args, _ = parser.parse_known_args()
+
+HOST = args.host
+PREFERED_PORT = args.port
+FINAL_PORT = PREFERED_PORT
+
+def is_port_in_use(host, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) == 0
+
+# 逻辑：如果 3456 被占用了，或者我们明确传了 0
+if PREFERED_PORT == 0 or is_port_in_use(HOST, PREFERED_PORT):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((HOST, 0)) # 系统自动分配
+        FINAL_PORT = s.getsockname()[1]
+else:
+    # 3456 没被占用，就用 3456
+    FINAL_PORT = PREFERED_PORT
+
+# 变量覆盖，确保你代码后续使用的 PORT 是正确的
+PORT = FINAL_PORT
+
+# 核心：立刻打印！这样 Electron 在 0.1 秒内就能拿到端口，
+# 即使后面加载 onnxruntime 花了 5 秒，Electron 也已经提前知道端口了。
+print(f"REAL_PORT_FOUND:{PORT}", flush=True)
+
+# ==========================================
+# 第二步：屏蔽掉后面库可能产生的骚扰警告
+# ==========================================
+import warnings
+warnings.filterwarnings("ignore") # 忽略普通警告
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # 如果有 tensorflow 等库，减少其日志输出
+
 import hashlib
 import importlib
 import mimetypes
@@ -22,7 +67,6 @@ import socket
 import sys
 import tempfile
 import httpx
-import socket
 import ipaddress
 from urllib.parse import urlparse, urlunparse, urljoin
 from urllib.robotparser import RobotFileParser
@@ -164,15 +208,7 @@ from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
 
-logger = None
-
-parser = argparse.ArgumentParser(description="Run the ASGI application server.")
-parser.add_argument("--host", default="127.0.0.1", help="Host for the ASGI server, default is 127.0.0.1")
-parser.add_argument("--port", type=int, default=3456, help="Port for the ASGI server, default is 3456")
-args = parser.parse_args()
-HOST = args.host
-PORT = args.port
-
+logger = None      
 os.environ["no_proxy"] = "localhost,127.0.0.1"
 local_timezone = None
 settings = None
