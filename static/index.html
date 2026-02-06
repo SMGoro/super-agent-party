@@ -7974,7 +7974,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                           @change="autoSaveSettings"
                           class="full-width-input"
                         >
-                          <el-option :label="t('pureRequest')" value="request"></el-option>
                           <el-option label="Jina" value="jina" ></el-option>
                           <el-option label="Crawl4AI" value="crawl4ai" ></el-option>
                           <el-option label="Firecrawl" value="firecrawl"></el-option>
@@ -8458,32 +8457,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="full-width-input"
                         />
                       </el-form-item>
-                    </div>
-                  </div>
-                  <!-- Request 配置（最简单，无额外配置项） -->
-                  <div class="tool-item" v-show="webSearchSettings.crawler === 'request'">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-code"></i>
-                          </el-icon>
-                          {{ t('pureRequest') }}
-                          <el-tag size="small" type="info">{{ t('noConfigNeeded') }}</el-tag>
-                        </span>
-                      </div>
-                    </div>
-                    <div class="tool-content">
-                      <el-alert
-                        :title="t('requestDescription')"
-                        type="info"
-                        :closable="false"
-                        show-icon
-                      >
-                        <template #default>
-                          {{ t('requestDescriptionDetail') }}
-                        </template>
-                      </el-alert>
                     </div>
                   </div>
 

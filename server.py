@@ -680,7 +680,6 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         bochaai_search_async,
         jina_crawler_async,
         Crawl4Ai_search_async, 
-        request_crawler_async,
         firecrawl_search_async,
     )
     from py.know_base import query_knowledge_base
@@ -760,7 +759,6 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "query_knowledge_base": query_knowledge_base,
         "jina_crawler_async": jina_crawler_async,
         "Crawl4Ai_search_async": Crawl4Ai_search_async,
-        "request_crawler_async": request_crawler_async,
         "firecrawl_search_async": firecrawl_search_async,
         "agent_tool_call": agent_tool_call,
         "a2a_tool_call": a2a_tool_call,
@@ -1783,7 +1781,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         bochaai_tool,
         jina_crawler_tool, 
         Crawl4Ai_tool,
-        request_crawler_tool,
         firecrawl_tool,
     )
     from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
@@ -2353,8 +2350,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tools.append(jina_crawler_tool)
                         elif settings['webSearch']['crawler'] == 'crawl4ai':
                             tools.append(Crawl4Ai_tool)
-                        elif settings['webSearch']['crawler'] == 'request':
-                            tools.append(request_crawler_tool)
                         elif settings['webSearch']['crawler'] == 'firecrawl':
                             tools.append(firecrawl_tool)
                 if kb_list:
@@ -3432,7 +3427,6 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         bochaai_tool,
         jina_crawler_tool, 
         Crawl4Ai_tool,
-        request_crawler_tool,
         firecrawl_tool,
     )
     from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
@@ -3833,8 +3827,6 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     tools.append(jina_crawler_tool)
                 elif settings['webSearch']['crawler'] == 'crawl4ai':
                     tools.append(Crawl4Ai_tool)
-                elif settings['webSearch']['crawler'] == 'request':
-                    tools.append(request_crawler_tool)
                 elif settings['webSearch']['crawler'] == 'firecrawl':
                     tools.append(firecrawl_tool)
         if kb_list:
