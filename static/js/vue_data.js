@@ -624,10 +624,11 @@ let vue_data = {
       azureVoice: '',
 
       // Volcengine
+      volcAppId: '',
       volcAccessKey: '',
-      volcSecretKey: '',
-      volcAppKey: '',
-      volcVoice: '',
+      volcResourceId: 'seed-tts-2.0', // 默认公共资源ID
+      volcVoice: 'zh_female_vv_uranus_bigtts', // 默认大模型音色
+      volcRate: 1.0,
 
       // Baidu
       baiduApiKey: '',
@@ -654,6 +655,20 @@ let vue_data = {
       googleVoice: '',
       newtts:{}
     },
+    volcResourceOptions: [
+        { value: 'volc_tts_release', label: '旧版/标准版 (Standard)' },
+        // 豆包 1.0
+        { value: 'seed-tts-1.0', label: '豆包模型1.0 (字符版)' },
+        { value: 'volc.service_type.10029', label: '豆包1.0 (字符版-ServiceType)' },
+        { value: 'seed-tts-1.0-concurr', label: '豆包模型1.0 (并发版)' },
+        { value: 'volc.service_type.10048', label: '豆包1.0 (并发版-ServiceType)' },
+        // 豆包 2.0
+        { value: 'seed-tts-2.0', label: '豆包模型2.0 (字符版)' },
+        // 声音复刻
+        { value: 'seed-icl-1.0', label: '声音复刻1.0 (字符版)' },
+        { value: 'seed-icl-1.0-concurr', label: '声音复刻1.0 (并发版)' },
+        { value: 'seed-icl-2.0', label: '声音复刻2.0 (字符版)' }
+    ],
     activeTTSTab: 'default', // 控制 TTS 标签页切换
     showAddTTSDialog: false, // 控制添加 TTS 的对话框显示
     newTTSConfig: {
@@ -695,10 +710,11 @@ let vue_data = {
       azureVoice: '',
 
       // Volcengine
+      volcAppId: '',
       volcAccessKey: '',
-      volcSecretKey: '',
-      volcAppKey: '',
-      volcVoice: '',
+      volcResourceId: 'seed-tts-2.0', // 默认公共资源ID
+      volcVoice: 'zh_female_vv_uranus_bigtts', // 默认大模型音色
+      volcRate: 1.0,
 
       // Baidu
       baiduApiKey: '',

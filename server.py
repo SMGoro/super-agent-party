@@ -1385,7 +1385,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 注意！你最好只使用你正在扮演的角色音色和旁白音色，不要使用其他角色音色，除非你明确知道你在做什么！\n\n"""
             content_prepend(request.messages, 'system', newtts_messages)
     if settings['vision']['desktopVision'] and not request.is_app_bot:
-        desktop_message = "\n\n用户与你对话时，会自动发给你当前的桌面截图。\n\n"
+        desktop_message = "\n\n用户与你对话时，如果发了图片给你，有可能是给你发当前的桌面截图。\n\n"
         content_append(request.messages, 'system', desktop_message)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'beforeThinking':
         time_message = f"消息发送时间：{local_timezone}  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n\n"
@@ -6025,6 +6025,128 @@ async def text_to_speech(request: Request):
                 }
             )
             
+        elif tts_engine == 'volcengine':
+            # ==========================================
+            # 火山引擎 (Volcengine) TTS
+            # ==========================================
+            import json
+            import base64
+            
+            # 1. 获取配置
+            volc_app_id = tts_settings.get('volcAppId', '')
+            volc_access_key = tts_settings.get('volcAccessKey', '')
+            # 这里的 Resource ID 通常是 'volc_tts_release'，或者是特定的部署ID
+            volc_resource_id = tts_settings.get('volcResourceId', 'volc_tts_release') 
+            volc_voice = tts_settings.get('volcVoice', 'zh_female_cancan_mars_bigtts')
+            volc_rate = float(tts_settings.get('volcRate', 1.0))
+            
+            # 移动端优化：火山的语速范围通常在 [0.2, 3.0] 之间，1.0为正常
+            if mobile_optimized:
+                volc_rate = min(volc_rate * 0.95, 1.2)
+            
+            # 2. 构造请求
+            url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+            headers = {
+                "X-Api-App-Id": volc_app_id,
+                "X-Api-Access-Key": volc_access_key,
+                "X-Api-Resource-Id": volc_resource_id,
+                "Content-Type": "application/json",
+                "Connection": "keep-alive"
+            }
+            
+            # 构造 payload
+            # 注意：speed_ratio 是在 req_params 下，不同模型可能支持程度不同，标准V3支持
+            payload = {
+                "user": {
+                    "uid": "123456" # 这里的uid可以是任意标识
+                },
+                "req_params": {
+                    "text": text,
+                    "speaker": volc_voice,
+                    "speed_ratio": volc_rate, 
+                    "audio_params": {
+                        "format": "mp3", # 火山默认输出 mp3 或 pcm，这里选 mp3
+                        "sample_rate": 24000,
+                    },
+                    # 避免 Markdown 符号被朗读出来
+                    "additions": "{\"disable_markdown_filter\":true}" 
+                }
+            }
+
+            async def generate_audio():
+                timeout_config = httpx.Timeout(None, connect=10.0)
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
+                    try:
+                        async with client.stream("POST", url, headers=headers, json=payload) as response:
+                            if response.status_code != 200:
+                                error_content = await response.aread()
+                                print(f"[Volcengine Error] Status: {response.status_code}, Body: {error_content}")
+                                raise HTTPException(status_code=502, detail=f"火山引擎返回错误: {response.status_code}")
+
+                            # 准备收集器（如果需要转 opus）
+                            collected_audio = bytearray()
+                            
+                            # httpx 的 aiter_lines 对应 requests 的 iter_lines
+                            async for line in response.aiter_lines():
+                                if not line:
+                                    continue
+                                try:
+                                    data = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+
+                                # 处理错误码
+                                if data.get("code", 0) != 0 and data.get("code", 0) != 20000000:
+                                    # 忽略结束标识 20000000，报告其他错误
+                                    print(f"[Volcengine Error Packet] {data}")
+                                    continue
+                                
+                                if "data" in data and data["data"]:
+                                    chunk_audio = base64.b64decode(data["data"])
+                                    
+                                    if target_format == "opus":
+                                        # 如果需要转 opus，必须先收集所有 mp3 数据
+                                        collected_audio.extend(chunk_audio)
+                                    else:
+                                        # 不需要转换，直接流式输出 mp3
+                                        yield chunk_audio
+                            
+                            # 循环结束后，如果是 opus 模式，进行转换
+                            if target_format == "opus" and len(collected_audio) > 0:
+                                # 【复用既有的转换函数】放入线程池 + 解包元组
+                                convert_result = await asyncio.to_thread(convert_to_opus_simple, bytes(collected_audio))
+                                if isinstance(convert_result, tuple):
+                                    opus_audio = convert_result[0]
+                                else:
+                                    opus_audio = convert_result
+                                
+                                # 分块返回
+                                chunk_size = 4096
+                                for i in range(0, len(opus_audio), chunk_size):
+                                    yield opus_audio[i:i + chunk_size]
+
+                    except httpx.RequestError as e:
+                        print(f"[Volcengine Network Error] {str(e)}")
+                        raise HTTPException(status_code=502, detail=f"火山引擎连接失败: {str(e)}")
+
+            # 设置响应头
+            if target_format == "opus":
+                media_type = "audio/ogg"
+                filename = f"tts_{index}.opus"
+            else:
+                media_type = "audio/mpeg"
+                filename = f"tts_{index}.mp3"
+
+            return StreamingResponse(
+                generate_audio(),
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f"inline; filename={filename}",
+                    "X-Audio-Index": str(index),
+                    "X-Audio-Format": target_format
+                }
+            )
+
         elif tts_engine == 'openai':
             # OpenAI TTS处理
             openai_config = {
@@ -6276,9 +6398,9 @@ async def text_to_speech(request: Request):
             )
         
         # ==========================================
-        # Tetos 统一处理逻辑 (Azure, Volc, Baidu, etc.)
+        # Tetos 统一处理逻辑 (Azure, Baidu, etc.)
         # ==========================================
-        elif tts_engine in ['azure', 'volcengine', 'baidu', 'minimax', 'xunfei', 'fish', 'google']:
+        elif tts_engine in ['azure', 'baidu', 'minimax', 'xunfei', 'fish', 'google']:
             import traceback # 用于打印报错堆栈
             import uuid
             # 1. 准备临时文件路径
@@ -6307,16 +6429,6 @@ async def text_to_speech(request: Request):
                         speaker = AzureSpeaker(
                             speech_key=tts_settings.get('azureSpeechKey', ''),
                             speech_region=tts_settings.get('azureRegion', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-                    
-                    # === 2. Volcengine (火山) ===
-                    elif tts_engine == 'volcengine':
-                        from tetos.volc import VolcSpeaker
-                        speaker = VolcSpeaker(
-                            access_key=tts_settings.get('volcAccessKey', ''),
-                            secret_key=tts_settings.get('volcSecretKey', ''),
-                            app_key=tts_settings.get('volcAppKey', ''),
                             voice=selected_voice  # 在初始化时传入
                         )
 
@@ -6478,18 +6590,6 @@ async def list_tetos_voices(request: Request):
                     speech_region=config.get('speech_region') or config.get('region')
                 )
                 # 获取列表
-                voices = speaker.list_voices()
-
-            # ---------------------------
-            # Volcengine (火山引擎)
-            # ---------------------------
-            elif provider == 'volcengine':
-                from tetos.volc import VolcSpeaker
-                speaker = VolcSpeaker(
-                    access_key=config.get('access_key'),
-                    secret_key=config.get('secret_key'),
-                    app_key=config.get('app_key')
-                )
                 voices = speaker.list_voices()
 
             # ---------------------------
