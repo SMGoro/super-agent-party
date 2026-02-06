@@ -6731,43 +6731,6 @@ function updateElement(el, rawMarkdown, formatFn) {
               <!-- 工具界面 -->
               <div v-show="subMenu === 'tools'" class="page">
                 <div class="provider-grid">
-                  <!-- 异步工具 -->
-                  <div class="provider-card tool-card">
-                    <div class="card-header">
-                      <el-switch 
-                        v-model="toolsSettings.asyncTools.enabled" 
-                        @change="autoSaveSettings"
-                        class="tool-switch"
-                      ></el-switch>
-                    </div>
-                    <div class="tool-card-title">
-                      <h3 class="kb-title">{{ t('asyncTools') }}</h3>
-                    </div>
-                    <el-alert type="info" :closable="false" class="mb-2">
-                      <div class="alert-content">
-                        {{ t('asyncToolsNotice') }}
-                      </div>
-                    </el-alert>
-                  </div>
-
-                  <!-- A2UI工具 -->
-                  <div class="provider-card tool-card">
-                    <div class="card-header">
-                      <el-switch 
-                        v-model="toolsSettings.a2ui.enabled" 
-                        @change="autoSaveSettings"
-                        class="tool-switch"
-                      ></el-switch>
-                    </div>
-                    <div class="tool-card-title">
-                      <h3 class="kb-title">{{ t('a2uiTools') }}</h3>
-                    </div>
-                    <el-alert type="info" :closable="false" class="mb-2">
-                      <div class="alert-content">
-                        {{ t('a2uiToolsNotice') }}
-                      </div>
-                    </el-alert>
-                  </div>
 
                   <!-- 当前时间工具 -->
                   <div class="provider-card tool-card">
@@ -6817,40 +6780,39 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </div>
                     </el-alert>
                   </div>
-
-                  <!-- 随机话题工具 -->
+        
+                  <!-- 语言语调工具 -->
                   <div class="provider-card tool-card">
                     <div class="card-header">
                       <el-switch
-                        v-model="toolsSettings.randomTopic.enabled"
+                        v-model="toolsSettings.language.enabled"
                         @change="autoSaveSettings"
                         class="tool-switch"
                       ></el-switch>
                     </div>
                     <div class="tool-card-title">
-                      <h3 class="kb-title">{{ t('randomTopicTool') }}</h3>
-                      <el-link
-                        type="primary"
-                        :underline="false"
-                        href="https://github.com/heshengtao/topics-after-party" 
-                        target="_blank"
-                      >
-                        <el-icon class="mr-1">
-                          <i class="fa-solid fa-key"></i>
-                        </el-icon>{{ t('gotoGithub') }}
-                      </el-link>
+                      <h3 class="kb-title">{{ t('languageTone') }}</h3>
                     </div>
-                    <el-form-item :label="t('baseURL')">
+                    <el-form-item :label="t('assistantLanguage')">
                       <el-input
-                        v-model="toolsSettings.randomTopic.baseURL"
+                        v-model="toolsSettings.language.language"
                         @change="autoSaveSettings"
                         class="mini-input"
-                        :placeholder="t('randomTopicPlaceholder')"
+                        :placeholder="t('languagePlaceholder')"
+                      ></el-input>
+                    </el-form-item>
+                    
+                    <el-form-item :label="t('assistantTone')">
+                      <el-input
+                        v-model="toolsSettings.language.tone"
+                        @change="autoSaveSettings"
+                        class="mini-input"
+                        :placeholder="t('tonePlaceholder')"
                       ></el-input>
                     </el-form-item>
                     <el-alert type="info" :closable="false" class="mb-2">
                       <div class="alert-content">
-                        {{ t('randomTopicNotice') }}
+                        {{ t('languageNotice') }}
                       </div>
                     </el-alert>
                   </div>
@@ -6893,6 +6855,25 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <el-alert type="info" :closable="false" class="mb-2">
                       <div class="alert-content">
                         {{ t('arxivNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
+                  <!-- LaTeX增强工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch
+                        v-model="toolsSettings.formula.enabled"
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div  class="tool-card-title">
+                      <h3 class="kb-title">{{ t('latexRenderingEnhancement') }}</h3>
+                    </div>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('latexRenderingEnhancementNotice') }}
                       </div>
                     </el-alert>
                   </div>
@@ -6974,58 +6955,41 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </div>
                     </el-alert>
                   </div>
-        
-                  <!-- LaTeX增强工具 -->
+
+                  <!-- 异步工具 -->
                   <div class="provider-card tool-card">
                     <div class="card-header">
-                      <el-switch
-                        v-model="toolsSettings.formula.enabled"
-                        @change="autoSaveSettings"
-                        class="tool-switch"
-                      ></el-switch>
-                    </div>
-                    <div  class="tool-card-title">
-                      <h3 class="kb-title">{{ t('latexRenderingEnhancement') }}</h3>
-                    </div>
-                    <el-alert type="info" :closable="false" class="mb-2">
-                      <div class="alert-content">
-                        {{ t('latexRenderingEnhancementNotice') }}
-                      </div>
-                    </el-alert>
-                  </div>
-        
-                  <!-- 语言语调工具 -->
-                  <div class="provider-card tool-card">
-                    <div class="card-header">
-                      <el-switch
-                        v-model="toolsSettings.language.enabled"
+                      <el-switch 
+                        v-model="toolsSettings.asyncTools.enabled" 
                         @change="autoSaveSettings"
                         class="tool-switch"
                       ></el-switch>
                     </div>
                     <div class="tool-card-title">
-                      <h3 class="kb-title">{{ t('languageTone') }}</h3>
+                      <h3 class="kb-title">{{ t('asyncTools') }}</h3>
                     </div>
-                    <el-form-item :label="t('assistantLanguage')">
-                      <el-input
-                        v-model="toolsSettings.language.language"
-                        @change="autoSaveSettings"
-                        class="mini-input"
-                        :placeholder="t('languagePlaceholder')"
-                      ></el-input>
-                    </el-form-item>
-                    
-                    <el-form-item :label="t('assistantTone')">
-                      <el-input
-                        v-model="toolsSettings.language.tone"
-                        @change="autoSaveSettings"
-                        class="mini-input"
-                        :placeholder="t('tonePlaceholder')"
-                      ></el-input>
-                    </el-form-item>
                     <el-alert type="info" :closable="false" class="mb-2">
                       <div class="alert-content">
-                        {{ t('languageNotice') }}
+                        {{ t('asyncToolsNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
+                  <!-- A2UI工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch 
+                        v-model="toolsSettings.a2ui.enabled" 
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div class="tool-card-title">
+                      <h3 class="kb-title">{{ t('a2uiTools') }}</h3>
+                    </div>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('a2uiToolsNotice') }}
                       </div>
                     </el-alert>
                   </div>
@@ -7048,6 +7012,45 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </div>
                     </el-alert>
                   </div>
+
+                  <!-- 随机话题工具 -->
+                  <div class="provider-card tool-card">
+                    <div class="card-header">
+                      <el-switch
+                        v-model="toolsSettings.randomTopic.enabled"
+                        @change="autoSaveSettings"
+                        class="tool-switch"
+                      ></el-switch>
+                    </div>
+                    <div class="tool-card-title">
+                      <h3 class="kb-title">{{ t('randomTopicTool') }}</h3>
+                      <el-link
+                        type="primary"
+                        :underline="false"
+                        href="https://github.com/heshengtao/topics-after-party" 
+                        target="_blank"
+                      >
+                        <el-icon class="mr-1">
+                          <i class="fa-solid fa-key"></i>
+                        </el-icon>{{ t('gotoGithub') }}
+                      </el-link>
+                    </div>
+                    <el-form-item :label="t('baseURL')">
+                      <el-input
+                        v-model="toolsSettings.randomTopic.baseURL"
+                        @change="autoSaveSettings"
+                        class="mini-input"
+                        :placeholder="t('randomTopicPlaceholder')"
+                      ></el-input>
+                    </el-form-item>
+                    <el-alert type="info" :closable="false" class="mb-2">
+                      <div class="alert-content">
+                        {{ t('randomTopicNotice') }}
+                      </div>
+                    </el-alert>
+                  </div>
+
+
                 </div>
               </div>
 
@@ -7834,7 +7837,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         {{ t('openSkillsFolder') }}
                       </el-button>
                       <el-button 
-                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io')" 
+                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io/blob/main/skills.json')" 
                         type="primary">
                         {{ t('addYourSkills') }}
                       </el-button>
@@ -9467,6 +9470,21 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <span>GO</span>
                         <i class="fa-solid fa-arrow-right-long"></i>
                       </div>
+                    </div>
+                  </div>
+                  <div class="plugin-header">
+                    <h3>MCP</h3>
+                    <div class="plugin-button-group">
+                      <el-button 
+                        @click="showAddMCPDialo = true" 
+                        type="primary">
+                        {{ t('addNewMCP') }}
+                      </el-button>
+                      <el-button 
+                        @click="openRepository('https://github.com/super-agent-party/super-agent-party.github.io/blob/main/mcp.json')" 
+                        type="primary">
+                        {{ t('addYourMCP') }}
+                      </el-button>
                     </div>
                   </div>
                   <!-- 磁贴网格 -->
