@@ -428,7 +428,8 @@
       "reasoningVisible": true,
       "quickRestart": true,
       "enableTTS":false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "dingtalkBotConfig": {
       "DingtalkAgent": "super-model",

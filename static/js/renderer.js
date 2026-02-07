@@ -835,7 +835,7 @@ const app = Vue.createApp({
       const hm = now.toLocaleTimeString('zh-CN', { hour12: false }) // HH:mm:ss
       const d  = now.getDay() // 0=周日
       this.behaviorSettings.behaviorList.forEach(b => {
-        if (!b.enabled || b.trigger.type !== 'time') return
+        if (!b.enabled || b.trigger.type !== 'time' || b.platform !== "chat") return
         const tv = b.trigger.time.timeValue
         const ds = b.trigger.time.days
         if (tv === hm) {
@@ -852,7 +852,7 @@ const app = Vue.createApp({
     this.behaviorNoInputTimer = setInterval(() => {
       if (!this.behaviorSettings.enabled) return
       this.behaviorSettings.behaviorList.forEach(b => {
-        if (!b.enabled || b.trigger.type !== 'noInput') return
+        if (!b.enabled || b.trigger.type !== 'noInput'|| b.platform !== "chat" ) return
         const need = b.trigger.noInput.latency
         if (this.noInputFlag) {
           this.noInputSec++
@@ -875,8 +875,7 @@ const app = Vue.createApp({
     
     const now = new Date();
     this.behaviorSettings.behaviorList.forEach((b, index) => {
-      if (!b.enabled || b.trigger.type !== 'cycle') return;
-      
+      if (!b.enabled || b.trigger.type !== 'cycle' || b.platform !== "chat") return;
       // 检查是否已有定时器
       if (!this.cycleTimers[index]) {
         this.initCycleTimer(b, index);

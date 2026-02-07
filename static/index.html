@@ -4401,6 +4401,20 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-alert>
                       </div>
 
+                      <!-- 推送平台 -->
+                      <div class="sub-config-box">
+                        <el-form-item :label="t('behaviorPlatform')">
+                          <el-select v-model="tempBehavior.platform" class="full-width-input">
+                            <el-option :label="t('chatInterface')" value="chat"></el-option>
+                            <el-option :label="t('feishuBot')" value="feishu"></el-option>
+                            <el-option :label="t('dingtalkBot')" value="dingtalk"></el-option>
+                            <el-option :label="t('telegramBot')" value="telegram"></el-option>
+                            <el-option :label="t('discordBot')" value="discord"></el-option>
+                            <el-option :label="t('slackBot')" value="slack"></el-option>
+                          </el-select>
+                        </el-form-item>
+                      </div>
+
                     </el-form>
                   </div>
 
@@ -10916,6 +10930,29 @@ function updateElement(el, rawMarkdown, formatFn) {
                               class="full-width-input"
                               @change="autoSaveSettings"
                             />
+                          </el-form-item>
+
+                          <el-form-item :label="t('behaviorTargetChatIds')">
+                            <template #label>
+                              <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                                <el-tooltip :content="t('behaviorTargetChatIdsTip')" placement="top">
+                                  <el-icon><i class="fa-solid fa-circle-info"></i></el-icon>
+                                </el-tooltip>
+                              </div>
+                            </template>
+                            <el-select
+                              v-model="feishuBotConfig.behaviorTargetChatIds"
+                              multiple
+                              filterable
+                              allow-create
+                              default-first-option
+                              :placeholder="t('enterChatIdPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings(); syncFeishuBehavior();"
+                            >
+                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                            </el-select>
                           </el-form-item>
 
                           <!-- APP 凭证 -->

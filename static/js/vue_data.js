@@ -1350,7 +1350,8 @@ let vue_data = {
           orderIndex:0,
         },
         topicLimit: 1, // 话题限制
-      }
+      },
+      platform:"chat",
     },
     allBriefly:false,
     qqBotConfig: {
@@ -1373,6 +1374,7 @@ let vue_data = {
       quickRestart: true,
       enableTTS: false,
       wakeWord: '',
+      behaviorTargetChatIds: [], 
     },
     isFeishuBotRunning: false,
     isFeishuStarting: false,

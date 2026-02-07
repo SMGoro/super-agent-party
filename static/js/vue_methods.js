@@ -10383,7 +10383,7 @@ stopTTSActivities() {
 
     /* 触发一次后，如果是“不重复”就把 enabled 关掉 */
     disableOnceBehavior(b) {
-      if (b.trigger.type === 'time' && !b.trigger.time.days.length) {
+      if (b.trigger.type === 'time' && !b.trigger.time.days.length && b.platform === 'chat') {
         b.enabled = false
         this.autoSaveSettings()
       }
@@ -10477,7 +10477,7 @@ stopTTSActivities() {
     
     // 重新初始化启用的周期触发器
     this.behaviorSettings.behaviorList.forEach((b, index) => {
-      if (b.enabled && b.trigger.type === 'cycle') {
+      if (b.enabled && b.trigger.type === 'cycle' && b.platform === 'chat') {
         this.initCycleTimer(b, index);
       }
     });
@@ -14760,7 +14760,6 @@ async handleRefreshSkills() {
     // 打开编辑/新增对话框
     openBehaviorDialog(index) {
       this.currentBehaviorIndex = index;
-      
       if (index === -1) {
         // 新增模式：创建默认模板的深拷贝
         this.tempBehavior = this.createDefaultBehavior();
@@ -14788,7 +14787,8 @@ async handleRefreshSkills() {
           prompt: '',
           topicLimit: 3,
           random: { type: 'random', events: [''] }
-        }
+        },
+        platform:"chat",
       };
     },
 
