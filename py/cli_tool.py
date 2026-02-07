@@ -884,116 +884,387 @@ async def bash_tool_local(command: str, background: bool = False) -> str | Async
 
 # 恢复原有的 Local 文件工具
 async def list_files_tool_local(path: str = ".", show_all: bool = False) -> str:
+    """[Local] 列出文件：优先显示目录，支持数量截断，过滤隐藏文件"""
     try:
         cwd = await _get_current_cwd()
         target = resolve_strict_path(cwd, path, check_symlink=True)
+        
+        if not target.is_dir():
+            return f"[Error] Not a directory: {path}"
+
+        # 使用 scandir 获取更详细的信息且速度更快
         entries = []
-        for e in target.iterdir():
-            if not show_all and e.name.startswith('.'): continue
-            suffix = "/" if e.is_dir() else ""
-            entries.append(f"{e.name}{suffix}")
-        return "\n".join(sorted(entries)) if entries else "Empty."
-    except Exception as e: return str(e)
+        try:
+            with os.scandir(target) as it:
+                for entry in it:
+                    if not show_all and entry.name.startswith('.'):
+                        continue
+                    
+                    is_dir = entry.is_dir()
+                    # 格式：(是否目录, 排序名, 显示字符串)
+                    # 目录排在前面 (0)，文件排在后面 (1)
+                    display_name = f"{entry.name}/" if is_dir else entry.name
+                    entries.append((0 if is_dir else 1, entry.name.lower(), display_name))
+        except PermissionError:
+            return f"[Error] Permission denied accessing: {path}"
+
+        # 排序：先按目录/文件分，再按名称字母序
+        entries.sort()
+
+        # 数量截断防止 Token 爆炸
+        MAX_ITEMS = 200
+        result_lines = [e[2] for e in entries[:MAX_ITEMS]]
+        
+        summary = f"Total: {len(entries)} items"
+        if len(entries) > MAX_ITEMS:
+            summary += f" (Showing first {MAX_ITEMS})"
+            result_lines.append(f"... {len(entries) - MAX_ITEMS} more items")
+        
+        return f"{summary} in {path}:\n" + "\n".join(result_lines) if result_lines else "Empty directory."
+
+    except Exception as e:
+        return f"[Error] List failed: {str(e)}"
 
 async def read_file_tool_local(path: str) -> str:
+    """[Local] 读取文件：支持大文件截断读取 (Max 2000行)，自动检测二进制文件"""
     try:
         cwd = await _get_current_cwd()
         target = resolve_strict_path(cwd, path, check_symlink=True)
 
-        # 额外的权限检查：确保不是设备文件等危险类型
+        if not target.exists():
+            return f"[Error] File not found: {path}"
+        
         if not target.is_file():
-            return f"[Error] Not a regular file: {path}"
+            return f"[Error] Not a file: {path}"
+
+        # 1. 二进制文件快速检测 (读取前1KB检查空字节)
+        try:
+            with open(target, 'rb') as f_bin:
+                chunk = f_bin.read(1024)
+                if b'\0' in chunk:
+                    return f"[Error] Cannot read binary file: {path}"
+        except Exception as e:
+            return f"[Error] Failed to check file type: {str(e)}"
+
+        # 2. 限制读取大小，防止内存爆炸
+        MAX_LINES = 2000
+        MAX_BYTES = 500 * 1024  # 500KB Limit
+        
+        file_size = target.stat().st_size
+        truncated = False
         
         async with aiofiles.open(target, 'r', encoding='utf-8', errors='replace') as f:
-            lines = (await f.read()).splitlines()
-        return "\n".join([f"{i+1:6}\t{l}" for i, l in enumerate(lines)])
-    except Exception as e: return str(e)
+            # 如果文件过大，只读取部分字符
+            if file_size > MAX_BYTES:
+                content = await f.read(MAX_BYTES)
+                truncated = True
+                lines = content.splitlines()
+                # 丢弃最后一行，因为可能被字节限制截断了一半
+                if lines: lines.pop()
+            else:
+                lines = await f.readlines()
+                # 去除末尾换行符
+                lines = [l.rstrip('\n') for l in lines]
+
+        # 行数截断
+        if len(lines) > MAX_LINES:
+            lines = lines[:MAX_LINES]
+            truncated = True
+
+        # 格式化输出：行号 + 内容
+        output = [f"{i+1:4} | {line}" for i, line in enumerate(lines)]
+        
+        if truncated:
+            output.append(f"\n... [Warning] File content truncated (Too large). Showing first {len(lines)} lines.")
+            
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"[Error] Read failed: {str(e)}"
 
 async def edit_file_tool_local(path: str, content: str) -> str:
+    """[Local] 写入文件：自动创建 .bak 备份，原子写入防损坏"""
     try:
         cwd = await _get_current_cwd()
         target = resolve_strict_path(cwd, path, check_symlink=True)
+        
+        # 1. 确保父目录存在
+        parent_dir = target.parent
+        # 安全检查：确保父目录也在工作区内
+        resolve_strict_path(cwd, str(parent_dir), check_symlink=True)
+        await aiofiles.os.makedirs(parent_dir, exist_ok=True)
 
-        # 确保父目录也在工作区内
-        resolve_strict_path(cwd, str(target.parent), check_symlink=True)
+        # 2. 创建备份 (如果文件存在)
+        backup_msg = ""
+        if target.exists():
+            try:
+                # 简单的备份策略：filename.bak
+                # 如果是覆盖写，保留一个后悔药非常重要
+                backup_path = target.with_suffix(target.suffix + ".bak")
+                # 使用 shutil 进行同步复制 (文件操作通常很快，不会阻塞太久)
+                shutil.copy2(target, backup_path)
+                backup_msg = f" (Backup created: {backup_path.name})"
+            except Exception as e:
+                print(f"[Warn] Backup failed: {e}")
 
-        await aiofiles.os.makedirs(target.parent, exist_ok=True)
-        async with aiofiles.open(target, 'w', encoding='utf-8') as f:
-            await f.write(content)
-        return "Saved."
-    except Exception as e: return str(e)
+        # 3. 原子写入 (Atomic Write)
+        # 先写入临时文件，再重命名。防止写入一半时脚本崩溃导致文件内容丢失
+        temp_path = target.with_suffix(target.suffix + f".tmp.{uuid.uuid4().hex[:6]}")
+        
+        try:
+            async with aiofiles.open(temp_path, 'w', encoding='utf-8') as f:
+                await f.write(content)
+            
+            # 原子替换 (POSIX 系统上是原子的，Windows 上最近的版本也是)
+            if os.path.exists(target):
+                os.replace(temp_path, target)
+            else:
+                os.rename(temp_path, target)
+                
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise e
+
+        return f"Saved successfully{backup_msg}."
+
+    except Exception as e:
+        return f"[Error] Edit failed: {str(e)}"
 
 async def search_files_tool_local(pattern: str, path: str = ".") -> str:
-    # 简单的本地 Python 实现 grep
+    """[Local] 智能搜索：优先尝试 git grep/grep，回退到优化的 Python 实现"""
     try:
         cwd = await _get_current_cwd()
         target_dir = resolve_strict_path(cwd, path, check_symlink=True)
+        target_str = str(target_dir)
+        
+        # 1. 尝试使用 git grep (速度最快，且自动尊重 .gitignore)
+        # 只有当在 git 仓库内且安装了 git 时有效
+        if os.path.isdir(os.path.join(cwd, ".git")) and shutil.which("git"):
+            try:
+                # -I: 不搜索二进制, -n: 行号, --full-name: 相对路径
+                cmd = ["git", "grep", "-I", "-n", "--full-name", pattern]
+                # 如果指定了子目录，限制搜索范围
+                rel_path = os.path.relpath(target_str, cwd)
+                if rel_path != ".":
+                    cmd.append(rel_path)
+                
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd
+                )
+                stdout, _ = await proc.communicate()
+                if proc.returncode == 0 and stdout:
+                    return stdout.decode('utf-8', errors='replace').strip()
+            except Exception:
+                pass # git grep 失败则回退
+
+        # 2. 优化的 Python 实现 (Ripgrep-lite)
         matches = []
         regex = re.compile(pattern)
-        for root, _, files in os.walk(target_dir):
-            if any(x in root for x in ['.git', 'node_modules', '__pycache__']): continue
-            for file in files:
-                try:
-                    fp = Path(root) / file
-                    async with aiofiles.open(fp, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = await f.read()
-                        for i, line in enumerate(content.splitlines(), 1):
-                            if regex.search(line):
-                                matches.append(f"{fp.name}:{i}:{line.strip()[:100]}")
-                                if len(matches) > 50: return "\n".join(matches) + "\n..."
-                except: continue
-        return "\n".join(matches) if matches else "No matches."
-    except Exception as e: return str(e)
+        MAX_RESULTS = 1000  # 防止结果爆炸
+        
+        # 定义需要跳过的目录和扩展名
+        SKIP_DIRS = {'.git', 'node_modules', '__pycache__', 'venv', '.env', 'dist', 'build', 'coverage'}
+        SKIP_EXTS = {'.pyc', '.pyo', '.so', '.dll', '.exe', '.bin', '.png', '.jpg', '.jpeg', '.gif', '.zip', '.tar', '.gz'}
 
+        # 判断文件是否为二进制 (读取前 1024 字节检查 NULL)
+        def is_binary(file_path):
+            try:
+                with open(file_path, 'rb') as f:
+                    chunk = f.read(1024)
+                    return b'\0' in chunk
+            except:
+                return True
+
+        for root, dirs, files in os.walk(target_str, topdown=True):
+            # 剪枝：直接修改 dirs 列表，阻止 os.walk 进入这些目录
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+            
+            for file in files:
+                if any(file.endswith(ext) for ext in SKIP_EXTS): continue
+                
+                full_path = os.path.join(root, file)
+                # 相对路径用于显示
+                display_path = os.path.relpath(full_path, cwd)
+                
+                if is_binary(full_path): continue
+
+                try:
+                    # 使用 aiofiles 异步读取文本
+                    async with aiofiles.open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = await f.read()
+                        lines = content.splitlines()
+                        for i, line in enumerate(lines, 1):
+                            if regex.search(line):
+                                # 截断过长的行
+                                clean_line = line.strip()[:200]
+                                matches.append(f"{display_path}:{i}:{clean_line}")
+                                if len(matches) >= MAX_RESULTS:
+                                    return "\n".join(matches) + f"\n... (Truncated at {MAX_RESULTS} matches)"
+                except Exception:
+                    continue
+
+        return "\n".join(matches) if matches else "No matches found."
+    except Exception as e:
+        return f"[Error] Search failed: {str(e)}"
+    
 async def glob_files_tool_local(pattern: str, exclude: str = "") -> str:
+    """[Local] 智能查找：优先 git ls-files，支持高效剪枝遍历"""
     try:
         cwd = await _get_current_cwd()
         base = Path(cwd).resolve()
         
-        # 禁止 glob 模式中的遍历（如 ../../../etc/*）
-        if '..' in pattern:
-            return "[Security] Glob pattern cannot contain '..'"
-            
-        # 使用安全的基础路径拼接
-        search_path = base / pattern
-        # 确保 glob 不会解析到 base 外（glob 本身会跟随 ..，但会被 resolve_strict_path 捕获）
-        
-        files = std_glob.glob(str(search_path), recursive=True)
+        # 安全检查
+        if '..' in pattern: return "[Security] Glob pattern cannot contain '..'"
+
         excludes = [e.strip() for e in exclude.split(",") if e.strip()]
+        # 默认排除常见垃圾目录
+        DEFAULT_EXCLUDES = {'.git', 'node_modules', '__pycache__', 'venv', 'dist', 'build', '.idea', '.vscode'}
         
-        res = []
-        for f in files:
-            try:
-                p = Path(f).resolve()
-                # 验证每个结果都在工作区内
-                p.relative_to(base)
-                rel = str(p.relative_to(base))
-                if not any(fnmatch.fnmatch(rel, ex) for ex in excludes):
-                    res.append(rel)
-            except ValueError:
-                continue  # 忽略逃逸的路径
+        results = []
+
+        # 1. 尝试使用 git ls-files (最准确，遵循 .gitignore)
+        # 只有当在 git 仓库且没有复杂的 pattern 通配符时使用
+        use_git = False
+        if os.path.isdir(os.path.join(cwd, ".git")) and shutil.which("git"):
+             # git ls-files 支持简单的 glob，但复杂的可能不支持，这里主要用于全量列出
+            if pattern == "**/*" or pattern == ".":
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "git", "ls-files", "--cached", "--others", "--exclude-standard",
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd
+                    )
+                    stdout, _ = await proc.communicate()
+                    if proc.returncode == 0 and stdout:
+                        files = stdout.decode().splitlines()
+                        # 应用额外的 fnmatch 过滤
+                        for f in files:
+                            if not any(fnmatch.fnmatch(f, ex) for ex in excludes):
+                                results.append(f)
+                        use_git = True
+                except:
+                    pass
+
+        # 2. 如果 git 失败或不适用，使用优化的 os.walk (带剪枝)
+        if not use_git:
+            # 将模式拆分为目录部分和文件部分（简化处理）
+            # 如果 pattern 是简单的 "**/*" 或 "*.py"，我们遍历整个树
+            is_recursive = "**" in pattern
+            search_ext = pattern.split("*")[-1] if pattern.startswith("*") else None
+            
+            for root, dirs, files in os.walk(str(base), topdown=True):
+                # 关键优化：原地修改 dirs 以剪枝
+                dirs[:] = [d for d in dirs if d not in DEFAULT_EXCLUDES and not d.startswith('.')]
                 
-        return "\n".join(res[:100])  # 限制返回数量防止 DOS
+                rel_root = Path(root).relative_to(base)
+                
+                for name in files:
+                    file_rel_path = str(rel_root / name)
+                    if file_rel_path.startswith("./"): file_rel_path = file_rel_path[2:]
+
+                    # 检查排除项
+                    if any(fnmatch.fnmatch(file_rel_path, ex) for ex in excludes):
+                        continue
+                    
+                    # 检查匹配项
+                    if fnmatch.fnmatch(file_rel_path, pattern) or (search_ext and name.endswith(search_ext)):
+                        results.append(file_rel_path)
+
+        # 限制返回数量
+        limit = 200
+        output = sorted(results)
+        if len(output) > limit:
+            return "\n".join(output[:limit]) + f"\n... ({len(output)-limit} more files)"
+        return "\n".join(output) if output else "No files matched."
         
     except Exception as e:
         return f"[Error] {str(e)}"
-
+    
 async def edit_file_patch_tool_local(path: str, old_string: str, new_string: str) -> str:
-    # 本地 Patch 实现
+    """[Local] 精确替换：自动处理换行符差异 (CRLF/LF) 与空白字符容错"""
     try:
         cwd = await _get_current_cwd()
         target = resolve_strict_path(cwd, path, check_symlink=True)
+        
+        if not target.exists():
+            return f"[Error] File not found: {path}"
+
+        # 读取文件内容
         async with aiofiles.open(target, 'r', encoding='utf-8') as f:
             content = await f.read()
+
+        # --- 策略 1: 直接替换 (最快) ---
+        if old_string in content:
+            new_content = content.replace(old_string, new_string, 1)
+            async with aiofiles.open(target, 'w', encoding='utf-8') as f:
+                await f.write(new_content)
+            return "Patched successfully (Exact match)."
+
+        # --- 策略 2: 归一化换行符后替换 (处理 Windows/Linux 差异) ---
+        # 将所有 \r\n 转换为 \n 进行比对
+        content_normalized = content.replace('\r\n', '\n')
+        old_normalized = old_string.replace('\r\n', '\n')
+        new_normalized = new_string.replace('\r\n', '\n')
+
+        if old_normalized in content_normalized:
+            # 这里的难点是：如果我们在 normalized 版本中替换了，
+            # 我们需要把写回的内容最好保持原文件的换行符风格。
+            # 简单起见，我们统一写回 normalized 的内容 (Python write 通常会自动处理 OS 换行)
+            new_content_normalized = content_normalized.replace(old_normalized, new_normalized, 1)
+            async with aiofiles.open(target, 'w', encoding='utf-8') as f:
+                await f.write(new_content_normalized)
+            return "Patched successfully (Normalized line endings match)."
+
+        # --- 策略 3: 容错匹配 (忽略行尾空格) ---
+        # 如果还是找不到，尝试逐行对比，忽略 strip() 后的差异
+        lines = content.splitlines()
+        old_lines = old_string.splitlines()
         
-        if old_string.strip() not in content:
-            return "Old string not found (whitespace might differ)."
+        if not old_lines: return "[Error] old_string is empty."
+
+        # 简单的滑动窗口匹配
+        match_index = -1
+        for i in range(len(lines) - len(old_lines) + 1):
+            match = True
+            for j in range(len(old_lines)):
+                if lines[i+j].strip() != old_lines[j].strip():
+                    match = False
+                    break
+            if match:
+                match_index = i
+                break
         
-        new_content = content.replace(old_string, new_string, 1)
-        async with aiofiles.open(target, 'w', encoding='utf-8') as f:
-            await f.write(new_content)
-        return "Patched."
-    except Exception as e: return str(e)
+        if match_index != -1:
+            # 找到了逻辑上匹配的块，进行替换
+            # 注意：这里我们使用 new_string (保持 AI 生成的格式)
+            # 但我们需要小心缩进。这里假设 AI 提供了正确的 new_string 缩进。
+            pre_content = "\n".join(lines[:match_index])
+            post_content = "\n".join(lines[match_index + len(old_lines):])
+            
+            # 拼接时要注意原文件的换行符，这里简化为 \n
+            final_content = (pre_content + "\n" + new_string + "\n" + post_content).strip()
+            
+            async with aiofiles.open(target, 'w', encoding='utf-8') as f:
+                await f.write(final_content)
+            return "Patched successfully (Fuzzy match: ignored whitespace/indentation differences)."
+
+        # --- 失败：提供详细诊断信息 ---
+        # 帮助 AI 找到它可能想改的地方
+        first_line = old_lines[0].strip()[:50]
+        candidates = []
+        for i, line in enumerate(lines):
+            if first_line in line.strip():
+                candidates.append(f"Line {i+1}: {line.strip()[:80]}")
+        
+        error_msg = f"[Error] old_string not found in '{path}'.\n"
+        error_msg += "Check line endings or indentation.\n"
+        if candidates:
+            error_msg += "Did you mean one of these locations?\n" + "\n".join(candidates[:3])
+            
+        return error_msg
+
+    except Exception as e:
+        return f"[Error] Patch failed: {str(e)}"
 
 async def todo_write_tool_local(action: str, id: str = None, content: str = None, priority: str = "medium", status: str = None) -> str:
     """本地环境任务管理"""
