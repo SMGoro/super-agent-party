@@ -319,7 +319,7 @@ class FeishuBotManager:
         self.ws = None
         self._shutdown_event.set()
         logging.info("飞书机器人资源清理完成")    
-        
+
     def stop_bot(self):
         """停止飞书机器人"""
         if not self.is_running and not self.bot_thread:
@@ -531,6 +531,18 @@ class FeishuClient:
         if msg_type == "text":
             try:
                 text = json.loads(msg.content).get("text", "")
+
+                # [新增] /id 指令：获取当前会话 ID
+                if "/id" in text.lower():
+                    # 飞书的 chat_id (open_chat_id) 通用于单聊和群聊
+                    info_msg = (
+                        f"🤖 **会话信息识别成功**\n\n"
+                        f"当前 ChatID:\n`{chat_id}`\n\n"
+                        f"💡 说明: 无论是群聊还是单聊，请直接复制上方 ID 填入自主行为的目标列表。"
+                    )
+                    await self._send_text(msg, info_msg)
+                    return
+
                 # 处理重启命令
                 if self.quickRestart and text and ("/重启" in text or "/restart" in text):
                     self.memoryList[chat_id] = []
