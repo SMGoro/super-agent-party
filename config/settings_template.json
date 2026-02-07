@@ -440,7 +440,8 @@
       "reasoningVisible": true,
       "quickRestart": true,
       "enableTTS": false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "telegramBotConfig": {
       "TelegramAgent": "super-model",

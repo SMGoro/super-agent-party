@@ -113,18 +113,21 @@ class BehaviorEngine:
 
     async def start(self):
         """启动引擎循环"""
-        # 关键：每次启动都强制创建属于当前 Loop 的 Event
+        # 确保 Event 对象在当前的 Loop 中创建
         self._stop_event = asyncio.Event()
         self.is_running = True
-        logging.info("[BehaviorEngine] 监控任务已在当前事件循环启动")
+        logging.info("[BehaviorEngine] 监控任务已激活")
         
         try:
             while not self._stop_event.is_set():
-                if not self.is_running: break
+                if not self.is_running: 
+                    break
                 try:
                     await self._tick()
                 except Exception as e:
-                    logging.error(f"[BehaviorEngine] 循环异常: {e}")
+                    logging.error(f"[BehaviorEngine] Tick 异常: {e}")
+                
+                # 必须使用 asyncio.sleep，不能用 time.sleep
                 await asyncio.sleep(1)
         finally:
             self.is_running = False
@@ -144,15 +147,15 @@ class BehaviorEngine:
 
         now = time.time()
         dt_now = datetime.datetime.now()
-        current_time_str = dt_now.strftime("%H:%M") # 通常定时精确到分即可，避免秒级跳动
-        
+
+        current_time_str = dt_now.strftime("%H:%M") 
         py_weekday = dt_now.weekday()
         current_day = (py_weekday + 1) if py_weekday < 6 else 0
 
         for idx, behavior in enumerate(self.settings.behaviorList):
             if not behavior.enabled: continue
-            if behavior.platform == "chat": continue
-
+            
+            # 确定当前行为要分发到哪些平台
             target_platforms = []
             if behavior.platform == "all":
                 target_platforms = list(self.handlers.keys())
@@ -163,53 +166,42 @@ class BehaviorEngine:
                 handler = self.handlers.get(platform)
                 if not handler: continue
 
-                static_targets = self.platform_targets.get(platform, [])
-                active_targets = list(self.platform_activity.get(platform, {}).keys())
-                
                 trigger_chats = []
+                static_targets = self.platform_targets.get(platform, [])
 
                 # --- 逻辑 1: 无输入 (No Input) ---
                 if behavior.trigger.type == "noInput" and behavior.trigger.noInput:
                     latency = behavior.trigger.noInput.latency
-                    check_list = active_targets 
-                    for chat_id in check_list:
+                    active_targets = list(self.platform_activity.get(platform, {}).keys())
+                    for chat_id in active_targets:
                         last_active = self.platform_activity[platform].get(chat_id, now)
-                        idle_duration = now - last_active
-                        if latency <= idle_duration < latency + 1.5:
+                        if now - last_active >= latency:
                             uniq_key = f"noInput_{idx}_{platform}_{chat_id}"
-                            if self.timers.get(uniq_key, 0) < now - latency:
+                            if self.timers.get(uniq_key, 0) < now - latency - 5: # 防抖
                                 trigger_chats.append(chat_id)
                                 self.timers[uniq_key] = now
 
                 # --- 逻辑 2: 定时 (Time) ---
                 elif behavior.trigger.type == "time" and behavior.trigger.time:
-                    # 前端如果是 HH:mm:ss，我们只匹配前5位 HH:mm 提高容错
-                    if current_time_str in behavior.trigger.time.timeValue:
+                    # 前端传的是 "HH:mm:ss"，我们只比对 "HH:mm"
+                    if behavior.trigger.time.timeValue.startswith(current_time_str):
                         if not behavior.trigger.time.days or current_day in behavior.trigger.time.days:
                             uniq_key = f"time_{idx}_{platform}_{current_time_str}"
-                            if self.timers.get(uniq_key, 0) < now - 65: # 65秒防抖
+                            if self.timers.get(uniq_key, 0) < now - 65:
                                 trigger_chats = static_targets
                                 self.timers[uniq_key] = now
 
                 # --- 逻辑 3: 周期 (Cycle) ---
                 elif behavior.trigger.type == "cycle" and behavior.trigger.cycle:
                     try:
-                        parts = behavior.trigger.cycle.cycleValue.split(':')
-                        if len(parts) == 3:
-                            cycle_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-                        else:
-                            cycle_sec = 30
-                    except:
-                        cycle_sec = 30
+                        t = behavior.trigger.cycle.cycleValue.split(':')
+                        cycle_sec = int(t[0])*3600 + int(t[1])*60 + int(t[2])
+                    except: cycle_sec = 60
                     
-                    if cycle_sec < 5: cycle_sec = 5
-
                     uniq_key = f"cycle_{idx}_{platform}"
-                    next_run = self.timers.get(uniq_key, 0)
-                    
-                    if next_run == 0:
+                    if self.timers.get(uniq_key, 0) == 0: # 首次运行
                         self.timers[uniq_key] = now + cycle_sec
-                    elif now >= next_run:
+                    elif now >= self.timers.get(uniq_key, 0):
                         count_key = f"cycle_count_{idx}_{platform}"
                         count = self.counters.get(count_key, 0)
                         if behavior.trigger.cycle.isInfiniteLoop or count < behavior.trigger.cycle.repeatNumber:
@@ -217,11 +209,12 @@ class BehaviorEngine:
                             self.timers[uniq_key] = now + cycle_sec
                             self.counters[count_key] = count + 1
 
-                # --- 执行触发 ---
+                # 执行触发
                 if trigger_chats:
-                    unique_chats = [c for c in list(set(trigger_chats)) if c] # 过滤空 ID
-                    for chat_id in unique_chats:
-                        # 检查 handler 是否依然存活
-                        asyncio.create_task(handler(chat_id, behavior))
+                    for chat_id in set(trigger_chats):
+                        if chat_id:
+                            logging.info(f"[BehaviorEngine] 命中规则 {idx}，准备推送到 {platform}:{chat_id}")
+                            asyncio.create_task(handler(chat_id, behavior))
+
 # 全局单例
 global_behavior_engine = BehaviorEngine()

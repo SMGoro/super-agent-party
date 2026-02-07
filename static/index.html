@@ -10946,7 +10946,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                               default-first-option
                               :placeholder="t('enterChatIdPlaceholder')"
                               class="full-width-input"
-                              @change="autoSaveSettings(); syncFeishuBehavior();"
+                              @change="autoSaveSettings();"
                             >
                               <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
                             </el-select>
@@ -11120,6 +11120,26 @@ function updateElement(el, rawMarkdown, formatFn) {
                               class="full-width-input"
                               @change="autoSaveSettings"
                             />
+                          </el-form-item>
+
+                          <el-form-item :label="t('behaviorTargetChatIds')">
+                            <template #label>
+                              <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                              </div>
+                            </template>
+                            <el-select
+                              v-model="dingtalkBotConfig.behaviorTargetChatIds"
+                              multiple
+                              filterable
+                              allow-create
+                              default-first-option
+                              :placeholder="t('enterChatIdPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings();"
+                            >
+                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                            </el-select>
                           </el-form-item>
 
                           <!-- 钉钉凭证 (对应飞书 appid/secret) -->

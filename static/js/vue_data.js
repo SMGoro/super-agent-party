@@ -1398,6 +1398,7 @@ let vue_data = {
       quickRestart: true,
       enableTTS: false,
       wakeWord: '',
+      behaviorTargetChatIds: [], 
     },
 
     telegramBotConfig: {

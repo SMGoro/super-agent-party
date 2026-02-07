@@ -8610,12 +8610,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 settings_dict = data.get("data", {})
                 # 1. 正常的保存逻辑
                 await save_settings(settings_dict)
+                behavior_data = settings_dict.get("behaviorSettings", {})
                 try:
                     # 检查飞书机器人是否在运行，如果没在运行就没必要热更新
                     if feishu_bot_manager.is_running:
                         # 提取设置中的飞书配置和全局行为配置
                         feishu_data = settings_dict.get("feishuBotConfig", {})
-                        behavior_data = settings_dict.get("behaviorSettings", {})
                         
                         # 将最新的行为设置注入到飞书配置字典中
                         feishu_data["behaviorSettings"] = behavior_data
@@ -8630,6 +8630,25 @@ async def websocket_endpoint(websocket: WebSocket):
                         print("WebSocket: 飞书机器人行为引擎已根据新设置自动完成同步")
                 except Exception as sync_err:
                     print(f"WebSocket: 同步飞书配置时发生错误: {sync_err}")
+
+                try:
+                    # 假设你已经定义了 dingtalk_bot_manager 实例
+                    if dingtalk_bot_manager.is_running:
+                        ding_data = settings_dict.get("dingtalkBotConfig", {})
+                        # 将全局行为设置注入到钉钉配置中
+                        ding_data["behaviorSettings"] = behavior_data
+                        
+                        # 转换成 Pydantic 模型
+                        # 注意：请确保你定义的 DingtalkBotConfig 在 py.dingtalk_bot_manager 或对应位置
+                        from py.dingtalk_bot_manager import DingtalkBotConfig 
+                        new_ding_config = DingtalkBotConfig(**ding_data)
+                        
+                        # 调用热更新函数
+                        dingtalk_bot_manager.update_behavior_config(new_ding_config)
+                        print("WebSocket: 钉钉机器人行为引擎已完成同步")
+                except Exception as sync_err:
+                    print(f"WebSocket: 同步钉钉配置时发生错误: {sync_err}")
+
                 await websocket.send_json({
                     "type": "settings_saved",
                     "correlationId": data.get("correlationId"),
