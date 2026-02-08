@@ -416,7 +416,7 @@ class DingtalkClientLogic:
             ai_client = AsyncOpenAI(api_key="none", base_url=f"http://127.0.0.1:{self.port}/v1")
             response = await ai_client.chat.completions.create(
                 model=self.config.DingtalkAgent,
-                messages=[{"role": "user", "content": prompt_content}],
+                messages=[{"role": "user", "content": "[system]: "+prompt_content}],
                 stream=False
             )
             reply_content = response.choices[0].message.content

@@ -521,7 +521,7 @@ class DiscordClient(discord.Client):
         
         # 构造上下文：历史记录 + 系统指令
         messages = self.memory[cid].copy()
-        system_instruction = f"[系统指令]: {prompt_content}"
+        system_instruction = f"[system]: {prompt_content}"
         messages.append({"role": "user", "content": system_instruction})
         
         # 同步到内存，维持逻辑连贯

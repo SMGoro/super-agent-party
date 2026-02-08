@@ -1347,10 +1347,10 @@ class FeishuClient:
         
         # 构造上下文
         messages = self.memoryList[chat_id].copy()
-        messages.append({"role": "user", "content": f"[系统指令]: {prompt_content}"})
+        messages.append({"role": "user", "content": f"[system]: {prompt_content}"})
         
         # 同时也同步到内存，否则 AI 回复后上下文会断层
-        self.memoryList[chat_id].append({"role": "user", "content": f"[系统指令]: {prompt_content}"})
+        self.memoryList[chat_id].append({"role": "user", "content": f"[system]: {prompt_content}"})
 
         try:
             client = AsyncOpenAI(
