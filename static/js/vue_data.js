@@ -1410,6 +1410,7 @@ let vue_data = {
       enableTTS: false,
       bot_token: '',
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
     isTelegramBotRunning: false,
     isTelegramStarting: false,
@@ -1424,6 +1425,7 @@ let vue_data = {
       quick_restart: true,
       enable_tts: false,
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
     isDiscordBotRunning: false,
     isDiscordStarting: false,
@@ -1539,6 +1541,7 @@ let vue_data = {
       quick_restart: true,
       enable_tts: false,
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
 
     danmu: [], // 弹幕列表

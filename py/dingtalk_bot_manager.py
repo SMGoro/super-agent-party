@@ -19,6 +19,7 @@ from dingtalk_stream import AckMessage, ChatbotMessage
 # 假设这两个函数在你的 py.get_setting 中定义
 from py.behavior_engine import BehaviorItem, BehaviorSettings,global_behavior_engine
 from py.get_setting import get_port, load_settings
+from py.random_topic import get_random_topics
 
 # 配置模型
 class DingtalkBotConfig(BaseModel):
@@ -406,7 +407,10 @@ class DingtalkClientLogic:
                 events = action.random.events
                 if not events: return None
                 return random.choice(events) if action.random.type == "random" else events[action.random.orderIndex % len(events)]
-            return "请随机开启一个话题"
+            elif action.type == "topic":
+                finalPrompt = get_random_topics()
+                return "【topic system】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题内容。"
+            
 
         prompt_content = resolve_prompt(behavior_item)
         if not prompt_content: return

@@ -11348,6 +11348,26 @@ function updateElement(el, rawMarkdown, formatFn) {
                             />
                           </el-form-item>
 
+                          <el-form-item :label="t('behaviorTargetChatIds')">
+                            <template #label>
+                              <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                              </div>
+                            </template>
+                            <el-select
+                              v-model="telegramBotConfig.behaviorTargetChatIds"
+                              multiple
+                              filterable
+                              allow-create
+                              default-first-option
+                              :placeholder="t('enterChatIdPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings();"
+                            >
+                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                            </el-select>
+                          </el-form-item>
+
                           <!-- Bot Token -->
                           <el-form-item label="Bot Token" required>
                             <el-input
@@ -11523,6 +11543,26 @@ function updateElement(el, rawMarkdown, formatFn) {
                             />
                           </el-form-item>
 
+                          <el-form-item :label="t('behaviorTargetChatIds')">
+                            <template #label>
+                              <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                              </div>
+                            </template>
+                            <el-select
+                              v-model="discordBotConfig.behaviorTargetChatIds"
+                              multiple
+                              filterable
+                              allow-create
+                              default-first-option
+                              :placeholder="t('enterChatIdPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings();"
+                            >
+                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                            </el-select>
+                          </el-form-item>
+
                           <!-- Bot Token -->
                           <el-form-item label="Bot Token" required>
                             <el-input
@@ -11693,6 +11733,26 @@ function updateElement(el, rawMarkdown, formatFn) {
                               class="full-width-input"
                               @change="autoSaveSettings"
                             />
+                          </el-form-item>
+
+                          <el-form-item :label="t('behaviorTargetChatIds')">
+                            <template #label>
+                              <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                              </div>
+                            </template>
+                            <el-select
+                              v-model="slackBotConfig.behaviorTargetChatIds"
+                              multiple
+                              filterable
+                              allow-create
+                              default-first-option
+                              :placeholder="t('enterChatIdPlaceholder')"
+                              class="full-width-input"
+                              @change="autoSaveSettings();"
+                            >
+                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                            </el-select>
                           </el-form-item>
 
                           <!-- Bot Token (Slack 需要两个) -->

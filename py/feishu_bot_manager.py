@@ -25,6 +25,7 @@ from lark_oapi.api.im.v1 import GetMessageResourceResponse as ResResp
 from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 from py.behavior_engine import BehaviorItem, global_behavior_engine, BehaviorSettings
+from py.random_topic import get_random_topics
 # 飞书机器人配置模型
 class FeishuBotConfig(BaseModel):
     FeishuAgent: str          # LLM模型名
@@ -1402,7 +1403,7 @@ class FeishuClient:
                 return selected
                 
         elif action.type == "topic":
-            # 向模型请求随机开启一个有趣话题
-            return f"请随机开启一个有趣的话题，话题可以关于科技、生活、哲学或最近的趣闻。"
+            finalPrompt = get_random_topics()
+            return "【topic system】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题内容。"
             
         return None            

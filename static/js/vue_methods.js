@@ -10369,9 +10369,9 @@ stopTTSActivities() {
         
         console.log('Random Topic Prompt:', finalPrompt);
         
-        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题，因为这是系统消息，用户看不到！";
+        this.userInput = "【topic system】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题内容。";
         // 调用发送函数
-        this.sendMessage('system'); 
+        this.sendMessage(); 
 
       } catch (e) {
         console.error("⚠️ 获取随机话题发生错误:", e);
