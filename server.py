@@ -860,6 +860,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         todo_write_tool, 
         manage_processes_tool,
         docker_manage_ports_tool,
+        read_skill_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -873,6 +874,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
         local_net_tool,            # 本地网络工具
+        read_skill_tool_local,
     )
 
     from py.cdp_tool import (
@@ -961,6 +963,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "todo_write_tool": todo_write_tool,
         "manage_processes_tool": manage_processes_tool,
         "docker_manage_ports_tool": docker_manage_ports_tool,
+        "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -972,6 +975,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
+        "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -1274,41 +1278,45 @@ def get_system_context() -> str:
 5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
 """
 
+
 async def get_project_skills_summary(cwd: str) -> str:
-    """
-    扫描项目中的 .party/skills 目录，生成技能清单
-    """
     skills_root = Path(cwd) / ".party" / "skills"
     if not skills_root.exists() or not skills_root.is_dir():
         return ""
 
-    found_skills = []
-    # 遍历 .party/skills 下的每一个文件夹
-    for skill_dir in skills_root.iterdir():
+    found_skills_blocks = []
+    for skill_dir in sorted(skills_root.iterdir()):
         if skill_dir.is_dir():
             skill_id = skill_dir.name
-            # 查找元数据文件以确认它是规范的 Skill
-            doc_file = None
+            doc_file_path = None
             for name in ["SKILL.md", "skill.md", "SKILLS.md", "skills.md"]:
                 if (skill_dir / name).exists():
-                    doc_file = name
+                    doc_file_path = skill_dir / name
                     break
             
-            if doc_file:
-                # 提示 AI 该技能的 ID 和文档的相对路径
-                relative_path = f".party/skills/{skill_id}/{doc_file}"
-                found_skills.append(f"- **{skill_id}**: 说明文档位于 `{relative_path}`")
+            yaml_meta = ""
+            if doc_file_path:
+                try:
+                    content = doc_file_path.read_text(encoding='utf-8')
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3: yaml_meta = parts[1].strip()
+                except: pass
+
+            skill_info = f"- **{skill_id}**"
+            if yaml_meta:
+                # 提示词中只展示精简的 YAML 元数据
+                skill_info += f":\n```yaml\n{yaml_meta}\n```"
             else:
-                # 如果没有 md 文件，仅列出 ID
-                found_skills.append(f"- **{skill_id}**: (未找到标准说明文件)")
+                skill_info += " (可用)"
+            found_skills_blocks.append(skill_info)
 
-    if not found_skills:
-        return ""
+    if not found_skills_blocks: return ""
 
-    summary = "\n\n🛠️ **当前项目可用技能 (Agent Skills)**：\n"
-    summary += "以下是本项目特有的增强技能，定义了特定任务的操作流程和规范。如果你需要执行相关任务，**必须先阅读**对应的说明文档以确保符合项目规范：\n"
-    summary += "\n".join(found_skills)
-    summary += "\n\n*提示：你可以使用文件读取工具（如 `cat` 或 `bash_tool_local`）查看上述路径的详细内容。*"
+    summary = "\n\n🛠️ **当前项目专属技能 (Agent Skills)**：\n"
+    summary += "检测到本项目特有的 Agent 技能定义。在执行相关任务前，请务必使用读取skill的工具查看技能的完整实现细节和规范：\n\n"
+    summary += "\n".join(found_skills_blocks)
+    summary += "\n\n*提示：你可以通过读取skill的工具获取该技能文件夹的文件树和完整说明文档。*"
     return summary
 
 async def tools_change_messages(request: ChatRequest, settings: dict):
@@ -4475,6 +4483,7 @@ async def execute_tool_manually(request: Request):
         bochaai_search_async,
         jina_crawler_async,
         Crawl4Ai_search_async, 
+        firecrawl_search_async,
     )
     from py.know_base import query_knowledge_base
     from py.agent_tool import agent_tool_call
@@ -4510,6 +4519,7 @@ async def execute_tool_manually(request: Request):
         todo_write_tool, 
         manage_processes_tool,
         docker_manage_ports_tool,
+        read_skill_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -4523,6 +4533,7 @@ async def execute_tool_manually(request: Request):
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
         local_net_tool,            # 本地网络工具
+        read_skill_tool_local,
     )
 
     from py.cdp_tool import (
@@ -4553,6 +4564,7 @@ async def execute_tool_manually(request: Request):
         "query_knowledge_base": query_knowledge_base,
         "jina_crawler_async": jina_crawler_async,
         "Crawl4Ai_search_async": Crawl4Ai_search_async,
+        "firecrawl_search_async": firecrawl_search_async,
         "agent_tool_call": agent_tool_call,
         "a2a_tool_call": a2a_tool_call,
         "custom_llm_tool": custom_llm_tool,
@@ -4610,6 +4622,7 @@ async def execute_tool_manually(request: Request):
         "todo_write_tool": todo_write_tool,
         "manage_processes_tool": manage_processes_tool,
         "docker_manage_ports_tool": docker_manage_ports_tool,
+        "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -4621,6 +4634,7 @@ async def execute_tool_manually(request: Request):
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
+        "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
     }
     
     if tool_name not in _TOOL_HOOKS:
