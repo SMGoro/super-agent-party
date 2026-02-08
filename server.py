@@ -8575,6 +8575,48 @@ def get_ip():
     ip = get_internal_ip()
     return {"ip": ip}
 
+async def sync_all_bots_behavior(settings_dict: dict):
+    """
+    统一同步所有平台机器人的行为引擎配置
+    """
+    behavior_data = settings_dict.get("behaviorSettings", {})
+    
+    # --- 1. 同步飞书 ---
+    try:
+        if 'feishu_bot_manager' in globals() and feishu_bot_manager.is_running:
+            from py.feishu_bot_manager import FeishuBotConfig
+            feishu_data = settings_dict.get("feishuBotConfig", {})
+            feishu_data["behaviorSettings"] = behavior_data
+            new_config = FeishuBotConfig(**feishu_data)
+            feishu_bot_manager.update_behavior_config(new_config)
+            print("WebSocket Sync: 飞书机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Feishu): {e}")
+
+    # --- 2. 同步钉钉 ---
+    try:
+        if 'dingtalk_bot_manager' in globals() and dingtalk_bot_manager.is_running:
+            from py.dingtalk_bot_manager import DingtalkBotConfig
+            ding_data = settings_dict.get("dingtalkBotConfig", {})
+            ding_data["behaviorSettings"] = behavior_data
+            new_ding_config = DingtalkBotConfig(**ding_data)
+            dingtalk_bot_manager.update_behavior_config(new_ding_config)
+            print("WebSocket Sync: 钉钉机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (DingTalk): {e}")
+
+    # --- 3. 同步 Discord (新增) ---
+    try:
+        if 'discord_bot_manager' in globals() and discord_bot_manager.is_running:
+            from py.discord_bot_manager import DiscordBotConfig
+            discord_data = settings_dict.get("discordBotConfig", {})
+            discord_data["behaviorSettings"] = behavior_data
+            new_discord_config = DiscordBotConfig(**discord_data)
+            discord_bot_manager.update_behavior_config(new_discord_config)
+            print("WebSocket Sync: Discord 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Discord): {e}")
+
 
 settings_lock = asyncio.Lock()
 @app.websocket("/ws")
@@ -8610,44 +8652,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 settings_dict = data.get("data", {})
                 # 1. 正常的保存逻辑
                 await save_settings(settings_dict)
-                behavior_data = settings_dict.get("behaviorSettings", {})
-                try:
-                    # 检查飞书机器人是否在运行，如果没在运行就没必要热更新
-                    if feishu_bot_manager.is_running:
-                        # 提取设置中的飞书配置和全局行为配置
-                        feishu_data = settings_dict.get("feishuBotConfig", {})
-                        
-                        # 将最新的行为设置注入到飞书配置字典中
-                        feishu_data["behaviorSettings"] = behavior_data
-                        
-                        # 转换成 Pydantic 模型并触发热更新
-                        from py.feishu_bot_manager import FeishuBotConfig
-                        new_config = FeishuBotConfig(**feishu_data)
-                        
-                        # 调用我们之前在 FeishuBotManager 里写的 update_behavior_config
-                        # 它会重置 behavior_engine.py 里的计时器
-                        feishu_bot_manager.update_behavior_config(new_config)
-                        print("WebSocket: 飞书机器人行为引擎已根据新设置自动完成同步")
-                except Exception as sync_err:
-                    print(f"WebSocket: 同步飞书配置时发生错误: {sync_err}")
-
-                try:
-                    # 假设你已经定义了 dingtalk_bot_manager 实例
-                    if dingtalk_bot_manager.is_running:
-                        ding_data = settings_dict.get("dingtalkBotConfig", {})
-                        # 将全局行为设置注入到钉钉配置中
-                        ding_data["behaviorSettings"] = behavior_data
-                        
-                        # 转换成 Pydantic 模型
-                        # 注意：请确保你定义的 DingtalkBotConfig 在 py.dingtalk_bot_manager 或对应位置
-                        from py.dingtalk_bot_manager import DingtalkBotConfig 
-                        new_ding_config = DingtalkBotConfig(**ding_data)
-                        
-                        # 调用热更新函数
-                        dingtalk_bot_manager.update_behavior_config(new_ding_config)
-                        print("WebSocket: 钉钉机器人行为引擎已完成同步")
-                except Exception as sync_err:
-                    print(f"WebSocket: 同步钉钉配置时发生错误: {sync_err}")
+                await sync_all_bots_behavior(settings_dict)
 
                 await websocket.send_json({
                     "type": "settings_saved",

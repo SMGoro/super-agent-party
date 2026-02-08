@@ -1402,8 +1402,4 @@ class FeishuClient:
                 action.random.orderIndex = idx + 1
                 return selected
                 
-        elif action.type == "topic":
-            finalPrompt = get_random_topics()
-            return "【topic system】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题内容。"
-            
         return None            

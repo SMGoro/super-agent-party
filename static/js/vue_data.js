@@ -1349,7 +1349,6 @@ let vue_data = {
           type:"random",
           orderIndex:0,
         },
-        topicLimit: 1, // 话题限制
       },
       platform:"chat",
     },

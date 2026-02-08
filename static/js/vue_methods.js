@@ -10283,102 +10283,6 @@ stopTTSActivities() {
           }
         }
       }
-      if (b.action.type === 'topic' && this.toolsSettings.randomTopic.baseURL) {
-        this.getRandomTopic(b)
-      }
-    },
-
-    async getRandomTopic(b) {
-      try {
-        // 1. 获取基础配置
-        const baseUrl = this.toolsSettings.randomTopic.baseURL || "https://topics-after-party.zeabur.app";
-        
-        let calculatedDepth = Math.ceil(this.messages.length / 6);
-        const depth = Math.max(1, Math.min(5, calculatedDepth));
-
-        // 2. 构建请求参数 (映射 Python 中的 params)
-        // 注意：这里默认使用 zh-CN，如果你的场景是英文，请改为 en-US
-        const params = new URLSearchParams({
-            locale: this.target_language || "zh-CN", 
-            limit: b.action.topicLimit || 1,
-            depth: depth, // 默认获取 1 层话题
-        });
-
-        const endpoint = `${baseUrl}/api/topic?${params.toString()}`;
-
-        // 3. 发送请求
-        const response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-                // 浏览器端通常不需要手动设置 User-Agent，但如果有特定后端要求可加上
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const resJson = await response.json();
-
-        // 4. 检查 API 业务状态码
-        if (resJson.code !== 200) {
-            console.warn(`❌ 获取话题失败: API 返回错误代码 ${resJson.code}`);
-            return;
-        }
-
-        const dataList = resJson.data || [];
-
-        // 5. 如果没有数据
-        if (dataList.length === 0) {
-            console.warn("📭 未找到符合条件的话题。");
-            return;
-        }
-
-        // 6. 格式化为 Markdown (复刻 Python 逻辑)
-        const mdOutput = dataList.map((item, index) => {
-            const idx = index + 1;
-            const text = item.text || "";
-            const cat = item.category || "未知";
-            const tags = item.tags || [];
-            const followUps = item.follow_ups || [];
-
-            // 构建基础文本：1. [分类] 内容
-            let topicStr = `\n\n${idx}. **[${cat}]** ${text}`;
-
-            // 添加标签 (可选)
-            if (tags.length > 0) {
-                const tagStr = tags.map(t => `\`#${t}\``).join(" ");
-                topicStr += `\n\n   > 🏷️ ${tagStr}`;
-            }
-
-            // 添加追问 (可选)
-            if (followUps.length > 0) {
-                topicStr += "\n\n   > 🗣️ **追问参考**：";
-                followUps.forEach(fu => {
-                    topicStr += `\n\n   > - ${fu}`;
-                });
-            }
-
-            return topicStr;
-        });
-
-        // 7. 最终组合并发送
-        // 用双换行连接，保持段落间距
-        const finalPrompt = mdOutput.join("\n\n");
-        
-        console.log('Random Topic Prompt:', finalPrompt);
-        
-        this.userInput = "【topic system】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题内容。";
-        // 调用发送函数
-        this.sendMessage(); 
-
-      } catch (e) {
-        console.error("⚠️ 获取随机话题发生错误:", e);
-        // 可选：发生错误时，是否需要提示用户？
-        // this.userInput = "获取话题失败，请稍后再试。";
-        // this.sendMessage('system');
-      }
     },
 
     /* 触发一次后，如果是“不重复”就把 enabled 关掉 */
@@ -14785,7 +14689,6 @@ async handleRefreshSkills() {
         action: {
           type: 'prompt',
           prompt: '',
-          topicLimit: 3,
           random: { type: 'random', events: [''] }
         },
         platform:"chat",
