@@ -28,6 +28,10 @@ class SlackBotConfig(BaseModel):
     quick_restart: bool = True
     enable_tts: bool = False
     wakeWord: str = ""
+    # --- 新增：行为规则设置 ---
+    behaviorSettings: Optional[Any] = None # 类型为 BehaviorSettings
+    # Slack 特定的推送目标 ID 列表 (Channel IDs)
+    behaviorTargetChatIds: List[str] = []
 
 # ------------------ Slack 机器人管理器 ------------------
 class SlackBotManager:
@@ -41,10 +45,14 @@ class SlackBotManager:
         
         self.bot_user_id: Optional[str] = None
         
-        # --- 完全复刻 Discord 的状态存储 ---
-        self.memory: Dict[str, List[dict]] = {}      # channel_id -> msgs
-        self.async_tools: Dict[str, List[str]] = {}  # channel_id -> ids
-        self.file_links: Dict[str, List[str]] = {}   # channel_id -> links
+        # --- 状态存储 ---
+        self.memory: Dict[str, List[dict]] = {}      
+        self.async_tools: Dict[str, List[str]] = {}  
+        self.file_links: Dict[str, List[str]] = {}   
+
+        # --- 新增：注册到行为引擎 ---
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.register_handler("slack", self.execute_behavior_event)
 
     def start_bot(self, config: SlackBotConfig):
         if self.is_running:
@@ -64,7 +72,43 @@ class SlackBotManager:
     def _run_bot_thread(self, config: SlackBotConfig):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
+
+        # --- 新增：强制同步最新的行为配置 ---
         try:
+            from py.get_setting import load_settings
+            from py.behavior_engine import global_behavior_engine, BehaviorSettings
+            
+            # 同步加载全局设置以补全配置
+            settings = asyncio.run(load_settings())
+            behavior_data = settings.get("behaviorSettings", {})
+            
+            # 获取目标频道列表
+            target_ids = config.behaviorTargetChatIds
+            if not target_ids:
+                slack_conf = settings.get("slackBotConfig", {})
+                target_ids = slack_conf.get("behaviorTargetChatIds", [])
+            
+            if behavior_data:
+                logging.info(f"Slack 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
+                target_map = {"slack": target_ids}
+                # 更新全局行为引擎
+                global_behavior_engine.update_config(behavior_data, target_map)
+                # 同步到本地 config 对象
+                if isinstance(behavior_data, dict):
+                    config.behaviorSettings = BehaviorSettings(**behavior_data)
+                else:
+                    config.behaviorSettings = behavior_data
+                config.behaviorTargetChatIds = target_ids
+        except Exception as e:
+            logging.error(f"Slack 线程同步行为配置失败: {e}")
+
+        try:
+            # 启动行为引擎监控
+            from py.behavior_engine import global_behavior_engine
+            if not global_behavior_engine.is_running:
+                asyncio.create_task(global_behavior_engine.start())
+                logging.info("行为引擎已在 Slack 线程启动")
+
             self.loop.run_until_complete(self._async_start(config))
         except Exception as e:
             logging.exception(f"Slack 运行异常: {e}")
@@ -115,6 +159,20 @@ class SlackBotManager:
         if cid not in self.memory:
             self.memory[cid], self.async_tools[cid], self.file_links[cid] = [], [], []
 
+        # --- 新增：上报活跃状态到引擎，用于无输入检测 ---
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.report_activity("slack", cid)
+
+        # --- 新增：/id 指令获取当前频道 ID ---
+        if text.lower() == "/id":
+            info_msg = (
+                f"🤖 *Slack 会话信息识别成功*\n\n"
+                f"当前 Channel ID:\n`{cid}`\n\n"
+                f"💡 说明: 请直接复制上方 ID 填入后台“自主行为”的 Slack 目标列表。"
+            )
+            await web_client.chat_postMessage(channel=cid, text=info_msg)
+            return
+
         if self.config.wakeWord and self.config.wakeWord not in text: return
 
         if self.config.quick_restart and text in ["/重启", "/restart"]:
@@ -124,7 +182,7 @@ class SlackBotManager:
 
         self.memory[cid].append({"role": "user", "content": text})
 
-        # --- 完全复刻 Discord 的 state 状态机 ---
+        # --- 状态状态机 ---
         state = {
             "text_buffer": "", 
             "image_buffer": "", 
@@ -157,7 +215,6 @@ class SlackBotManager:
                 if not chunk.choices: continue
                 delta_raw = chunk.choices[0].delta
 
-                # 1. 捕获工具和链接 (同 Discord)
                 tool_link = getattr(delta_raw, "tool_link", None)
                 if tool_link and settings.get("tools", {}).get("toolMemorandum", {}).get("enabled"):
                     if tool_link not in self.file_links[cid]: self.file_links[cid].append(tool_link)
@@ -167,7 +224,6 @@ class SlackBotManager:
                     if async_tool_id not in self.async_tools[cid]: self.async_tools[cid].append(async_tool_id)
                     else: self.async_tools[cid].remove(async_tool_id)
 
-                # 2. 文本解析 (同 Discord)
                 content = delta_raw.content or ""
                 reasoning = getattr(delta_raw, "reasoning_content", None) or ""
                 if reasoning and self.config.reasoning_visible:
@@ -177,7 +233,6 @@ class SlackBotManager:
                 state["text_buffer"] += content
                 state["image_buffer"] += content
 
-                # 3. Slack 流式更新节流
                 now = time.time()
                 if (now - last_update_time > 1.2) or any(sep in content for sep in self.config.separators):
                     seg = self._clean_text(state["text_buffer"])
@@ -185,21 +240,17 @@ class SlackBotManager:
                         await web_client.chat_update(channel=cid, ts=reply_ts, text=seg + " ▌")
                         last_update_time = now
 
-            # 4. 最终文本更新
             full_content = "".join(full_response)
             final_text = self._clean_text(full_content)
             await web_client.chat_update(channel=cid, ts=reply_ts, text=final_text or "回复完成。")
 
-            # 5. 图片提取与发送 (完全复刻 Discord 逻辑)
             self._extract_images(state)
             for img_url in state["image_cache"]:
                 await self._send_image(cid, img_url, web_client)
 
-            # 6. TTS 处理 (Payload 补全)
             if self.config.enable_tts:
                 await self._send_voice(cid, full_content, web_client)
 
-            # 7. 记忆管理 (同 Discord)
             self.memory[cid].append({"role": "assistant", "content": full_content})
             if self.config.memory_limit > 0:
                 while len(self.memory[cid]) > self.config.memory_limit * 2:
@@ -267,3 +318,97 @@ class SlackBotManager:
                         logging.error(f"TTS 接口返回错误: {r.status}")
         except Exception as e:
             logging.error(f"Slack TTS 发送失败: {e}")
+
+    def update_behavior_config(self, config: SlackBotConfig):
+        """
+        热更新行为配置，不重启机器人
+        """
+        # 更新 Manager 的本地记录
+        self.config = config
+        
+        # 更新全局行为引擎
+        from py.behavior_engine import global_behavior_engine
+        target_map = {
+            "slack": config.behaviorTargetChatIds
+        }
+        
+        global_behavior_engine.update_config(
+            config.behaviorSettings,
+            target_map
+        )
+        logging.info("Slack 机器人: 行为配置已热更新，计时器已重置")
+
+
+    async def execute_behavior_event(self, chat_id: str, behavior_item: Any):
+        """
+        回调函数：响应行为引擎的主动触发指令
+        """
+        if not self.socket_client or not self.socket_client.web_client:
+            return
+            
+        logging.info(f"[SlackBot] 行为触发! 目标: {chat_id}, 动作类型: {behavior_item.action.type}")
+        
+        prompt_content = await self._resolve_behavior_prompt(behavior_item)
+        if not prompt_content: return
+
+        cid = chat_id
+        if cid not in self.memory:
+            self.memory[cid] = []
+        
+        # 构造上下文
+        messages = self.memory[cid].copy()
+        system_instruction = f"[system]: {prompt_content}"
+        messages.append({"role": "user", "content": system_instruction})
+        self.memory[cid].append({"role": "user", "content": system_instruction})
+
+        try:
+            client_ai = AsyncOpenAI(
+                api_key="super-secret-key",
+                base_url=f"http://127.0.0.1:{get_port()}/v1"
+            )
+            
+            # 使用非流式请求处理主动行为
+            response = await client_ai.chat.completions.create(
+                model=self.config.llm_model,
+                messages=messages,
+                stream=False, 
+                extra_body={
+                    "is_app_bot": True,
+                    "behavior_trigger": True
+                }
+            )
+            
+            reply_content = response.choices[0].message.content
+            if reply_content:
+                # 1. 发送文本
+                await self.socket_client.web_client.chat_postMessage(channel=cid, text=reply_content)
+                self.memory[cid].append({"role": "assistant", "content": reply_content})
+                
+                # 2. 如果开启了 TTS，则发送语音
+                if self.config.enable_tts:
+                    await self._send_voice(cid, reply_content, self.socket_client.web_client)
+            
+        except Exception as e:
+            logging.error(f"[SlackBot] 执行行为 API 调用失败: {e}")
+
+    async def _resolve_behavior_prompt(self, behavior: Any) -> Optional[str]:
+        """解析行为配置，生成具体的 Prompt 指令"""
+        import random
+        action = behavior.action
+        
+        if action.type == "prompt":
+            return action.prompt
+            
+        elif action.type == "random":
+            if not action.random or not action.random.events:
+                return None
+            events = action.random.events
+            if action.random.type == "random":
+                return random.choice(events)
+            elif action.random.type == "order":
+                idx = action.random.orderIndex
+                if idx >= len(events): idx = 0
+                selected = events[idx]
+                action.random.orderIndex = idx + 1 # 内存更新
+                return selected
+        return None

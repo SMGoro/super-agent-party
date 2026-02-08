@@ -1330,7 +1330,7 @@ class FeishuClient:
         """
         logging.info(f"[FeishuClient] 行为触发! 目标: {chat_id}, 动作类型: {behavior_item.action.type}")
         
-        prompt_content = self._resolve_behavior_prompt(behavior_item)
+        prompt_content = await self._resolve_behavior_prompt(behavior_item)
         if not prompt_content: return
 
         # 构造增强版 MockMessage，确保包含 _send_text 需要的所有属性
@@ -1379,7 +1379,7 @@ class FeishuClient:
             
         except Exception as e:
             logging.error(f"[FeishuClient] 执行行为 API 调用失败: {e}")
-    def _resolve_behavior_prompt(self, behavior: BehaviorItem) -> str:
+    async def _resolve_behavior_prompt(self, behavior: BehaviorItem) -> str:
         """解析行为配置，生成具体的 Prompt 指令"""
         action = behavior.action
         

@@ -8617,6 +8617,29 @@ async def sync_all_bots_behavior(settings_dict: dict):
     except Exception as e:
         print(f"WebSocket Sync Error (Discord): {e}")
 
+    # --- 4. 同步 Telegram (新增) ---
+    try:
+        if 'telegram_bot_manager' in globals() and telegram_bot_manager.is_running:
+            from py.telegram_bot_manager import TelegramBotConfig
+            tg_data = settings_dict.get("telegramBotConfig", {})
+            tg_data["behaviorSettings"] = behavior_data
+            new_tg_config = TelegramBotConfig(**tg_data)
+            telegram_bot_manager.update_behavior_config(new_tg_config)
+            print("WebSocket Sync: Telegram 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Telegram): {e}")
+
+    # --- 5. 同步 Slack (新增) ---
+    try:
+        if 'slack_bot_manager' in globals() and slack_bot_manager.is_running:
+            from py.slack_bot_manager import SlackBotConfig
+            slack_data = settings_dict.get("slackBotConfig", {})
+            slack_data["behaviorSettings"] = behavior_data
+            new_slack_config = SlackBotConfig(**slack_data)
+            slack_bot_manager.update_behavior_config(new_slack_config)
+            print("WebSocket Sync: Slack 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Slack): {e}")
 
 settings_lock = asyncio.Lock()
 @app.websocket("/ws")

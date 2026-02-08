@@ -1,6 +1,7 @@
 import asyncio, aiohttp, io, base64, json, logging, re, time
 from typing import Dict, List, Any, Optional
 from openai import AsyncOpenAI
+from py.behavior_engine import BehaviorItem
 from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 class TelegramClient:
@@ -16,6 +17,7 @@ class TelegramClient:
         self.enableTTS = False
         self.wakeWord = None
         self.bot_token: str = ""
+        self.config = None # 存储 config 引用
         self._is_ready = False
         self._manager_ref = None
         self._ready_callback = None
@@ -23,6 +25,10 @@ class TelegramClient:
         self.offset = 0
         self.session: Optional[aiohttp.ClientSession] = None
         self.port = get_port()
+        
+        # --- 新增：注册到行为引擎 ---
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.register_handler("telegram", self.execute_behavior_event)
 
     # -------------------- 生命周期 --------------------
     async def run(self):
@@ -86,11 +92,27 @@ class TelegramClient:
     # -------------------- 文字 --------------------
     async def _handle_text(self, chat_id: int, msg: dict):
         text = msg["text"]
+        
+        # --- 新增：上报活跃状态到引擎，用于无输入检测 ---
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.report_activity("telegram", str(chat_id))
+
         if self.quickRestart:
             if text in {"/restart", "/重启"}:
                 self.memoryList[chat_id] = []
                 await self._send_text(chat_id, "对话记录已重置。")
                 return
+
+        # --- 新增：/id 指令 ---
+        if text.strip().lower() == "/id":
+            info_msg = (
+                f"🤖 **Telegram 会话信息识别成功**\n\n"
+                f"当前 Chat ID:\n`{chat_id}`\n\n"
+                f"💡 说明: 请直接复制上方 ID 填入后台“自主行为”的 Telegram 目标列表。"
+            )
+            await self._send_text(chat_id, info_msg)
+            return
+
         if self.wakeWord:
             if self.wakeWord not in text:
                 logging.info(f"未检测到唤醒词: {self.wakeWord}")
@@ -99,6 +121,8 @@ class TelegramClient:
 
     # -------------------- 图片 --------------------
     async def _handle_photo(self, chat_id: int, msg: dict):
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.report_activity("telegram", str(chat_id))
         photos = msg["photo"]  # 数组，尺寸升序
         file_id = photos[-1]["file_id"]
         file_info = await self._get_file(file_id)
@@ -121,6 +145,8 @@ class TelegramClient:
 
     # -------------------- 语音 --------------------
     async def _handle_voice(self, chat_id: int, msg: dict):
+        from py.behavior_engine import global_behavior_engine
+        global_behavior_engine.report_activity("telegram", str(chat_id))
         voice = msg.get("voice") or msg.get("audio")
         file_id = voice["file_id"]
         file_info = await self._get_file(file_id)
@@ -472,3 +498,76 @@ class TelegramClient:
     def _extract_images(self, full_text: str, state: dict):
         for m in re.finditer(r"!\[.*?\]\((https?://[^\s)]+)", full_text):
             state["image_cache"].append(m.group(1))
+
+    async def execute_behavior_event(self, chat_id: str, behavior_item: BehaviorItem):
+        """
+        回调函数：响应行为引擎的指令
+        """
+        logging.info(f"[TelegramClient] 行为触发! 目标: {chat_id}, 动作类型: {behavior_item.action.type}")
+        
+        prompt_content = await self._resolve_behavior_prompt(behavior_item)
+        if not prompt_content: return
+
+        cid = int(chat_id)
+        if cid not in self.memoryList:
+            self.memoryList[cid] = []
+        
+        # 构造上下文：历史记录 + 系统指令
+        messages = self.memoryList[cid].copy()
+        system_instruction = f"[system]: {prompt_content}"
+        messages.append({"role": "user", "content": system_instruction})
+        
+        # 同时记录到内存，维持逻辑连贯
+        self.memoryList[cid].append({"role": "user", "content": system_instruction})
+
+        try:
+            client = AsyncOpenAI(
+                api_key="super-secret-key",
+                base_url=f"http://127.0.0.1:{get_port()}/v1"
+            )
+            
+            # 使用非流式请求处理主动行为
+            response = await client.chat.completions.create(
+                model=self.TelegramAgent,
+                messages=messages,
+                stream=False, 
+                extra_body={
+                    "is_app_bot": True,
+                    "behavior_trigger": True
+                }
+            )
+            
+            reply_content = response.choices[0].message.content
+            if reply_content:
+                # 1. 发送文本
+                await self._send_text(cid, reply_content)
+                self.memoryList[cid].append({"role": "assistant", "content": reply_content})
+                
+                # 2. 如果开启了 TTS，则发送语音
+                if self.enableTTS:
+                    await self._send_voice(cid, reply_content)
+            
+        except Exception as e:
+            logging.error(f"[TelegramClient] 执行行为 API 调用失败: {e}")
+
+    async def _resolve_behavior_prompt(self, behavior: BehaviorItem) -> Optional[str]:
+        """解析行为配置，生成具体的 Prompt 指令"""
+        import random
+        action = behavior.action
+        
+        if action.type == "prompt":
+            return action.prompt
+            
+        elif action.type == "random":
+            if not action.random or not action.random.events:
+                return None
+            events = action.random.events
+            if action.random.type == "random":
+                return random.choice(events)
+            elif action.random.type == "order":
+                idx = action.random.orderIndex
+                if idx >= len(events): idx = 0
+                selected = events[idx]
+                action.random.orderIndex = idx + 1 # 内存内更新
+                return selected
+        return None

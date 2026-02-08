@@ -1,6 +1,7 @@
 import asyncio, threading, weakref, logging, time
-from typing import Optional, Dict, Any
-from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from py.behavior_engine import BehaviorSettings
 from py.telegram_client import TelegramClient
 
 class TelegramBotConfig(BaseModel):
@@ -12,6 +13,10 @@ class TelegramBotConfig(BaseModel):
     enableTTS: bool
     bot_token: str            # Telegram 必填
     wakeWord: str              # 唤醒词
+    # --- 新增：行为规则设置 ---
+    behaviorSettings: Optional[BehaviorSettings] = None
+    # Telegram 特定的推送目标 ID 列表 (Chat IDs)
+    behaviorTargetChatIds: List[str] = Field(default_factory=list)
 
 class TelegramBotManager:
     def __init__(self):
@@ -65,6 +70,36 @@ class TelegramBotManager:
         try:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
+
+            # --- 新增：强制同步最新的行为配置 ---
+            try:
+                from py.get_setting import load_settings
+                from py.behavior_engine import global_behavior_engine, BehaviorSettings
+                
+                # 同步加载全局设置以补全可能缺失的行为配置
+                settings = asyncio.run(load_settings())
+                behavior_data = settings.get("behaviorSettings", {})
+                
+                # 获取目标频道列表
+                target_ids = config.behaviorTargetChatIds
+                if not target_ids:
+                    tg_conf = settings.get("telegramBotConfig", {})
+                    target_ids = tg_conf.get("behaviorTargetChatIds", [])
+                
+                if behavior_data:
+                    logging.info(f"Telegram 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
+                    target_map = {"telegram": target_ids}
+                    # 更新全局行为引擎
+                    global_behavior_engine.update_config(behavior_data, target_map)
+                    # 同步到本地 config 对象
+                    if isinstance(behavior_data, dict):
+                        config.behaviorSettings = BehaviorSettings(**behavior_data)
+                    else:
+                        config.behaviorSettings = behavior_data
+                    config.behaviorTargetChatIds = target_ids
+            except Exception as e:
+                logging.error(f"Telegram 线程同步行为配置失败: {e}")
+
             self.bot_client = TelegramClient()
             self.bot_client.TelegramAgent = config.TelegramAgent
             self.bot_client.memoryLimit = config.memoryLimit
@@ -74,9 +109,16 @@ class TelegramBotManager:
             self.bot_client.enableTTS = config.enableTTS
             self.bot_client.wakeWord = config.wakeWord
             self.bot_client.bot_token = config.bot_token
+            # 传递配置引用以供热更新
+            self.bot_client.config = config
             self.bot_client._manager_ref = weakref.ref(self)
             self.bot_client._ready_callback = self._on_bot_ready
 
+            # 启动行为引擎监控 (如果尚未在其他地方启动)
+            from py.behavior_engine import global_behavior_engine
+            if not global_behavior_engine.is_running:
+                asyncio.create_task(global_behavior_engine.start())
+                logging.info("行为引擎已在 Telegram 线程启动")
 
             self._startup_complete.set()
             self.loop.run_until_complete(self.bot_client.run())
@@ -161,3 +203,29 @@ class TelegramBotManager:
             "ready_completed": self._ready_complete.is_set(),
             "stop_requested": self._stop_requested,
         }
+    
+    def update_behavior_config(self, config: TelegramBotConfig):
+        """
+        热更新行为配置，不重启机器人
+        """
+        # 更新 Manager 的本地记录
+        self.config = config
+        
+        # 1. 更新 Client 内部的实时参数
+        if self.bot_client:
+            self.bot_client.TelegramAgent = config.TelegramAgent 
+            self.bot_client.enableTTS = config.enableTTS
+            self.bot_client.wakeWord = config.wakeWord
+            self.bot_client.config = config # 同步整个 config 对象
+
+        # 2. 更新全局行为引擎
+        from py.behavior_engine import global_behavior_engine
+        target_map = {
+            "telegram": config.behaviorTargetChatIds
+        }
+        
+        global_behavior_engine.update_config(
+            config.behaviorSettings,
+            target_map
+        )
+        logging.info("Telegram 机器人: 行为配置已热更新，计时器已重置")
