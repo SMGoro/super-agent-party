@@ -11116,7 +11116,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </el-form-item>
 
                           <!-- 钉钉凭证 (对应飞书 appid/secret) -->
-                          <el-form-item label="AppKey" required>
+                          <el-form-item label="Client ID" required>
                             <el-input
                               v-model="dingtalkBotConfig.appKey"
                               :placeholder="t('enter_dingtalk_bot_app_key')"
@@ -11125,7 +11125,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                             />
                           </el-form-item>
                           
-                          <el-form-item label="AppSecret" required>
+                          <el-form-item label="Client Secret" required>
                             <el-input
                               v-model="dingtalkBotConfig.appSecret"
                               :placeholder="t('enter_dingtalk_bot_app_secret')"

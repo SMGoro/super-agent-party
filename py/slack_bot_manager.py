@@ -70,50 +70,70 @@ class SlackBotManager:
             raise RuntimeError("Slack 机器人启动超时")
 
     def _run_bot_thread(self, config: SlackBotConfig):
+        """线程中运行 Slack 机器人"""
+        # 1. 创建并设置循环
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
-        # --- 新增：强制同步最新的行为配置 ---
-        try:
-            from py.get_setting import load_settings
-            from py.behavior_engine import global_behavior_engine, BehaviorSettings
-            
-            # 同步加载全局设置以补全配置
-            settings = asyncio.run(load_settings())
-            behavior_data = settings.get("behaviorSettings", {})
-            
-            # 获取目标频道列表
-            target_ids = config.behaviorTargetChatIds
-            if not target_ids:
-                slack_conf = settings.get("slackBotConfig", {})
-                target_ids = slack_conf.get("behaviorTargetChatIds", [])
-            
-            if behavior_data:
-                logging.info(f"Slack 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
-                target_map = {"slack": target_ids}
-                # 更新全局行为引擎
-                global_behavior_engine.update_config(behavior_data, target_map)
-                # 同步到本地 config 对象
-                if isinstance(behavior_data, dict):
-                    config.behaviorSettings = BehaviorSettings(**behavior_data)
-                else:
-                    config.behaviorSettings = behavior_data
-                config.behaviorTargetChatIds = target_ids
-        except Exception as e:
-            logging.error(f"Slack 线程同步行为配置失败: {e}")
+        # 2. 定义统一的异步启动入口
+        async def main_startup():
+            try:
+                # --- 步骤 A: 异步加载设置 (替代 asyncio.run) ---
+                from py.get_setting import load_settings
+                from py.behavior_engine import global_behavior_engine, BehaviorSettings
+                
+                settings = await load_settings()
+                behavior_data = settings.get("behaviorSettings", {})
+                
+                # 获取目标频道列表
+                target_ids = config.behaviorTargetChatIds
+                if not target_ids:
+                    slack_conf = settings.get("slackBotConfig", {})
+                    target_ids = slack_conf.get("behaviorTargetChatIds", [])
+                
+                # --- 步骤 B: 同步行为配置 ---
+                if behavior_data:
+                    logging.info(f"Slack 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
+                    target_map = {"slack": target_ids}
+                    
+                    # 更新全局引擎
+                    global_behavior_engine.update_config(behavior_data, target_map)
+                    
+                    # 更新本地配置对象
+                    if isinstance(behavior_data, dict):
+                        config.behaviorSettings = BehaviorSettings(**behavior_data)
+                    else:
+                        config.behaviorSettings = behavior_data
+                    config.behaviorTargetChatIds = target_ids
 
-        try:
-            # 启动行为引擎监控
-            from py.behavior_engine import global_behavior_engine
-            if not global_behavior_engine.is_running:
-                asyncio.create_task(global_behavior_engine.start())
-                logging.info("行为引擎已在 Slack 线程启动")
+                # --- 步骤 C: 启动行为引擎 (此时 Loop 已在运行，可以 create_task) ---
+                if not global_behavior_engine.is_running:
+                    asyncio.create_task(global_behavior_engine.start())
+                    logging.info("行为引擎已在 Slack 线程启动")
 
-            self.loop.run_until_complete(self._async_start(config))
+                # --- 步骤 D: 启动 Slack Bot 主程序 (阻塞直到断开) ---
+                await self._async_start(config)
+
+            except Exception as e:
+                logging.exception(f"Slack 启动过程异常: {e}")
+                # 如果启动失败，确保状态复位
+                self.is_running = False 
+                self._ready_complete.set() # 防止主线程死锁
+
+        # 3. 开始运行 Loop
+        try:
+            self.loop.run_until_complete(main_startup())
         except Exception as e:
-            logging.exception(f"Slack 运行异常: {e}")
+            logging.error(f"Slack 线程 Loop 异常: {e}")
         finally:
             self.is_running = False
+            if not self._ready_complete.is_set():
+                self._ready_complete.set()
+            # 清理 Loop
+            try:
+                self.loop.close()
+            except:
+                pass
 
     async def _async_start(self, config: SlackBotConfig):
         web_client = AsyncWebClient(token=config.bot_token)
@@ -166,9 +186,9 @@ class SlackBotManager:
         # --- 新增：/id 指令获取当前频道 ID ---
         if text.lower() == "/id":
             info_msg = (
-                f"🤖 *Slack 会话信息识别成功*\n\n"
-                f"当前 Channel ID:\n`{cid}`\n\n"
-                f"💡 说明: 请直接复制上方 ID 填入后台“自主行为”的 Slack 目标列表。"
+                f"🤖 *Slack Session Information Identified Successfully*\n\n"
+                f"Current Channel ID:\n`{cid}`\n\n"
+                f"💡 Note: Please directly copy the ID above and paste it into the 'Autonomous Actions' target list for Slack in the backend."
             )
             await web_client.chat_postMessage(channel=cid, text=info_msg)
             return

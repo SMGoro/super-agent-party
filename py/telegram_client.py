@@ -106,9 +106,9 @@ class TelegramClient:
         # --- 新增：/id 指令 ---
         if text.strip().lower() == "/id":
             info_msg = (
-                f"🤖 **Telegram 会话信息识别成功**\n\n"
-                f"当前 Chat ID:\n`{chat_id}`\n\n"
-                f"💡 说明: 请直接复制上方 ID 填入后台“自主行为”的 Telegram 目标列表。"
+                f"🤖 **Telegram Session Information Identified Successfully**\n\n"
+                f"Current Chat ID:\n`{chat_id}`\n\n"
+                f"💡 Note: Please directly copy the ID above and paste it into the 'Autonomous Actions' Telegram target list in the backend."
             )
             await self._send_text(chat_id, info_msg)
             return

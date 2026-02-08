@@ -1,40 +1,184 @@
 # -- coding: utf-8 --
+# ==========================================
+# 第一步：在加载任何沉重库之前，先搞定端口
+# ==========================================
 import sys
 import os
 import argparse
 import socket
+import errno
 
-# ==========================================
-# 第一步：在加载任何沉重库之前，先搞定端口
-# ==========================================
 parser = argparse.ArgumentParser(description="Run the ASGI application server.")
 parser.add_argument("--host", default="127.0.0.1")
 parser.add_argument("--port", type=int, default=3456)
-# 使用 parse_known_args 比较稳妥，防止有其他未定义的参数导致报错
 args, _ = parser.parse_known_args()
 
 HOST = args.host
 PREFERED_PORT = args.port
-FINAL_PORT = PREFERED_PORT
 
-def is_port_in_use(host, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
+def is_addr_in_use_error(e):
+    """跨平台判断是否为地址被占用错误"""
+    if hasattr(e, 'errno'):
+        if e.errno == errno.EADDRINUSE:
+            return True
+        # Windows 有时用 WSAEADDRINUSE (10048)
+        if sys.platform == 'win32' and e.errno == 10048:
+            return True
+    # Windows winerror 属性
+    if hasattr(e, 'winerror') and e.winerror == 10048:
+        return True
+    # macOS/Linux 错误消息
+    if 'address already in use' in str(e).lower():
+        return True
+    return False
 
-# 逻辑：如果 3456 被占用了，或者我们明确传了 0
-if PREFERED_PORT == 0 or is_port_in_use(HOST, PREFERED_PORT):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, 0)) # 系统自动分配
-        FINAL_PORT = s.getsockname()[1]
-else:
-    # 3456 没被占用，就用 3456
-    FINAL_PORT = PREFERED_PORT
+def is_permission_error(e):
+    """跨平台判断是否为权限/拒绝访问错误"""
+    if isinstance(e, PermissionError):
+        return True
+    if hasattr(e, 'errno'):
+        if e.errno in (errno.EACCES, errno.EPERM):
+            return True
+        # Windows ERROR_ACCESS_DENIED (5)
+        if sys.platform == 'win32' and e.errno == 13:
+            return True
+    if hasattr(e, 'winerror') and e.winerror in (5, 10013):
+        return True
+    err_str = str(e).lower()
+    if any(x in err_str for x in ['permission', 'denied', 'access', 'not permitted']):
+        return True
+    return False
 
-# 变量覆盖，确保你代码后续使用的 PORT 是正确的
+def force_bind_or_fallback(host, preferred_port):
+    """
+    跨平台端口绑定：
+    1. 尝试强制绑定指定端口（处理TIME_WAIT）
+    2. 如果被真正占用/无权限/系统保留，自动降级到随机端口
+    3. 绝不抛出异常导致退出
+    """
+    # 尝试绑定首选端口
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # 关键：允许快速复用 TIME_WAIT 状态的端口
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, preferred_port))
+        sock.close()
+        return preferred_port
+        
+    except (socket.error, OSError, PermissionError) as e:
+        # 判断错误类型
+        if is_addr_in_use_error(e):
+            reason = "in use"
+        elif is_permission_error(e):
+            reason = "permission denied/system reserved"
+        else:
+            reason = f"error ({e})"
+        
+        print(f"Port {preferred_port} unavailable ({reason}), auto-assigning...", 
+              file=sys.stderr, flush=True)
+        
+        # 关闭失败的 socket
+        try:
+            if sock:
+                sock.close()
+        except:
+            pass
+        
+        # 降级：让系统分配端口
+        return auto_assign_port(host)
+        
+    except Exception as e:
+        # 捕获所有其他异常
+        print(f"Unexpected error binding port {preferred_port}: {e}, auto-assigning...", 
+              file=sys.stderr, flush=True)
+        try:
+            if sock:
+                sock.close()
+        except:
+            pass
+        return auto_assign_port(host)
+
+def auto_assign_port(host):
+    """自动分配可用端口，带多重降级"""
+    # 尝试 127.0.0.1
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        print(f"Auto-assigned port: {port}", file=sys.stderr, flush=True)
+        return port
+    except Exception as e:
+        print(f"Failed to bind {host}: {e}", file=sys.stderr, flush=True)
+        try:
+            sock.close()
+        except:
+            pass
+    
+    # 降级 1: 尝试 0.0.0.0 (所有接口)
+    if host != "0.0.0.0":
+        try:
+            print("Trying 0.0.0.0...", file=sys.stderr, flush=True)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Auto-assigned port on 0.0.0.0: {port}", file=sys.stderr, flush=True)
+            return port
+        except Exception as e:
+            print(f"Failed to bind 0.0.0.0: {e}", file=sys.stderr, flush=True)
+            try:
+                sock.close()
+            except:
+                pass
+    
+    # 降级 2: 尝试 localhost
+    if host != "localhost":
+        try:
+            print("Trying localhost...", file=sys.stderr, flush=True)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("localhost", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Auto-assigned port on localhost: {port}", file=sys.stderr, flush=True)
+            return port
+        except Exception as e:
+            print(f"Failed to bind localhost: {e}", file=sys.stderr, flush=True)
+            try:
+                sock.close()
+            except:
+                pass
+    
+    # 最后手段：硬编码高位端口（极端情况）
+    fallback_ports = [45678, 45679, 45680, 0]
+    for fp in fallback_ports:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host if host != "0.0.0.0" else "127.0.0.1", fp))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Fallback to hardcoded port: {port}", file=sys.stderr, flush=True)
+            return port
+        except:
+            try:
+                sock.close()
+            except:
+                pass
+            continue
+    
+    # 理论上不会到这里，如果真的到了，返回一个肯定能用的
+    return 0
+
+# 执行端口查找
+FINAL_PORT = force_bind_or_fallback(HOST, PREFERED_PORT)
 PORT = FINAL_PORT
 
-# 核心：立刻打印！这样 Electron 在 0.1 秒内就能拿到端口，
-# 即使后面加载 onnxruntime 花了 5 秒，Electron 也已经提前知道端口了。
+# 核心：立刻打印！
 print(f"REAL_PORT_FOUND:{PORT}", flush=True)
 
 # ==========================================

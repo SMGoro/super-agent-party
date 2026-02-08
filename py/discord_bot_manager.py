@@ -72,51 +72,48 @@ class DiscordBotManager:
     def _run_bot_thread(self, config: DiscordBotConfig):
         """线程中运行 Discord 机器人"""
         try:
+            # 1. 创建并设置循环
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
 
-            # --- 关键修复：强制同步最新的行为配置 ---
-            try:
-                # 同步加载全局设置以补全可能缺失的行为配置
-                settings = asyncio.run(load_settings())
-                behavior_data = settings.get("behaviorSettings", {})
-                
-                # 获取目标频道列表
-                target_ids = config.behaviorTargetChatIds
-                if not target_ids:
-                    discord_conf = settings.get("discordBotConfig", {})
-                    target_ids = discord_conf.get("behaviorTargetChatIds", [])
-                
-                if behavior_data:
-                    logging.info(f"Discord 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
-                    target_map = {"discord": target_ids}
-                    # 更新全局行为引擎
-                    global_behavior_engine.update_config(behavior_data, target_map)
-                    # 同步到本地 config 对象
-                    config.behaviorSettings = behavior_data if isinstance(behavior_data, BehaviorSettings) else BehaviorSettings(**behavior_data)
-                    config.behaviorTargetChatIds = target_ids
-            except Exception as e:
-                logging.error(f"Discord 线程同步行为配置失败: {e}")
+            # 2. 定义一个统一的异步启动函数
+            async def main_startup():
+                try:
+                    # 在异步环境下加载设置，避免 asyncio.run 冲突
+                    settings = await load_settings()
+                    behavior_data = settings.get("behaviorSettings", {})
+                    
+                    target_ids = config.behaviorTargetChatIds
+                    if not target_ids:
+                        discord_conf = settings.get("discordBotConfig", {})
+                        target_ids = discord_conf.get("behaviorTargetChatIds", [])
+                    
+                    if behavior_data:
+                        logging.info(f"Discord 线程: 同步行为配置... 目标频道数: {len(target_ids)}")
+                        target_map = {"discord": target_ids}
+                        global_behavior_engine.update_config(behavior_data, target_map)
+                        
+                        # 更新本地配置对象
+                        config.behaviorSettings = behavior_data if isinstance(behavior_data, BehaviorSettings) else BehaviorSettings(**behavior_data)
+                        config.behaviorTargetChatIds = target_ids
 
-            self.bot_client = DiscordClient(config, manager=self)
-            
-            # 启动行为引擎监控 (如果尚未在其他地方启动)
-            if not global_behavior_engine.is_running:
-                asyncio.create_task(global_behavior_engine.start())
-                logging.info("行为引擎已在 Discord 线程启动")
+                    # 3. 实例化 Client
+                    self.bot_client = DiscordClient(config, manager=self)
 
-            self.loop.run_until_complete(self.bot_client.start(config.token))
-        except Exception as e:
-            if not self._stop_requested:
-                self._startup_error = str(e)
-                logging.exception("Discord 机器人线程异常")
-        finally:
-            self._cleanup()
-        try:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
-            self.bot_client = DiscordClient(config, manager=self)
-            self.loop.run_until_complete(self.bot_client.start(config.token))
+                    # 4. 启动行为引擎 (此时在运行的 loop 中，可以使用 create_task)
+                    if not global_behavior_engine.is_running:
+                        asyncio.create_task(global_behavior_engine.start())
+                        logging.info("行为引擎已在 Discord 线程启动")
+
+                    # 5. 启动 Discord Bot (这会阻塞直到 Bot 关闭)
+                    await self.bot_client.start(config.token)
+                except Exception as e:
+                    self._startup_error = str(e)
+                    logging.exception("Discord 机器人启动过程中出错")
+
+            # 运行异步主任务
+            self.loop.run_until_complete(main_startup())
+
         except Exception as e:
             if not self._stop_requested:
                 self._startup_error = str(e)
@@ -232,9 +229,9 @@ class DiscordClient(discord.Client):
             # [新增] /id 指令：获取当前频道 ID
             if content_strip.lower() == "/id":
                 info_msg = (
-                    f"🤖 **Discord 会话信息识别成功**\n\n"
-                    f"当前 Channel ID:\n`{cid}`\n\n"
-                    f"💡 说明: 请直接复制上方 ID 填入后台“自主行为”的 Discord 目标列表。"
+                    f"🤖 **Discord Session Information Identified Successfully**\n\n"
+                    f"Current Channel ID:\n`{cid}`\n\n"
+                    f"💡 Note: Please directly copy the ID above and fill it into the Discord target list in the 'Autonomous Actions' section of the backend."
                 )
                 await msg.reply(info_msg)
                 return
