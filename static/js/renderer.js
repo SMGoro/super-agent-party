@@ -979,6 +979,11 @@ const handleRemoteInstall = (data) => {
     window.removeEventListener('resize', this.handleResize);
   },
   watch: {
+    'tempBehavior.trigger.cycle.cycleValue'(newVal) {
+      if (newVal === '00:00:00') {
+        this.tempBehavior.trigger.cycle.cycleValue = '00:00:01';
+      }
+    },
     activeMenu(newVal) {
       this.handleExtensionsPolling(newVal, this.subMenu);
       this.handleSkillsPolling(newVal, this.subMenu, this.activeCLITab);

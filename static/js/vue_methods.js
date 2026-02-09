@@ -14851,4 +14851,38 @@ async handleRefreshSkills() {
     }
   },
 
+    // 辅助工具：生成数字范围数组
+    makeRange(start, end) {
+      const result = [];
+      for (let i = start; i <= end; i++) {
+        result.push(i);
+      }
+      return result;
+    },
+
+    // 禁用小时
+    disabledHours() {
+      // 只有在最小值的小时大于 0 时才需要禁用
+      // 如果最小是 00:00:01，则不禁用任何小时
+      return this.makeRange(0, 23).filter(h => h < this.minLimit.h);
+    },
+
+    // 禁用分钟 (selectedHour 是当前转盘选中的小时)
+    disabledMinutes(selectedHour) {
+      // 只有当选中的小时等于最小值的小时时，才限制分钟
+      if (selectedHour === this.minLimit.h) {
+        return this.makeRange(0, 59).filter(m => m < this.minLimit.m);
+      }
+      return [];
+    },
+
+    // 禁用秒钟 (selectedHour 和 selectedMinute 是当前选中的时和分)
+    disabledSeconds(selectedHour, selectedMinute) {
+      // 只有当时和分都处于最小值临界点时，才限制秒钟
+      if (selectedHour === this.minLimit.h && selectedMinute === this.minLimit.m) {
+        return this.makeRange(0, 59).filter(s => s < this.minLimit.s);
+      }
+      return [];
+    },
+
 }

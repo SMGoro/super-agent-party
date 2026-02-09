@@ -4269,7 +4269,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-form-item :label="t('noInputLatency') + ' (s)'">
                           <el-slider
                             v-model="tempBehavior.trigger.noInput.latency"
-                            :min="10"
+                            :min="20"
                             :max="600"
                             :step="5"
                             show-input>
@@ -4281,13 +4281,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <div v-if="tempBehavior.trigger.type === 'cycle'" class="sub-config-box">
                         <el-row :gutter="12">
                           <el-col :span="24">
-                            <el-form-item :label="t('cycleValue')">
+                            <el-form-item :label="t('cycleValue')+t('minLimit1min')">
                               <el-time-picker
                                 v-model="tempBehavior.trigger.cycle.cycleValue"
                                 value-format="HH:mm:ss"
                                 format="HH:mm:ss"
                                 :placeholder="t('selectTime')"
                                 style="width: 100%"
+                                :disabled-hours="disabledHours"
+                                :disabled-minutes="disabledMinutes"
+                                :disabled-seconds="disabledSeconds"
+                                :clearable="false" 
                               />
                             </el-form-item>
                           </el-col>

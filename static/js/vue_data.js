@@ -2015,4 +2015,5 @@ main();`,
     showBehaviorDialog: false,     // 控制弹窗显示
     currentBehaviorIndex: -1,      // 当前编辑的索引，-1 表示新增
     tempBehavior: null,            // 临时编辑对象，避免直接修改原数据
+    minLimit: { h: 0, m: 1, s: 0 } 
 };
