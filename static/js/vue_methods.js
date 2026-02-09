@@ -2328,56 +2328,47 @@ let vue_methods = {
         }
     },
 
-    // === Human-in-the-loop 处理函数 (精准替换版) ===
+    // === Human-in-the-loop 处理函数 (修复版：支持立即反馈) ===
     async processToolApproval(toolCallId, action) {
         const currentMsg = this.messages[this.messages.length - 1];
         if (!currentMsg) return;
-        let data = this.approvalMap[toolCallId];
+        
+        const data = this.approvalMap[toolCallId];
+        const toolName = data?.tool_name || 'Tool';
+        const blockId = `approval-${toolCallId}`;
+
+        // --- 第一步：立即更新 UI 为“处理中”状态 ---
+        const feedbackTitle = action === 'deny' ? this.t('denying') || 'Denying...' : `${this.t('executing') || 'Executing'} ${toolName}...`;
+        const loadingHtml = `\n`;
+
+        this.updateUIBlock(currentMsg, blockId, loadingHtml);
+
+        // 设置状态，防止用户重复点击其他按钮
         this.isSending = true; 
         this.isTyping = true;
         this.abortController = new AbortController(); 
 
-        const toolName = data?.tool_name || 'Tool';
-        let resultText = "";
-
         try {
+            // --- 第二步：执行实际的后端逻辑 ---
+            let resultText = "";
             if (action === 'deny') {
                 resultText = `User denied the execution of tool '${toolName}'.`;
             } else {
+                // 这里会等待较长时间
                 resultText = await this.executeToolBackend(toolName, data.tool_params, action);
             }
 
-            // --- 精准替换 UI 内容 ---
-            const blockId = `approval-${toolCallId}`;
-            const content = currentMsg.content;
-            
-            // 找到审批块的起点
-            const startIndex = content.indexOf(`<div class="approval-card" id="${blockId}">`);
-            if (startIndex !== -1) {
-                // 找到该块的终点
-                // 因为审批卡片的结构固定，最后是以 </div></div> 结尾的（actions 的结尾 + card 的结尾）
-                // 我们寻找从 startIndex 开始后的第一个匹配整个卡片闭合的标志
-                const searchPart = content.substring(startIndex);
-                const endTag = '</div></div>'; 
-                const relativeEndIndex = searchPart.indexOf(endTag);
-                
-                if (relativeEndIndex !== -1) {
-                    const endIndex = startIndex + relativeEndIndex + endTag.length;
-                    
-                    // 构造结果 HTML
-                    const className = action === 'deny' ? 'highlight-block-error' : 'highlight-block';
-                    const title = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
-                    const resultHtml = `\n<div class="${className}">
-                        <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(title)}</div>
-                        <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${this.escapeHtml(resultText)}</pre>
-                    </div>\n`;
+            // --- 第三步：后端返回结果后，将“处理中”替换为“最终结果” ---
+            const className = action === 'deny' ? 'highlight-block-error' : 'highlight-block';
+            const finalTitle = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
+            const resultHtml = `\n<div class="${className}" id="${blockId}">
+                <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(finalTitle)}</div>
+                <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${this.escapeHtml(resultText)}</pre>
+            </div>\n`;
 
-                    // 替换整个字符串区间
-                    currentMsg.content = content.substring(0, startIndex) + resultHtml + content.substring(endIndex);
-                }
-            }
+            this.updateUIBlock(currentMsg, blockId, resultHtml);
 
-            // --- 更新后端上下文 ---
+            // --- 第四步：更新后端上下文并触发 AI 继续生成 ---
             if (currentMsg.backend_content) {
                 for (let i = currentMsg.backend_content.length - 1; i >= 0; i--) {
                     const item = currentMsg.backend_content[i];
@@ -2387,15 +2378,53 @@ let vue_methods = {
                     }
                 }
             }
+            
             // 触发下一轮生成
             await this.generateAIResponse(this.mainAgent, currentMsg.agentName, true);
 
         } catch (e) {
             console.error("Approval flow failed:", e);
+            showNotification("Tool execution failed", 'error');
             this.isSending = false;
             this.isTyping = false;
         }
-    },   
+    },
+
+  // 辅助：精确定位并替换 UI 中的某个 ID 块
+    updateUIBlock(msg, blockId, newHtml) {
+        const content = msg.content;
+        // 匹配开始标签（带特定 ID）
+        const startTag = `id="${blockId}"`;
+        const startSearchIndex = content.indexOf(startTag);
+        
+        if (startSearchIndex === -1) {
+            // 如果没找到（可能在末尾），直接追加
+            msg.content += newHtml;
+            return;
+        }
+
+        // 向上寻找该块的起始 <div
+        const startIndex = content.lastIndexOf('<div', startSearchIndex);
+        
+        // 向下寻找该块的结束（根据审批卡片和高亮块的结构，它们都是以 </div>\n 或 </div></div> 结尾）
+        // 这里采用更稳健的方法：寻找下一个块的特征或当前块的闭合
+        let endIndex = -1;
+        const searchPart = content.substring(startIndex);
+        
+        // 审批卡片结构是 </div></div>\n，高亮块是 </div>\n\n
+        if (searchPart.includes('</div></div>')) {
+            endIndex = startIndex + searchPart.indexOf('</div></div>') + 12;
+        } else if (searchPart.includes('</div>\n')) {
+            endIndex = startIndex + searchPart.indexOf('</div>\n') + 7;
+        }
+
+        if (startIndex !== -1 && endIndex !== -1) {
+            msg.content = content.substring(0, startIndex) + newHtml + content.substring(endIndex);
+        } else {
+            // 兜底方案：如果解析失败，直接追加
+            msg.content += newHtml;
+        }
+    },
 
     // === 辅助函数 ===
 
