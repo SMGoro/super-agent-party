@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import logging
+import random
 import re
 import threading
 import weakref
@@ -12,8 +13,9 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from py.behavior_engine import BehaviorItem, BehaviorSettings,global_behavior_engine
 from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
 # ------------------ 配置模型 ------------------
@@ -26,6 +28,10 @@ class DiscordBotConfig(BaseModel):
     quick_restart: bool = True
     enable_tts: bool = True
     wakeWord: str              # 唤醒词
+    # --- 新增：行为规则设置 ---
+    behaviorSettings: Optional[BehaviorSettings] = None
+    # Discord 特定的推送目标 ID 列表 (Channel IDs)
+    behaviorTargetChatIds: List[str] = Field(default_factory=list)
 
 # ------------------ 管理器 ------------------
 class DiscordBotManager:
@@ -64,11 +70,50 @@ class DiscordBotManager:
             raise RuntimeError(f"Discord 机器人启动失败: {self._startup_error}")
 
     def _run_bot_thread(self, config: DiscordBotConfig):
+        """线程中运行 Discord 机器人"""
         try:
+            # 1. 创建并设置循环
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-            self.bot_client = DiscordClient(config, manager=self)
-            self.loop.run_until_complete(self.bot_client.start(config.token))
+
+            # 2. 定义一个统一的异步启动函数
+            async def main_startup():
+                try:
+                    # 在异步环境下加载设置，避免 asyncio.run 冲突
+                    settings = await load_settings()
+                    behavior_data = settings.get("behaviorSettings", {})
+                    
+                    target_ids = config.behaviorTargetChatIds
+                    if not target_ids:
+                        discord_conf = settings.get("discordBotConfig", {})
+                        target_ids = discord_conf.get("behaviorTargetChatIds", [])
+                    
+                    if behavior_data:
+                        logging.info(f"Discord 线程: 同步行为配置... 目标频道数: {len(target_ids)}")
+                        target_map = {"discord": target_ids}
+                        global_behavior_engine.update_config(behavior_data, target_map)
+                        
+                        # 更新本地配置对象
+                        config.behaviorSettings = behavior_data if isinstance(behavior_data, BehaviorSettings) else BehaviorSettings(**behavior_data)
+                        config.behaviorTargetChatIds = target_ids
+
+                    # 3. 实例化 Client
+                    self.bot_client = DiscordClient(config, manager=self)
+
+                    # 4. 启动行为引擎 (此时在运行的 loop 中，可以使用 create_task)
+                    if not global_behavior_engine.is_running:
+                        asyncio.create_task(global_behavior_engine.start())
+                        logging.info("行为引擎已在 Discord 线程启动")
+
+                    # 5. 启动 Discord Bot (这会阻塞直到 Bot 关闭)
+                    await self.bot_client.start(config.token)
+                except Exception as e:
+                    self._startup_error = str(e)
+                    logging.exception("Discord 机器人启动过程中出错")
+
+            # 运行异步主任务
+            self.loop.run_until_complete(main_startup())
+
         except Exception as e:
             if not self._stop_requested:
                 self._startup_error = str(e)
@@ -110,6 +155,29 @@ class DiscordBotManager:
             "config": self.config.model_dump() if self.config else None,
         }
 
+    def update_behavior_config(self, config: DiscordBotConfig):
+        """
+        热更新行为配置，不重启机器人
+        """
+        # 更新 Manager 的本地记录
+        self.config = config
+        
+        # 1. 更新 Client 内部的实时参数
+        if self.bot_client:
+            self.bot_client.config.llm_model = config.llm_model 
+            self.bot_client.config.enable_tts = config.enable_tts
+            self.bot_client.config.wakeWord = config.wakeWord
+
+        # 2. 更新全局行为引擎
+        target_map = {
+            "discord": config.behaviorTargetChatIds
+        }
+        
+        global_behavior_engine.update_config(
+            config.behaviorSettings,
+            target_map
+        )
+        logging.info("Discord 机器人: 行为配置已热更新，计时器已重置")
 
 # ------------------ Discord Client ------------------
 class DiscordClient(discord.Client):
@@ -123,6 +191,10 @@ class DiscordClient(discord.Client):
         self.async_tools: Dict[int, List[str]] = {}
         self.file_links: Dict[int, List[str]] = {}
         self._shutdown_requested = False
+        
+        # --- 新增：注册到行为引擎 ---
+        # 告知引擎：Discord 平台的执行逻辑由本实例负责
+        global_behavior_engine.register_handler("discord", self.execute_behavior_event)
 
     async def on_ready(self):
         self.manager.is_running = True
@@ -147,12 +219,29 @@ class DiscordClient(discord.Client):
             self.async_tools[cid] = []
             self.file_links[cid] = []
 
-        # 1. 快速重启
-        if self.config.quick_restart and msg.content:
-            if msg.content.strip() in {"/重启", "/restart"}:
-                self.memory[cid].clear()
-                await msg.reply("对话记录已重置。")
+        # --- 新增：上报活跃状态到引擎，用于无输入检测 ---
+        global_behavior_engine.report_activity("discord", str(cid))
+
+        # 1. 指令处理
+        if msg.content:
+            content_strip = msg.content.strip()
+            
+            # [新增] /id 指令：获取当前频道 ID
+            if content_strip.lower() == "/id":
+                info_msg = (
+                    f"🤖 **Discord Session Information Identified Successfully**\n\n"
+                    f"Current Channel ID:\n`{cid}`\n\n"
+                    f"💡 Note: Please directly copy the ID above and fill it into the Discord target list in the 'Autonomous Actions' section of the backend."
+                )
+                await msg.reply(info_msg)
                 return
+
+            # 快速重启
+            if self.config.quick_restart:
+                if content_strip in {"/重启", "/restart"}:
+                    self.memory[cid].clear()
+                    await msg.reply("对话记录已重置。")
+                    return
 
         # 2. 拼装用户内容
         user_content = []
@@ -195,7 +284,7 @@ class DiscordClient(discord.Client):
 
         self.memory[cid].append({"role": "user", "content": user_content or user_text})
 
-        # 3. 请求 LLM
+        # 3. 请求 LLM (后续逻辑保持不变...)
         settings = await load_settings()
         client = AsyncOpenAI(api_key="super-secret-key", base_url=f"http://127.0.0.1:{get_port()}/v1")
 
@@ -218,8 +307,7 @@ class DiscordClient(discord.Client):
             await msg.channel.send("LLM 响应超时，请稍后再试。")
             return
 
-        # 4. 流式解析
-        # [新增] audio_buffer
+        # 4. 流式解析 (省略已有代码)
         state = {
             "text_buffer": "", 
             "image_buffer": "", 
@@ -230,45 +318,29 @@ class DiscordClient(discord.Client):
 
         async for chunk in stream:
             if not chunk.choices: continue
-            
             delta_raw = chunk.choices[0].delta
-            
-            # [新增] 捕获音频流
             if hasattr(delta_raw, "audio") and delta_raw.audio:
                 if "data" in delta_raw.audio:
                     state["audio_buffer"].append(delta_raw.audio["data"])
-
             reasoning_content = getattr(delta_raw, "reasoning_content", None) or ""
-            tool_content = getattr(delta_raw, "tool_content", None) or ""
             async_tool_id = getattr(delta_raw, "async_tool_id", None) or ""
             tool_link = getattr(delta_raw, "tool_link", None) or ""
-
             if tool_link and settings.get("tools", {}).get("toolMemorandum", {}).get("enabled"):
-                if tool_link not in self.file_links[cid]:
-                    self.file_links[cid].append(tool_link)
-
+                if tool_link not in self.file_links[cid]: self.file_links[cid].append(tool_link)
             if async_tool_id:
-                if async_tool_id not in self.async_tools[cid]:
-                    self.async_tools[cid].append(async_tool_id)
-                else:
-                    self.async_tools[cid].remove(async_tool_id)
-
+                if async_tool_id not in self.async_tools[cid]: self.async_tools[cid].append(async_tool_id)
+                else: self.async_tools[cid].remove(async_tool_id)
             content = delta_raw.content or ""
-            if reasoning_content and self.config.reasoning_visible:
-                content = reasoning_content
-
+            if reasoning_content and self.config.reasoning_visible: content = reasoning_content
             full_response.append(content)
             state["text_buffer"] += content
             state["image_buffer"] += content
-
-            # 文本分段发送
             if state["text_buffer"]:
                 force_split = len(state["text_buffer"]) > 1800
                 while True:
                     buffer = state["text_buffer"]
                     split_pos = -1
                     in_code_block = False
-                    
                     if force_split:
                         min_idx = len(buffer) + 1
                         found_sep_len = 0
@@ -281,73 +353,39 @@ class DiscordClient(discord.Client):
                     else:
                         i = 0
                         while i < len(buffer):
-                            if buffer[i:].startswith("```"):
-                                in_code_block = not in_code_block
-                                i += 3
-                                continue
+                            if buffer[i:].startswith("```"): in_code_block = not in_code_block; i += 3; continue
                             if not in_code_block:
                                 found_sep = False
                                 for sep in self.config.separators:
-                                    if buffer[i:].startswith(sep):
-                                        split_pos = i + len(sep)
-                                        found_sep = True
-                                        break
+                                    if buffer[i:].startswith(sep): split_pos = i + len(sep); found_sep = True; break
                                 if found_sep: break
                             i += 1
-                    
                     if split_pos == -1: break
-                        
                     seg = buffer[:split_pos]
                     state["text_buffer"] = buffer[split_pos:]
-                    
                     seg = self._clean_text(seg)
-                    if seg and not self.config.enable_tts:
-                        await self._send_segment(msg, seg)
-                    
+                    if seg and not self.config.enable_tts: await self._send_segment(msg, seg)
                     if force_split: break
-
-        # 5. 剩余文本
         if state["text_buffer"]:
             seg = self._clean_text(state["text_buffer"])
-            if seg and not self.config.enable_tts:
-                await self._send_segment(msg, seg)
-
-        # 6. 图片
+            if seg and not self.config.enable_tts: await self._send_segment(msg, seg)
         self._extract_images(state)
-        for img_url in state["image_cache"]:
-            await self._send_image(msg, img_url)
-
-        # [新增] Omni 音频处理
+        for img_url in state["image_cache"]: await self._send_image(msg, img_url)
         has_omni_audio = False
         if state["audio_buffer"]:
             try:
-                logging.info(f"处理 Discord Omni 音频，分片数: {len(state['audio_buffer'])}")
                 full_audio_b64 = "".join(state["audio_buffer"])
                 raw_audio_bytes = base64.b64decode(full_audio_b64)
-                
-                # 异步执行转码
-                final_audio, is_opus = await asyncio.to_thread(
-                    convert_to_opus_simple, 
-                    raw_audio_bytes
-                )
-                
+                final_audio, is_opus = await asyncio.to_thread(convert_to_opus_simple, raw_audio_bytes)
                 await self._send_omni_voice(msg, final_audio, is_opus)
                 has_omni_audio = True
-            except Exception as e:
-                logging.error(f"Omni 音频处理失败: {e}")
-
-        # 7. 记忆 & 旧版 TTS
+            except Exception as e: logging.error(f"Omni 音频处理失败: {e}")
         full_content = "".join(full_response)
-        
-        # 只有在没有 Omni 音频时，才使用旧版 TTS
-        if self.config.enable_tts and not has_omni_audio:
-            await self._send_voice(msg, full_content)
-
+        if self.config.enable_tts and not has_omni_audio: await self._send_voice(msg, full_content)
         self.memory[cid].append({"role": "assistant", "content": full_content})
         if self.config.memory_limit > 0:
-            while len(self.memory[cid]) > self.config.memory_limit * 2:
-                self.memory[cid].pop(0)
-
+            while len(self.memory[cid]) > self.config.memory_limit * 2: self.memory[cid].pop(0)
+    
     # [新增] 发送 Omni 语音
     async def _send_omni_voice(self, msg: discord.Message, audio_data: bytes, is_opus: bool):
         """发送 Omni 模型生成的音频文件"""
@@ -464,3 +502,81 @@ class DiscordClient(discord.Client):
                     await msg.channel.send(file=file)
         except Exception as e:
             logging.exception(f"发送图片失败: {img_url}")
+
+    async def execute_behavior_event(self, chat_id: str, behavior_item: BehaviorItem):
+        """
+        回调函数：响应行为引擎的指令
+        """
+        logging.info(f"[DiscordClient] 行为触发! 目标: {chat_id}, 动作类型: {behavior_item.action.type}")
+        
+        prompt_content = await self._resolve_behavior_prompt(behavior_item)
+        if not prompt_content: return
+
+        cid = int(chat_id)
+        if cid not in self.memory:
+            self.memory[cid] = []
+        
+        # 构造上下文：历史记录 + 系统指令
+        messages = self.memory[cid].copy()
+        system_instruction = f"[system]: {prompt_content}"
+        messages.append({"role": "user", "content": system_instruction})
+        
+        # 同步到内存，维持逻辑连贯
+        self.memory[cid].append({"role": "user", "content": system_instruction})
+
+        try:
+            client = AsyncOpenAI(
+                api_key="super-secret-key",
+                base_url=f"http://127.0.0.1:{get_port()}/v1"
+            )
+            
+            # 使用非流式请求处理主动行为，便于逻辑简化
+            response = await client.chat.completions.create(
+                model=self.config.llm_model,
+                messages=messages,
+                stream=False, 
+                extra_body={
+                    "is_app_bot": True,
+                    "behavior_trigger": True
+                }
+            )
+            
+            reply_content = response.choices[0].message.content
+            if reply_content:
+                channel = self.get_channel(cid)
+                if channel:
+                    # 1. 发送文本
+                    await channel.send(reply_content)
+                    self.memory[cid].append({"role": "assistant", "content": reply_content})
+                    
+                    # 2. 如果开启了 TTS，则发送语音
+                    if self.config.enable_tts:
+                        # 构造 MockMessage 以复用现有 TTS 函数
+                        class MockMsg:
+                            def __init__(self, c): self.channel = c
+                        await self._send_voice(MockMsg(channel), reply_content)
+            
+        except Exception as e:
+            logging.error(f"[DiscordClient] 执行行为 API 调用失败: {e}")   
+
+    async def _resolve_behavior_prompt(self, behavior: BehaviorItem) -> str:
+        """解析行为配置，生成具体的 Prompt 指令"""
+        from py.random_topic import get_random_topics
+        action = behavior.action
+        
+        if action.type == "prompt":
+            return action.prompt
+            
+        elif action.type == "random":
+            if not action.random or not action.random.events:
+                return None
+            events = action.random.events
+            if action.random.type == "random":
+                return random.choice(events)
+            elif action.random.type == "order":
+                idx = action.random.orderIndex
+                if idx >= len(events): idx = 0
+                selected = events[idx]
+                action.random.orderIndex = idx + 1 # 内存内更新
+                return selected
+        return None

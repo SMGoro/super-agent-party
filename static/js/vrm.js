@@ -1,3 +1,7 @@
+const urlParams = new URLSearchParams(window.location.search);
+const isRenderMode = urlParams.get('mode') === 'render'; // 是否是渲染模式（OBS采集用）
+// --- 全景渲染专用变量 ---
+let cubeCamera, cubeRenderTarget, panoMesh, panoCamera, panoShaderMaterial;
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -183,13 +187,73 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild( renderer.domElement );
 
 // camera
-const camera = new THREE.PerspectiveCamera( 30.0, window.innerWidth / window.innerHeight, 0.1, 20.0 );
+let camera;
+if (isRenderMode) {
+    // 全景模式：依然需要一个基础相机来驱动 renderer，但核心是 CubeCamera
+    camera = new THREE.PerspectiveCamera(30.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    
+    // 初始化立方体渲染目标（分辨率建议 2048 以保证全景清晰度）
+    cubeRenderTarget = new THREE.WebGLCubeRenderTarget(2048, {
+        format: THREE.RGBAFormat,
+        generateMipmaps: true,
+        magFilter: THREE.LinearFilter
+    });
+    cubeCamera = new THREE.CubeCamera(0.1, 1000, cubeRenderTarget);
+    // 相机高度设置在角色头部高度 (约1.5m)，位置稍微靠前 (1m) 获得最佳视角
+    cubeCamera.position.set(0, 1.5, 1);
+
+    // 全景转换着色器材质：将 6 面体映射为 2:1 平面
+    panoShaderMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            tCube: { value: cubeRenderTarget.texture }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+
+        fragmentShader: `
+            varying vec2 vUv;
+            uniform samplerCube tCube;
+            #define PI 3.141592653589793
+
+            void main() {
+                // --- 关键修改：将 UV.x 映射从 [0, 1] 改变偏移量 ---
+                // 原来是: vUv.x * 2.0 * PI - PI
+                // 修改为直接乘 2PI，这样 0.5 (中心) 对应的就是 PI (正前方 -Z)
+                float longitude = vUv.x * 2.0 * PI; 
+                
+                float latitude = vUv.y * PI - PI / 2.0;
+
+                vec3 dir;
+                dir.x = cos(latitude) * sin(longitude);
+                dir.y = sin(latitude);
+                dir.z = cos(latitude) * cos(longitude);
+
+                gl_FragColor = textureCube(tCube, dir);
+            }
+        `,
+        side: THREE.DoubleSide
+    });
+
+    // 创建全屏覆盖平面和正交相机
+    panoMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), panoShaderMaterial);
+    panoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+} else {
+    // 普通模式：维持原代码
+    camera = new THREE.PerspectiveCamera(30.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+}
+
 camera.position.set( 0.0, 1.0, 4.0 );
-camera.far = 1000; // 根据场景需要调整（例如 1000 或更大）
-camera.updateProjectionMatrix(); // 必须调用以生效
+camera.far = 1000; 
+camera.updateProjectionMatrix();
+
 // camera controls
 const controls = new OrbitControls( camera, renderer.domElement );
-let controlsEnabledBeforeAutoHide = true;   // 记录自动隐藏前控制器状态
+let controlsEnabledBeforeAutoHide = true;   
 controls.screenSpacePanning = true;
 controls.target.set( 0.0, 1.0, 0.0 );
 controls.update();
@@ -1088,7 +1152,7 @@ function createIdleClip(vrm) {
                 case 'neck':
                     euler.set(
                         Math.cos(cycleTime * 1.2 + idleOffsets.head) * 0.01,     
-                        Math.sin(cycleTime * 1.4 + idleOffsets.head) * 0.02,     
+                        Math.sin(cycleTime * 1.5 + idleOffsets.head) * 0.02,     
                         0                                                     
                     );
                     break;
@@ -1096,7 +1160,7 @@ function createIdleClip(vrm) {
                 case 'head':
                     euler.set(
                         Math.sin(cycleTime * 1.0 + idleOffsets.head) * 0.02,     
-                        Math.sin(cycleTime * 1.4 + idleOffsets.head) * 0.03,     
+                        Math.sin(cycleTime * 1.5 + idleOffsets.head) * 0.03,     
                         Math.cos(cycleTime * 0.8 + idleOffsets.head) * 0.01      
                     );
                     break;
@@ -1238,8 +1302,8 @@ function createBlinkClip(vrm) {
         let blinkValue = 0;
         
         // 在第1.5秒单次眨眼
-        if (time >= 1.4 && time <= 1.6) {
-            const progress = (time - 1.4) / 0.2;
+        if (time >= 1.5 && time <= 1.6) {
+            const progress = (time - 1.5) / 0.2;
             blinkValue = Math.sin(progress * Math.PI);
         }
         // 在第4秒双次眨眼
@@ -1974,19 +2038,23 @@ clock.start();
 let currentLookYaw = 0;   // 左右偏航角 (Y轴)
 let currentLookPitch = 0; // 上下俯仰角 (X轴)
 
+let isPreviewing360 = false;
+let debugSphere, debugCamera, debugControls;
+
 function animate() {
     requestAnimationFrame(animate);
     
     const deltaTime = clock.getDelta();
     updatePointerLockMovement(deltaTime);
     const shouldSkipModelUpdate = isModelHiddenByHover && isAutoHideEnabled;
+
     if (currentVrm && !shouldSkipModelUpdate) {
         // 1. Mixer 更新
         if (currentMixer) {
             currentMixer.update(deltaTime);
         }
 
-        // 2. VMC 更新 (屏蔽)
+        // 2. VMC 接收更新
         if (vmcReceiveEnabled) {
             for (const [vmcName, data] of vmcBoneBuffer) {
                 let boneName = vmcToVrmBone[vmcName] ??
@@ -2014,35 +2082,27 @@ function animate() {
             const parent = neck.parent;
             const targetWorldPos = camera.position.clone();
             
-            // 坐标转换
             const localCameraPos = parent.worldToLocal(targetWorldPos.clone());
             const neckLocalPos = neck.position.clone();
             const viewVector = localCameraPos.sub(neckLocalPos);
 
-            // 🔥【核心修复】VRM 0.x 坐标系修正
-            // VRM 0.x 模型根节点被旋转了 180 度，所以它的"前方"是 -Z
-            // 如果不修正，算法会认为摄像机一直在"身后"，导致强制归零不动
             if (!isVRM1) {
-                viewVector.z = -viewVector.z; // 反转 Z 轴
-                viewVector.x = -viewVector.x; // 反转 X 轴 (让左右逻辑也回归正常)
+                viewVector.z = -viewVector.z; 
+                viewVector.x = -viewVector.x; 
             }
 
-            // 计算原始角度
             const rawTargetYaw = Math.atan2(viewVector.x, viewVector.z);
             const horizontalDist = Math.sqrt(viewVector.x**2 + viewVector.z**2);
             const rawTargetPitch = Math.atan2(viewVector.y, horizontalDist);
 
-            // 权重分配 (0.6)
             let targetYaw = rawTargetYaw * 0.6;
             let targetPitch = rawTargetPitch * 0.6;
 
-            // 限制范围
             const yawLimit = THREE.MathUtils.degToRad(45);  
             const pitchUpLimit = THREE.MathUtils.degToRad(40);
             const pitchDownLimit = THREE.MathUtils.degToRad(20);
             const behindLimit = THREE.MathUtils.degToRad(110);
 
-            // 身后回正
             if (Math.abs(rawTargetYaw) > behindLimit) {
                 targetYaw = 0;
                 targetPitch = 0;
@@ -2051,44 +2111,27 @@ function animate() {
                 targetPitch = THREE.MathUtils.clamp(targetPitch, -pitchDownLimit, pitchUpLimit);
             }
 
-            // 平滑插值
             const lerpSpeed = 2.0 * deltaTime;
             currentLookYaw = THREE.MathUtils.lerp(currentLookYaw, targetYaw, lerpSpeed);
             currentLookPitch = THREE.MathUtils.lerp(currentLookPitch, targetPitch, lerpSpeed);
 
-            // --- 最终赋值 ---
-            
             let applyYaw = currentLookYaw;
-            let applyPitch = -currentLookPitch; // 默认 VRM1.0 (-X 抬头)
+            let applyPitch = -currentLookPitch; 
 
             if (!isVRM1) {
-                // VRM 0.x 特殊处理
-                // 因为我们在上面反转了向量(viewVector)，所以算出来的角度数值是"正向"的
-                // 此时只需要应用到骨骼即可
                 applyYaw = currentLookYaw; 
-                
-                // VRM 0.x 通常 +X 是抬头，而我们上面用的是 standard pitch (+Y up)
-                // 如果发现抬头低头反了，把这里的正号改成负号
                 applyPitch = currentLookPitch; 
             }
 
-            // 创建 Yaw 旋转 (绕 Y 轴)
             const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw);
-            
-            // 创建 Pitch 旋转 (绕 X 轴)
             const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch);
-
-            // 组合: Yaw * Pitch
             qYaw.multiply(qPitch);
-
             neck.quaternion.copy(qYaw);
 
-            // 头部联动
             if (head) {
                 const qHeadYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), applyYaw * 0.5);
                 const qHeadPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), applyPitch * 0.5);
                 qHeadYaw.multiply(qHeadPitch);
-                
                 head.quaternion.copy(qHeadYaw);
             }
         }
@@ -2097,18 +2140,38 @@ function animate() {
         currentVrm.update(deltaTime);
     }
 
-    renderer.render(scene, camera);
+    // --- 渲染逻辑分支 (全景渲染核心) ---
+    if (isRenderMode) {
+        if (isPreviewing360 && debugCamera) {
+            // A. 360 预览模式：使用调试相机旋转查看球体内部
+            renderer.render(scene, debugCamera);
+        } else {
+            // B. 标准全景模式 (2:1 展开图)
+            if (cubeCamera) {
+                // 渲染前隐藏全景投影平面，防止遮挡立方体相机
+                if (panoMesh) panoMesh.visible = false;
+                
+                // 让立方体相机捕捉 360 度场景
+                cubeCamera.update(renderer, scene);
+                
+                // 恢复投影平面并渲染到屏幕
+                if (panoMesh) {
+                    panoMesh.visible = true;
+                    renderer.render(panoMesh, panoCamera);
+                }
+            }
+        }
+    } else {
+        // C. 普通模式
+        renderer.render(scene, camera);
+    }
     
+    // 5. VMC 发送逻辑
     const now = performance.now();
     if (window.vmcAPI && (now - vmcLastSent >= VMC_SEND_INTERVAL)) {
         vmcLastSent = now;
-        
-        // 只有当开启 VMC 发送时才计算
-        // 假设你在 electronAPI.getVMCConfig 里获取了状态，或者通过 window 变量判断
-        // 这里简单判断
         const bones = getVMCBoneData();
         const blends = getVMCBlendData();
-
         if (bones.length > 0) {
             window.vmcAPI.sendVMCFrame({
                 bones: bones,
@@ -2117,7 +2180,7 @@ function animate() {
         }
     }
 
-    // UI
+    // 6. UI 字幕维护
     if (subtitleElement && !isDraggingSubtitle) {
         const rect = subtitleElement.getBoundingClientRect();
         if (rect.bottom > window.innerHeight || rect.right > window.innerWidth) {
@@ -2128,6 +2191,62 @@ function animate() {
         }
     }
 }
+
+// --- 全景预览切换逻辑：完整对齐高度版本 ---
+
+window.addEventListener('keydown', (e) => {
+    // 只有在渲染模式下才响应 V 键
+    if (e.key.toLowerCase() === 'v' && isRenderMode) {
+        if (!isPreviewing360) {
+            // 1. 创建全景调试球体
+            // 半径设为 5 即可，不要太大也不要太小
+            const geometry = new THREE.SphereGeometry(5, 60, 40);
+            geometry.scale(-1, 1, 1); // 翻转球体，从内向外看
+            
+            const material = new THREE.MeshBasicMaterial({
+                map: cubeRenderTarget.texture, // 实时采样全景相机的内容
+                side: THREE.BackSide // 确保只渲染内侧
+            });
+            
+            debugSphere = new THREE.Mesh(geometry, material);
+            
+            // --- 关键同步：球体中心也要设在 1.5m ---
+            debugSphere.position.set(0, 1.5, 1);
+            scene.add(debugSphere);
+            
+            // 2. 创建预览用的调试相机
+            debugCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            
+            // --- 关键同步：相机位置与 cubeCamera 保持完全一致 ---
+            debugCamera.position.set(0, 1.5, 1); 
+            
+            // 3. 初始化控制器
+            debugControls = new OrbitControls(debugCamera, renderer.domElement);
+            
+            // --- 核心修复：将目标点设在 1.5m，实现平视视角 ---
+            debugControls.target.set(0, 1.5, 0); 
+            
+            debugControls.enableZoom = false; // 禁用缩放，模拟固定点视角
+            debugControls.enablePan = false;  // 禁用平移，防止跑出球体
+            debugControls.update(); // 必须调用，否则 target 不生效
+            
+            isPreviewing360 = true;
+            console.log("进入 360 预览模式：已同步至 1.5m 平视高度");
+        } else {
+            // 退出预览模式
+            if (debugSphere) {
+                scene.remove(debugSphere);
+                if (debugSphere.geometry) debugSphere.geometry.dispose();
+                if (debugSphere.material) debugSphere.material.dispose();
+            }
+            if (debugControls) {
+                debugControls.dispose();
+            }
+            isPreviewing360 = false;
+            console.log("退出预览，恢复 2:1 平面图输出");
+        }
+    }
+});
 
 async function setVMCReceive (enable, syncExpr = false) {
   if (vmcReceiveEnabled!= enable){
@@ -2220,6 +2339,11 @@ const btn_width = 28;
 const btn_height = 28;
 
 function addcontrolPanel() {
+    if (isRenderMode) {
+        console.log('全景渲染模式：已跳过控制面板生成');
+        return;
+    }
+
     // 等待一小段时间确保页面完全加载
     setTimeout(async () => {
         // 创建控制面板容器

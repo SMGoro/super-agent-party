@@ -467,7 +467,6 @@ let vue_data = {
       { value: 'global', label: 'global' },
     ],
     imgHostOptions:[
-      { value: 'smms', label: 'smms' },
       { value: 'easyImage2', label: 'easyImage2' }
     ],
     showRestartDialog: false,
@@ -1239,6 +1238,7 @@ let vue_data = {
         { id: 'voice', title: 'CharacterVoice', icon: 'fa-solid fa-volume-high' },
         { id: 'appearance', title: 'CharacterAppearance', icon: 'fa-solid fa-person' },
         { id: 'behavior', title: 'CharacterBehavior', icon: 'fa-solid fa-person-running' },
+        { id: 'vision', title: 'CharacterVision', icon: 'fa-solid fa-eye'},
     ],
     modelTiles: [
       { id: 'service', title: 'modelService', icon: 'fa-solid fa-cloud' },
@@ -1349,8 +1349,8 @@ let vue_data = {
           type:"random",
           orderIndex:0,
         },
-        topicLimit: 1, // 话题限制
-      }
+      },
+      platform:"chat",
     },
     allBriefly:false,
     qqBotConfig: {
@@ -1373,6 +1373,7 @@ let vue_data = {
       quickRestart: true,
       enableTTS: false,
       wakeWord: '',
+      behaviorTargetChatIds: [], 
     },
     isFeishuBotRunning: false,
     isFeishuStarting: false,
@@ -1396,6 +1397,7 @@ let vue_data = {
       quickRestart: true,
       enableTTS: false,
       wakeWord: '',
+      behaviorTargetChatIds: [], 
     },
 
     telegramBotConfig: {
@@ -1407,6 +1409,7 @@ let vue_data = {
       enableTTS: false,
       bot_token: '',
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
     isTelegramBotRunning: false,
     isTelegramStarting: false,
@@ -1421,6 +1424,7 @@ let vue_data = {
       quick_restart: true,
       enable_tts: false,
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
     isDiscordBotRunning: false,
     isDiscordStarting: false,
@@ -1455,16 +1459,12 @@ let vue_data = {
     deployTiles: [
       { id: 'table_pet', title: 'tablePet', icon: "fa-solid fa-user-ninja"},
       { id: 'live_stream', title: 'live_stream_bot', icon: "fa-solid fa-video"},
-      { id: 'qq_bot', title: 'qqBot', icon: 'fa-brands fa-qq' },
-      { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-paper-plane' },
-      { id: 'dingtalk_bot', title: 'dingtalkBot', icon: 'fa-solid fa-bolt' },
-      { id: 'discord_bot', title: 'discordBot', icon: 'fa-brands fa-discord' },
-      { id: 'telegram_bot', title: 'telegramBot', icon: 'fa-brands fa-telegram' },
-      { id: 'slack_bot', title: 'slackBot', icon: 'fa-brands fa-slack' },
+      { id: 'im_bot', title: 'imBot', icon: 'fa-solid fa-comment' },
       { id: 'read_bot', title: 'readBot', icon: "fa-solid fa-book-open-reader"}, 
       { id: 'translate_bot', title: 'translateBot', icon: "fa-solid fa-language"}, 
       { id: 'bot_config', title: 'bot_config', icon: 'fa-solid fa-robot' }
     ],
+    activeImBotTab: 'qq',
     sourceText: '',
     translatedText: '',
     isTranslating: false,
@@ -1536,6 +1536,7 @@ let vue_data = {
       quick_restart: true,
       enable_tts: false,
       wakeWord: '',
+      behaviorTargetChatIds: [],
     },
 
     danmu: [], // 弹幕列表
@@ -1686,11 +1687,11 @@ let vue_data = {
     editingCustomHttpTool: false,
     vendorValues: [
       'custom', 'OpenAI', 'Ollama','Vllm','LMstudio','xinference','Dify','newapi','LocalAI','ttswebui', 'Deepseek', 'Volcano','302.AI',
-      'siliconflow', 'aliyun', 'ZhipuAI', 'moonshot', 'minimax', 'MiMo','longcat', 'Gemini','Anthropic', 
+      'siliconflow', 'aliyun', 'ZhipuAI', 'moonshot', 'minimax', 'Gemini','Anthropic', 
       'Grok', 'mistral', 'lingyi','baichuan', 'qianfan', 'hunyuan', 'stepfun', 'Github', 
       'openrouter','together', 'fireworks', '360', 'Nvidia',
       'jina', 'gitee', 'perplexity', 'infini',
-      'modelscope', 'tencent'
+      'modelscope', 'tencent', 'MiMo','longcat'
     ],
     vendorLogoList: {
       'custom': 'source/providers/logo.png',
@@ -2010,4 +2011,5 @@ main();`,
     showBehaviorDialog: false,     // 控制弹窗显示
     currentBehaviorIndex: -1,      // 当前编辑的索引，-1 表示新增
     tempBehavior: null,            // 临时编辑对象，避免直接修改原数据
+    minLimit: { h: 0, m: 1, s: 0 } 
 };

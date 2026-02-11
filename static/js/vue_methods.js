@@ -2328,56 +2328,47 @@ let vue_methods = {
         }
     },
 
-    // === Human-in-the-loop 处理函数 (精准替换版) ===
+    // === Human-in-the-loop 处理函数 (修复版：支持立即反馈) ===
     async processToolApproval(toolCallId, action) {
         const currentMsg = this.messages[this.messages.length - 1];
         if (!currentMsg) return;
-        let data = this.approvalMap[toolCallId];
+        
+        const data = this.approvalMap[toolCallId];
+        const toolName = data?.tool_name || 'Tool';
+        const blockId = `approval-${toolCallId}`;
+
+        // --- 第一步：立即更新 UI 为“处理中”状态 ---
+        const feedbackTitle = action === 'deny' ? this.t('denying') || 'Denying...' : `${this.t('executing') || 'Executing'} ${toolName}...`;
+        const loadingHtml = `\n`;
+
+        this.updateUIBlock(currentMsg, blockId, loadingHtml);
+
+        // 设置状态，防止用户重复点击其他按钮
         this.isSending = true; 
         this.isTyping = true;
         this.abortController = new AbortController(); 
 
-        const toolName = data?.tool_name || 'Tool';
-        let resultText = "";
-
         try {
+            // --- 第二步：执行实际的后端逻辑 ---
+            let resultText = "";
             if (action === 'deny') {
                 resultText = `User denied the execution of tool '${toolName}'.`;
             } else {
+                // 这里会等待较长时间
                 resultText = await this.executeToolBackend(toolName, data.tool_params, action);
             }
 
-            // --- 精准替换 UI 内容 ---
-            const blockId = `approval-${toolCallId}`;
-            const content = currentMsg.content;
-            
-            // 找到审批块的起点
-            const startIndex = content.indexOf(`<div class="approval-card" id="${blockId}">`);
-            if (startIndex !== -1) {
-                // 找到该块的终点
-                // 因为审批卡片的结构固定，最后是以 </div></div> 结尾的（actions 的结尾 + card 的结尾）
-                // 我们寻找从 startIndex 开始后的第一个匹配整个卡片闭合的标志
-                const searchPart = content.substring(startIndex);
-                const endTag = '</div></div>'; 
-                const relativeEndIndex = searchPart.indexOf(endTag);
-                
-                if (relativeEndIndex !== -1) {
-                    const endIndex = startIndex + relativeEndIndex + endTag.length;
-                    
-                    // 构造结果 HTML
-                    const className = action === 'deny' ? 'highlight-block-error' : 'highlight-block';
-                    const title = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
-                    const resultHtml = `\n<div class="${className}">
-                        <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(title)}</div>
-                        <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${this.escapeHtml(resultText)}</pre>
-                    </div>\n`;
+            // --- 第三步：后端返回结果后，将“处理中”替换为“最终结果” ---
+            const className = action === 'deny' ? 'highlight-block-error' : 'highlight-block';
+            const finalTitle = action === 'deny' ? this.t('tool_deny') : `${toolName} ${this.t('tool_result')}`;
+            const resultHtml = `\n<div class="${className}" id="${blockId}">
+                <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(finalTitle)}</div>
+                <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${this.escapeHtml(resultText)}</pre>
+            </div>\n`;
 
-                    // 替换整个字符串区间
-                    currentMsg.content = content.substring(0, startIndex) + resultHtml + content.substring(endIndex);
-                }
-            }
+            this.updateUIBlock(currentMsg, blockId, resultHtml);
 
-            // --- 更新后端上下文 ---
+            // --- 第四步：更新后端上下文并触发 AI 继续生成 ---
             if (currentMsg.backend_content) {
                 for (let i = currentMsg.backend_content.length - 1; i >= 0; i--) {
                     const item = currentMsg.backend_content[i];
@@ -2387,15 +2378,53 @@ let vue_methods = {
                     }
                 }
             }
+            
             // 触发下一轮生成
             await this.generateAIResponse(this.mainAgent, currentMsg.agentName, true);
 
         } catch (e) {
             console.error("Approval flow failed:", e);
+            showNotification("Tool execution failed", 'error');
             this.isSending = false;
             this.isTyping = false;
         }
-    },   
+    },
+
+  // 辅助：精确定位并替换 UI 中的某个 ID 块
+    updateUIBlock(msg, blockId, newHtml) {
+        const content = msg.content;
+        // 匹配开始标签（带特定 ID）
+        const startTag = `id="${blockId}"`;
+        const startSearchIndex = content.indexOf(startTag);
+        
+        if (startSearchIndex === -1) {
+            // 如果没找到（可能在末尾），直接追加
+            msg.content += newHtml;
+            return;
+        }
+
+        // 向上寻找该块的起始 <div
+        const startIndex = content.lastIndexOf('<div', startSearchIndex);
+        
+        // 向下寻找该块的结束（根据审批卡片和高亮块的结构，它们都是以 </div>\n 或 </div></div> 结尾）
+        // 这里采用更稳健的方法：寻找下一个块的特征或当前块的闭合
+        let endIndex = -1;
+        const searchPart = content.substring(startIndex);
+        
+        // 审批卡片结构是 </div></div>\n，高亮块是 </div>\n\n
+        if (searchPart.includes('</div></div>')) {
+            endIndex = startIndex + searchPart.indexOf('</div></div>') + 12;
+        } else if (searchPart.includes('</div>\n')) {
+            endIndex = startIndex + searchPart.indexOf('</div>\n') + 7;
+        }
+
+        if (startIndex !== -1 && endIndex !== -1) {
+            msg.content = content.substring(0, startIndex) + newHtml + content.substring(endIndex);
+        } else {
+            // 兜底方案：如果解析失败，直接追加
+            msg.content += newHtml;
+        }
+    },
 
     // === 辅助函数 ===
 
@@ -10283,107 +10312,11 @@ stopTTSActivities() {
           }
         }
       }
-      if (b.action.type === 'topic' && this.toolsSettings.randomTopic.baseURL) {
-        this.getRandomTopic(b)
-      }
-    },
-
-    async getRandomTopic(b) {
-      try {
-        // 1. 获取基础配置
-        const baseUrl = this.toolsSettings.randomTopic.baseURL || "https://topics-after-party.zeabur.app";
-        
-        let calculatedDepth = Math.ceil(this.messages.length / 6);
-        const depth = Math.max(1, Math.min(5, calculatedDepth));
-
-        // 2. 构建请求参数 (映射 Python 中的 params)
-        // 注意：这里默认使用 zh-CN，如果你的场景是英文，请改为 en-US
-        const params = new URLSearchParams({
-            locale: this.target_language || "zh-CN", 
-            limit: b.action.topicLimit || 1,
-            depth: depth, // 默认获取 1 层话题
-        });
-
-        const endpoint = `${baseUrl}/api/topic?${params.toString()}`;
-
-        // 3. 发送请求
-        const response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-                // 浏览器端通常不需要手动设置 User-Agent，但如果有特定后端要求可加上
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const resJson = await response.json();
-
-        // 4. 检查 API 业务状态码
-        if (resJson.code !== 200) {
-            console.warn(`❌ 获取话题失败: API 返回错误代码 ${resJson.code}`);
-            return;
-        }
-
-        const dataList = resJson.data || [];
-
-        // 5. 如果没有数据
-        if (dataList.length === 0) {
-            console.warn("📭 未找到符合条件的话题。");
-            return;
-        }
-
-        // 6. 格式化为 Markdown (复刻 Python 逻辑)
-        const mdOutput = dataList.map((item, index) => {
-            const idx = index + 1;
-            const text = item.text || "";
-            const cat = item.category || "未知";
-            const tags = item.tags || [];
-            const followUps = item.follow_ups || [];
-
-            // 构建基础文本：1. [分类] 内容
-            let topicStr = `\n\n${idx}. **[${cat}]** ${text}`;
-
-            // 添加标签 (可选)
-            if (tags.length > 0) {
-                const tagStr = tags.map(t => `\`#${t}\``).join(" ");
-                topicStr += `\n\n   > 🏷️ ${tagStr}`;
-            }
-
-            // 添加追问 (可选)
-            if (followUps.length > 0) {
-                topicStr += "\n\n   > 🗣️ **追问参考**：";
-                followUps.forEach(fu => {
-                    topicStr += `\n\n   > - ${fu}`;
-                });
-            }
-
-            return topicStr;
-        });
-
-        // 7. 最终组合并发送
-        // 用双换行连接，保持段落间距
-        const finalPrompt = mdOutput.join("\n\n");
-        
-        console.log('Random Topic Prompt:', finalPrompt);
-        
-        this.userInput = "【随机话题系统】你可以从以下话题中选择一个与用户聊天：\n\n"+finalPrompt+"\n\n注意！是你来发起这个话题，将问题抛给用户，而不是直接回答话题，因为这是系统消息，用户看不到！";
-        // 调用发送函数
-        this.sendMessage('system'); 
-
-      } catch (e) {
-        console.error("⚠️ 获取随机话题发生错误:", e);
-        // 可选：发生错误时，是否需要提示用户？
-        // this.userInput = "获取话题失败，请稍后再试。";
-        // this.sendMessage('system');
-      }
     },
 
     /* 触发一次后，如果是“不重复”就把 enabled 关掉 */
     disableOnceBehavior(b) {
-      if (b.trigger.type === 'time' && !b.trigger.time.days.length) {
+      if (b.trigger.type === 'time' && !b.trigger.time.days.length && b.platform === 'chat') {
         b.enabled = false
         this.autoSaveSettings()
       }
@@ -10477,7 +10410,7 @@ stopTTSActivities() {
     
     // 重新初始化启用的周期触发器
     this.behaviorSettings.behaviorList.forEach((b, index) => {
-      if (b.enabled && b.trigger.type === 'cycle') {
+      if (b.enabled && b.trigger.type === 'cycle' && b.platform === 'chat') {
         this.initCycleTimer(b, index);
       }
     });
@@ -14760,7 +14693,6 @@ async handleRefreshSkills() {
     // 打开编辑/新增对话框
     openBehaviorDialog(index) {
       this.currentBehaviorIndex = index;
-      
       if (index === -1) {
         // 新增模式：创建默认模板的深拷贝
         this.tempBehavior = this.createDefaultBehavior();
@@ -14786,9 +14718,9 @@ async handleRefreshSkills() {
         action: {
           type: 'prompt',
           prompt: '',
-          topicLimit: 3,
           random: { type: 'random', events: [''] }
-        }
+        },
+        platform:"chat",
       };
     },
 
@@ -14918,5 +14850,39 @@ async handleRefreshSkills() {
       }
     }
   },
+
+    // 辅助工具：生成数字范围数组
+    makeRange(start, end) {
+      const result = [];
+      for (let i = start; i <= end; i++) {
+        result.push(i);
+      }
+      return result;
+    },
+
+    // 禁用小时
+    disabledHours() {
+      // 只有在最小值的小时大于 0 时才需要禁用
+      // 如果最小是 00:00:01，则不禁用任何小时
+      return this.makeRange(0, 23).filter(h => h < this.minLimit.h);
+    },
+
+    // 禁用分钟 (selectedHour 是当前转盘选中的小时)
+    disabledMinutes(selectedHour) {
+      // 只有当选中的小时等于最小值的小时时，才限制分钟
+      if (selectedHour === this.minLimit.h) {
+        return this.makeRange(0, 59).filter(m => m < this.minLimit.m);
+      }
+      return [];
+    },
+
+    // 禁用秒钟 (selectedHour 和 selectedMinute 是当前选中的时和分)
+    disabledSeconds(selectedHour, selectedMinute) {
+      // 只有当时和分都处于最小值临界点时，才限制秒钟
+      if (selectedHour === this.minLimit.h && selectedMinute === this.minLimit.m) {
+        return this.makeRange(0, 59).filter(s => s < this.minLimit.s);
+      }
+      return [];
+    },
 
 }

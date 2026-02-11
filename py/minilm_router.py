@@ -1,5 +1,5 @@
 import onnxruntime as ort
-from transformers import BertTokenizerFast
+from transformers import AutoTokenizer  # <--- 修改 1: 使用 AutoTokenizer
 import numpy as np
 import os
 import threading
@@ -22,7 +22,9 @@ class MiniLMOnnxPredictor:
         if not self._check_files_exist():
             return
         try:
-            self.tokenizer = BertTokenizerFast.from_pretrained(model_dir)
+            # <--- 修改 2: 使用 AutoTokenizer 自动识别 [UNK] 还是 <unk>
+            self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
+            
             providers = (["CUDAExecutionProvider", "CPUExecutionProvider"]
                          if use_gpu else ["CPUExecutionProvider"])
             model_path = (os.path.join(model_dir, "model_O4.onnx")
@@ -36,13 +38,18 @@ class MiniLMOnnxPredictor:
             self.is_loaded = True
         except Exception as e:
             print(f"Error loading MiniLM ONNX Predictor: {e}")
+            # 打印更详细的错误以便调试
+            import traceback
+            traceback.print_exc()
             self.is_loaded = False
 
     def _check_files_exist(self) -> bool:
         onnx_ok = os.path.exists(os.path.join(self.model_dir, "model_O4.onnx")) or \
                   os.path.exists(os.path.join(self.model_dir, "model.onnx"))
+        # 稍微放宽检查，只要有 tokenizer 配置文件即可
         tok_ok  = os.path.exists(os.path.join(self.model_dir, "tokenizer.json")) or \
-                  os.path.exists(os.path.join(self.model_dir, "vocab.txt"))
+                  os.path.exists(os.path.join(self.model_dir, "vocab.txt")) or \
+                  os.path.exists(os.path.join(self.model_dir, "tokenizer_config.json"))
         return onnx_ok and tok_ok
 
     def mean_pooling(self, model_output: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
@@ -58,7 +65,10 @@ class MiniLMOnnxPredictor:
     def predict(self, sentences: List[str]) -> np.ndarray:
         if not self.is_loaded:
             raise RuntimeError("Model not loaded. Cannot run prediction.")
+        
+        # 这里的输入处理也由 tokenizer 自动处理，不用担心特殊字符
         inputs = self.tokenizer(sentences, padding=True, truncation=True, max_length=512, return_tensors="np")
+        
         ort_inputs = {"input_ids": inputs["input_ids"].astype(np.int64),
                       "attention_mask": inputs["attention_mask"].astype(np.int64)}
         if "token_type_ids" in self.input_names:
@@ -127,11 +137,20 @@ async def create_embeddings(request: EmbeddingRequest,
                             predictor: MiniLMOnnxPredictor = Depends(get_minilm_predictor)):
     start = time.time()
     texts = [request.input] if isinstance(request.input, str) else request.input
-    num_tokens = sum(len(predictor.tokenizer.tokenize(t)) for t in texts)
+    
+    # <--- 修改 3: 增加容错，如果只是统计 token 失败，不要让整个请求 500
+    try:
+        num_tokens = sum(len(predictor.tokenizer.tokenize(t)) for t in texts)
+    except Exception as e:
+        print(f"Warning: Token counting failed: {e}")
+        # 如果统计失败，预估一个值（比如字符数/4），保证请求能继续
+        num_tokens = sum(len(t) for t in texts) // 4
+        
     try:
         embs = await asyncio.to_thread(predictor.predict, texts)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+        
     data = [EmbeddingData(embedding=emb.tolist(), index=i) for i, emb in enumerate(embs)]
     return EmbeddingResponse(model=request.model,
                              data=data,

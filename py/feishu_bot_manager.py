@@ -1,6 +1,7 @@
 # feishu_bot_manager.py
 import asyncio
 import json
+import random
 import threading
 import os
 from typing import Optional, List, Dict, Any
@@ -11,7 +12,7 @@ import base64
 import logging
 import re
 import time
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import requests
 from PIL import Image
 from openai import AsyncOpenAI
@@ -23,7 +24,8 @@ from lark_oapi.api.im.v1 import GetMessageResourceResponse as ResResp
 
 from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
-
+from py.behavior_engine import BehaviorItem, global_behavior_engine, BehaviorSettings
+from py.random_topic import get_random_topics
 # 飞书机器人配置模型
 class FeishuBotConfig(BaseModel):
     FeishuAgent: str          # LLM模型名
@@ -35,7 +37,10 @@ class FeishuBotConfig(BaseModel):
     quickRestart: bool        # 快速重启指令开关
     enableTTS: bool         # 是否启用TTS
     wakeWord: str              # 唤醒词
-
+    # 行为规则设置 (与前端共用的结构)
+    behaviorSettings: Optional[BehaviorSettings] = None
+    # 飞书特定的推送目标ID列表 (配置一次，永久有效)
+    behaviorTargetChatIds: List[str] = Field(default_factory=list)
 
 class FeishuBotManager:
     def __init__(self):
@@ -100,7 +105,7 @@ class FeishuBotManager:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
             
-            # 创建飞书客户端
+            # --- 1. 创建飞书客户端 ---
             self.bot_client = FeishuClient()
             self.bot_client.FeishuAgent = config.FeishuAgent
             self.bot_client.memoryLimit = config.memoryLimit
@@ -112,12 +117,43 @@ class FeishuBotManager:
             self.bot_client.enableTTS = config.enableTTS
             self.bot_client.wakeWord = config.wakeWord
             
-            # 设置弱引用以避免循环引用
+            # 设置弱引用和回调
             self.bot_client._manager_ref = weakref.ref(self)
-            # 设置就绪回调
             self.bot_client._ready_callback = self._on_bot_ready
+
+            # --- 2. 关键修复：强制同步最新的行为配置 ---
+            # 即使传入的 config 不完整，这里也会重新加载全局设置来补全
+            try:
+                # 这是一个同步调用，在线程开始时运行是安全的
+                settings = asyncio.run(load_settings())
+                
+                # 获取行为设置
+                behavior_data = settings.get("behaviorSettings", {})
+                
+                # 获取飞书特定的目标列表 (可能在 config 里，也可能在 feishuBotConfig 里)
+                # 优先用 config 里的，如果没有则去 settings 找
+                target_ids = config.behaviorTargetChatIds
+                if not target_ids:
+                    feishu_conf = settings.get("feishuBotConfig", {})
+                    target_ids = feishu_conf.get("behaviorTargetChatIds", [])
+                
+                # 构造更新数据
+                if behavior_data:
+                    logging.info(f"飞书线程: 检测到行为配置，正在同步... 目标群组数: {len(target_ids)}")
+                    target_map = {"feishu": target_ids}
+                    # 更新全局引擎
+                    global_behavior_engine.update_config(behavior_data, target_map)
+                    # 更新本地 config 对象以保持一致
+                    config.behaviorSettings = behavior_data if isinstance(behavior_data, BehaviorSettings) else BehaviorSettings(**behavior_data)
+                    config.behaviorTargetChatIds = target_ids
+                else:
+                    logging.warning("飞书线程: 未找到行为配置 behaviorSettings")
+            except Exception as e:
+                logging.error(f"飞书线程同步行为配置失败: {e}")
+                import traceback
+                print(traceback.format_exc())
             
-            # 初始化飞书长连接相关
+            # --- 3. 初始化飞书 SDK ---
             lark_client = lark.Client.builder()\
                 .app_id(config.appid)\
                 .app_secret(config.secret)\
@@ -137,26 +173,25 @@ class FeishuBotManager:
                 config.secret,
                 event_handler=event_dispatcher,
                 log_level=lark.LogLevel.INFO,
-                auto_reconnect=False  # 禁用自动重连，便于控制
+                auto_reconnect=False
             )
             
             # 在事件循环中运行WebSocket客户端
             self.loop.run_until_complete(self._async_run_websocket())
             
         except Exception as e:
-            if not self._stop_requested:  # 只有非主动停止的错误才记录
-                logging.error(f"飞书机器人线程异常: {e}")
-                # 确保错误被记录并传递
+            if not self._stop_requested:
+                print(f"飞书机器人线程异常: {e}")
                 if not self._startup_error:
                     self._startup_error = str(e)
-            # 确保启动等待被解除
+            # 确保外部等待能解除
             if not self._startup_complete.is_set():
                 self._startup_complete.set()
             if not self._ready_complete.is_set():
                 self._ready_complete.set()
         finally:
-            self._cleanup()
-    
+            self._cleanup()  
+
     async def _async_run_websocket(self):
         """异步运行WebSocket连接"""
         try:
@@ -175,21 +210,35 @@ class FeishuBotManager:
             # 启动消息接收循环
             receive_task = asyncio.create_task(self._message_receive_loop())
             
+            # --- 修复行为引擎启动逻辑 ---
+            # 1. 如果引擎声称在运行，但 loop 不一致，或者为了保险起见，先停止它
+            if global_behavior_engine.is_running:
+                logging.info("检测到行为引擎已在运行，正在重启以适配当前事件循环...")
+                global_behavior_engine.stop()
+                # 给一点时间让旧循环的 task 退出
+                await asyncio.sleep(0.5)
+
+            # 2. 在当前线程的 Loop 中启动引擎
+            behavior_task = asyncio.create_task(global_behavior_engine.start())
+            logging.info("行为引擎已在飞书线程启动")
+            
             # 等待任务完成或停止信号
+            tasks = [ping_task, receive_task, behavior_task]
+                
             try:
-                await asyncio.gather(ping_task, receive_task, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
             except asyncio.CancelledError:
                 logging.info("WebSocket任务被取消")
             except Exception as e:
                 if not self._stop_requested:
-                    logging.error(f"WebSocket任务异常: {e}")
+                    print(f"WebSocket任务异常: {e}")
                     
         except Exception as e:
             if not self._stop_requested:
-                logging.error(f"WebSocket连接失败: {e}")
+                print(f"WebSocket连接失败: {e}")
                 self._startup_error = str(e)
             raise
-    
+
     async def _message_receive_loop(self):
         """消息接收循环"""
         try:
@@ -207,14 +256,14 @@ class FeishuBotManager:
                     continue
                 except Exception as e:
                     if not self._stop_requested:
-                        logging.error(f"接收消息异常: {e}")
+                        print(f"接收消息异常: {e}")
                     break
                     
         except asyncio.CancelledError:
             logging.info("消息接收循环被取消")
         except Exception as e:
             if not self._stop_requested:
-                logging.error(f"消息接收循环异常: {e}")
+                print(f"消息接收循环异常: {e}")
     
     def _on_bot_ready(self):
         """机器人就绪回调"""
@@ -228,41 +277,39 @@ class FeishuBotManager:
         self.is_running = False
         logging.info("开始清理飞书机器人资源...")
         
-        # 关闭长连接
+        # 1. 停止行为引擎 (至关重要)
+        try:
+            if global_behavior_engine.is_running:
+                global_behavior_engine.stop()
+                logging.info("行为引擎已停止")
+        except Exception as e:
+            logging.warning(f"停止行为引擎失败: {e}")
+
+        # 2. 关闭长连接
         if self.ws and self.loop and not self.loop.is_closed():
             try:
-                # 在事件循环中异步关闭连接
                 if asyncio.iscoroutinefunction(self.ws._disconnect):
                     self.loop.run_until_complete(self.ws._disconnect())
                 logging.info("飞书长连接已关闭")
             except Exception as e:
                 logging.warning(f"关闭飞书长连接时出错: {e}")
         
-        # 清理事件循环
+        # 3. 清理事件循环
         if self.loop and not self.loop.is_closed():
             try:
-                # 获取所有未完成的任务
-                try:
-                    pending = asyncio.all_tasks(self.loop)
-                except RuntimeError:
-                    # 如果事件循环已经关闭，可能会抛出RuntimeError
-                    pending = []
-                
-                # 取消所有未完成的任务
+                pending = asyncio.all_tasks(self.loop)
                 for task in pending:
                     if not task.done():
                         task.cancel()
                 
-                # 等待任务完成或被取消
                 if pending:
                     try:
                         self.loop.run_until_complete(
                             asyncio.gather(*pending, return_exceptions=True)
                         )
                     except Exception as e:
-                        logging.warning(f"等待任务取消时出错: {e}")
+                        pass
                 
-                # 关闭事件循环
                 self.loop.close()
                 logging.info("事件循环已关闭")
             except Exception as e:
@@ -272,8 +319,8 @@ class FeishuBotManager:
         self.loop = None
         self.ws = None
         self._shutdown_event.set()
-        logging.info("飞书机器人资源清理完成")
-            
+        logging.info("飞书机器人资源清理完成")    
+
     def stop_bot(self):
         """停止飞书机器人"""
         if not self.is_running and not self.bot_thread:
@@ -351,6 +398,32 @@ class FeishuBotManager:
         except:
             pass
 
+    def update_behavior_config(self, config: FeishuBotConfig):
+        """
+        热更新行为配置，不重启机器人
+        """
+        # 更新 Manager 的本地记录
+        self.config = config
+        
+        # 1. 更新 Client 内部的实时参数
+        if self.bot_client:
+            self.bot_client.FeishuAgent = config.FeishuAgent 
+            self.bot_client.enableTTS = config.enableTTS
+            self.bot_client.wakeWord = config.wakeWord
+
+        # 2. 更新全局行为引擎
+        # 构造平台目标映射
+        target_map = {
+            "feishu": config.behaviorTargetChatIds
+        }
+        
+        # 调用引擎更新 (会自动重置计时器)
+        global_behavior_engine.update_config(
+            config.behaviorSettings,
+            target_map
+        )
+        logging.info("飞书机器人: 行为配置已热更新，计时器已重置")
+
 
 class FeishuClient:
     def __init__(self):
@@ -372,6 +445,10 @@ class FeishuClient:
         self._ready_callback = None
         self.enableTTS = False
         self.wakeWord = None
+        
+        # --- 新增：注册到行为引擎 ---
+        # 告知引擎：飞书平台的执行逻辑由我负责
+        global_behavior_engine.register_handler("feishu", self.execute_behavior_event)
         
     def sync_handle_message(self, data: P2ImMessageReceiveV1) -> None:
         """同步消息处理函数，用于注册到飞书事件分发器"""
@@ -408,10 +485,10 @@ class FeishuClient:
             # future.result(timeout=30)
         except Exception as e:
             if not self._shutdown_requested:
-                logging.error(f"处理消息时发生异常: {e}")
+                print(f"处理消息时发生异常: {e}")
 
     async def handle_message(self, data: P2ImMessageReceiveV1) -> None:
-        """处理飞书消息的主函数 (修复版：确保先添加用户消息再调用API)"""
+        """处理飞书消息的主函数"""
         # 1. 基础检查
         if self._shutdown_requested: return
         if self._manager_ref:
@@ -426,6 +503,10 @@ class FeishuClient:
         msg = data.event.message
         msg_type = msg.message_type
         chat_id = msg.chat_id
+        
+        # --- 新增：上报活跃状态到引擎，用于无输入检测 ---
+        global_behavior_engine.report_activity("feishu", chat_id)
+        
         logging.info(f"收到 {msg.chat_type} 消息，类型：{msg_type}")
         
         # 2. 初始化 API 客户端
@@ -441,7 +522,7 @@ class FeishuClient:
             self.memoryList[chat_id] = []
             
         # =========================================================
-        # 第一阶段：解析用户消息 (这一步绝对不能少！)
+        # 第一阶段：解析用户消息
         # =========================================================
         user_content = []  # 多模态内容
         user_text = ""     # 纯文本内容
@@ -451,6 +532,18 @@ class FeishuClient:
         if msg_type == "text":
             try:
                 text = json.loads(msg.content).get("text", "")
+
+                # [新增] /id 指令：获取当前会话 ID
+                if "/id" in text.lower():
+                    # 飞书的 chat_id (open_chat_id) 通用于单聊和群聊
+                    info_msg = (
+                        f"🤖 **会话信息识别成功**\n\n"
+                        f"当前 ChatID:\n`{chat_id}`\n\n"
+                        f"💡 说明: 无论是群聊还是单聊，请直接复制上方 ID 填入自主行为的目标列表。"
+                    )
+                    await self._send_text(msg, info_msg)
+                    return
+
                 # 处理重启命令
                 if self.quickRestart and text and ("/重启" in text or "/restart" in text):
                     self.memoryList[chat_id] = []
@@ -461,7 +554,7 @@ class FeishuClient:
                     logging.info(f"未检测到唤醒词: {self.wakeWord}")
                     return
             except Exception as e:
-                logging.error(f"文本解析失败：{e}")
+                print(f"文本解析失败：{e}")
                 return
 
         # --- (B) 图片消息 ---
@@ -481,7 +574,7 @@ class FeishuClient:
                         if "text" in json.loads(msg.content):
                             user_text = json.loads(msg.content).get("text", "")
             except Exception as e:
-                logging.error(f"图片处理失败：{e}")
+                print(f"图片处理失败：{e}")
 
         # --- (C) 富文本消息 (Post) ---
         elif msg_type == "post":
@@ -498,7 +591,7 @@ class FeishuClient:
                         has_image = True
                         user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}})
             except Exception as e:
-                logging.error(f"富文本处理失败: {e}")
+                print(f"富文本处理失败: {e}")
 
         # --- (D) 音频消息 (Audio) ---
         elif msg_type == "audio":
@@ -520,17 +613,15 @@ class FeishuClient:
                             await self._send_text(msg, "语音转文字失败")
                             return
             except Exception as e:
-                logging.error(f"音频处理失败：{e}")
+                print(f"音频处理失败：{e}")
         
         else:
             await self._send_text(msg, f"暂不支持的消息类型：{msg_type}")
             return
 
         # =========================================================
-        # 第二阶段：将解析后的内容添加到记忆 (修复的核心点)
+        # 第二阶段：将解析后的内容添加到记忆
         # =========================================================
-        
-        # 必须把内容加进去，否则 API 报错 "The input messages do not contain elements with the role of user"
         if has_image:
             if user_text:
                 user_content.append({"type": "text", "text": user_text})
@@ -546,10 +637,8 @@ class FeishuClient:
                 return
 
         # =========================================================
-        # 第三阶段：调用 API 并处理响应 (包含 Omni 音频逻辑)
+        # 第三阶段：调用 API 并处理响应
         # =========================================================
-        
-        # 初始化响应状态
         state = {
             "text_buffer": "",
             "image_buffer": "",
@@ -657,7 +746,7 @@ class FeishuClient:
                 clean_text = self._clean_text(state["text_buffer"])
                 if clean_text: await self._send_text(msg, clean_text)
             for img_url in state["image_cache"]:
-                await self._send_image(msg, img_url)
+                await self._send_image(img_url)
             
             # [核心] 处理 Omni 音频转码与发送
             has_omni_audio = False
@@ -674,7 +763,7 @@ class FeishuClient:
                     await self._send_omni_response(msg, final_audio, is_opus)
                     has_omni_audio = True
                 except Exception as e:
-                    logging.error(f"Omni 音频处理失败: {e}")
+                    print(f"Omni 音频处理失败: {e}")
 
             # 更新记忆
             full_content = "".join(full_response)
@@ -692,9 +781,8 @@ class FeishuClient:
                     if self.memoryList[chat_id]: self.memoryList[chat_id].pop(0)
             
         except Exception as e:
-            logging.error(f"处理消息异常: {e}")
+            print(f"处理消息异常: {e}")
             await self._send_text(msg, f"机器人异常: {str(e)}")
-
     async def _send_omni_response(self, original_msg, audio_data: bytes, is_opus: bool):
         """发送 Omni 模型生成的音频 (支持语音气泡)"""
         try:
@@ -727,7 +815,7 @@ class FeishuClient:
             upload_resp = self.lark_client.im.v1.file.create(upload_req)
             
             if not upload_resp.success():
-                logging.error(f"音频上传失败: {upload_resp.code} - {upload_resp.msg}")
+                print(f"音频上传失败: {upload_resp.code} - {upload_resp.msg}")
                 return
 
             file_key = upload_resp.data.file_key
@@ -762,14 +850,14 @@ class FeishuClient:
                 resp = self.lark_client.im.v1.message.reply(req_builder.build())
 
             if not resp.success():
-                logging.error(f"音频消息发送失败: {resp.code} - {resp.msg}")
+                print(f"音频消息发送失败: {resp.code} - {resp.msg}")
             else:
                 logging.info(f"音频发送成功，Message ID: {resp.data.message_id}")
 
         except Exception as e:
-            logging.error(f"发送Omni音频异常: {e}")
+            print(f"发送Omni音频异常: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
 
 
     async def _transcribe_audio(self, audio_data: bytes, file_key: str) -> str:
@@ -799,9 +887,9 @@ class FeishuClient:
                 ) as response:
                     
                     if response.status != 200:
-                        logging.error(f"ASR请求失败，状态码: {response.status}")
+                        print(f"ASR请求失败，状态码: {response.status}")
                         response_text = await response.text()
-                        logging.error(f"ASR错误响应: {response_text}")
+                        print(f"ASR错误响应: {response_text}")
                         return None
                     
                     # 解析响应
@@ -818,16 +906,16 @@ class FeishuClient:
                             return None
                     else:
                         error_msg = result.get("error", "未知错误")
-                        logging.error(f"ASR识别失败: {error_msg}")
+                        print(f"ASR识别失败: {error_msg}")
                         return None
                         
         except asyncio.TimeoutError:
-            logging.error("ASR请求超时")
+            print("ASR请求超时")
             return None
         except Exception as e:
-            logging.error(f"ASR转换异常: {e}")
+            print(f"ASR转换异常: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
             return None
 
 
@@ -886,9 +974,9 @@ class FeishuClient:
                     json=payload
                 ) as resp:
                     if resp.status != 200:
-                        logging.error(f"TTS 请求失败: {resp.status}")
+                        print(f"TTS 请求失败: {resp.status}")
                         error_text = await resp.text()
-                        logging.error(f"TTS 错误响应: {error_text}")
+                        print(f"TTS 错误响应: {error_text}")
                         await self._send_text(original_msg, "语音生成失败，请稍后重试")
                         return
 
@@ -898,14 +986,14 @@ class FeishuClient:
                     logging.info(f"TTS响应成功，opus大小: {len(opus_data) / 1024:.1f}KB，格式: {audio_format}")
 
                     if len(opus_data) < 100:
-                        logging.error(f"opus数据异常，大小仅 {len(opus_data)} 字节")
+                        print(f"opus数据异常，大小仅 {len(opus_data)} 字节")
                         await self._send_text(original_msg, "语音生成异常，请重试")
                         return
 
                     # 检查文件大小（飞书限制）
                     max_size = 10 * 1024 * 1024  # 10MB
                     if len(opus_data) > max_size:
-                        logging.error(f"opus文件过大: {len(opus_data) / (1024*1024):.1f}MB")
+                        print(f"opus文件过大: {len(opus_data) / (1024*1024):.1f}MB")
                         await self._send_text(original_msg, "语音文件过大，请尝试较短的文本")
                         return
 
@@ -927,13 +1015,13 @@ class FeishuClient:
                         upload_resp = self.lark_client.im.v1.file.create(upload_req)
                         
                     except Exception as upload_error:
-                        logging.error(f"构建opus上传请求失败: {upload_error}")
+                        print(f"构建opus上传请求失败: {upload_error}")
                         await self._send_text(original_msg, "语音上传失败，请重试")
                         return
 
                     # 检查上传结果
                     if not upload_resp.success():
-                        logging.error(f"上传opus语音失败: {upload_resp.code} - {upload_resp.msg}")
+                        print(f"上传opus语音失败: {upload_resp.code} - {upload_resp.msg}")
                         
                         # 详细的错误处理
                         if upload_resp.code == 234001:
@@ -979,7 +1067,7 @@ class FeishuClient:
                             send_resp = self.lark_client.im.v1.message.reply(req)
 
                         if not send_resp.success():
-                            logging.error(f"发送opus语音消息失败: {send_resp.code} - {send_resp.msg}")
+                            print(f"发送opus语音消息失败: {send_resp.code} - {send_resp.msg}")
                             
                             if send_resp.code == 230002:
                                 await self._send_text(original_msg, "语音消息格式不支持")
@@ -991,16 +1079,16 @@ class FeishuClient:
                             logging.info(f"opus语音消息发送成功，消息ID: {send_resp.data.message_id}")
 
                     except Exception as send_error:
-                        logging.error(f"发送opus语音消息异常: {send_error}")
+                        print(f"发送opus语音消息异常: {send_error}")
                         await self._send_text(original_msg, "语音消息发送失败")
 
         except asyncio.TimeoutError:
-            logging.error("opus TTS请求超时")
+            print("opus TTS请求超时")
             await self._send_text(original_msg, "语音生成超时，请稍后重试")
         except Exception as e:
-            logging.error(f"发送opus语音异常: {e}")
+            print(f"发送opus语音异常: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
             await self._send_text(original_msg, "语音功能暂时不可用，请稍后重试")
 
 
@@ -1048,7 +1136,7 @@ class FeishuClient:
         except Exception as e:
             logging.warning(f"从富文本提取文本失败: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
         
         return "\n".join(extracted_text)
 
@@ -1082,7 +1170,7 @@ class FeishuClient:
         except Exception as e:
             logging.warning(f"从富文本提取图片失败: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
         
         return image_keys
 
@@ -1107,6 +1195,7 @@ class FeishuClient:
     
     async def _send_text(self, original_msg, text):
         """发送文本消息（使用富文本 Post 格式以支持 Markdown）"""
+        print("发送文本消息", text)
         try:
             if not text:
                 return
@@ -1159,15 +1248,15 @@ class FeishuClient:
                 resp = self.lark_client.im.v1.message.reply(req)
             
             if not resp.success():
-                logging.error(f"发送 Markdown 文本失败: {resp.code} {resp.msg}")
+                print(f"发送 Markdown 文本失败: {resp.code} {resp.msg}")
                 # 如果发送失败（可能是 md 语法太复杂或有非法字符），可以考虑回退到纯文本
                 # logging.info("尝试回退到纯文本发送...")
                 # ... (可选的回退逻辑)
                 
         except Exception as e:
-            logging.error(f"发送文本异常: {e}")
+            print(f"发送文本异常: {e}")
             import traceback
-            logging.debug(traceback.format_exc())
+            print(traceback.format_exc())
                 
     async def _send_image(self, original_msg, image_url):
         """发送图片消息"""
@@ -1176,7 +1265,7 @@ class FeishuClient:
             async with aiohttp.ClientSession() as session:
                 async with session.get(image_url) as response:
                     if response.status != 200:
-                        logging.error(f"下载图片失败: {image_url}")
+                        print(f"下载图片失败: {image_url}")
                         return
                     
                     image_data = await response.read()
@@ -1196,7 +1285,7 @@ class FeishuClient:
             upload_resp = self.lark_client.im.v1.image.create(upload_req)
             
             if not upload_resp.success():
-                logging.error(f"上传图片失败: {upload_resp.msg}")
+                print(f"上传图片失败: {upload_resp.msg}")
                 return
             
             image_key = upload_resp.data.image_key
@@ -1230,7 +1319,87 @@ class FeishuClient:
                 resp = self.lark_client.im.v1.message.reply(req)
             
             if not resp.success():
-                logging.error(f"发送图片失败: {resp.code} {resp.msg}")
+                print(f"发送图片失败: {resp.code} {resp.msg}")
                 
         except Exception as e:
-            logging.error(f"发送图片异常: {e}")
+            print(f"发送图片异常: {e}")
+
+    async def execute_behavior_event(self, chat_id: str, behavior_item: BehaviorItem):
+        """
+        回调函数：响应行为引擎的指令
+        """
+        logging.info(f"[FeishuClient] 行为触发! 目标: {chat_id}, 动作类型: {behavior_item.action.type}")
+        
+        prompt_content = await self._resolve_behavior_prompt(behavior_item)
+        if not prompt_content: return
+
+        # 构造增强版 MockMessage，确保包含 _send_text 需要的所有属性
+        class MockMessage:
+            def __init__(self, cid):
+                self.chat_id = cid
+                self.message_id = None
+                self.chat_type = "p2p" 
+
+        mock_msg = MockMessage(chat_id)
+
+        if chat_id not in self.memoryList:
+            self.memoryList[chat_id] = []
+        
+        # 构造上下文
+        messages = self.memoryList[chat_id].copy()
+        messages.append({"role": "user", "content": f"[system]: {prompt_content}"})
+        
+        # 同时也同步到内存，否则 AI 回复后上下文会断层
+        self.memoryList[chat_id].append({"role": "user", "content": f"[system]: {prompt_content}"})
+
+        try:
+            client = AsyncOpenAI(
+                api_key="super-secret-key",
+                base_url=f"http://127.0.0.1:{self.port}/v1"
+            )
+            
+            response = await client.chat.completions.create(
+                model=self.FeishuAgent,
+                messages=messages,
+                stream=False, 
+                extra_body={
+                    "is_app_bot": True,
+                    "behavior_trigger": True
+                }
+            )
+            
+            reply_content = response.choices[0].message.content
+            if reply_content:
+                # 发送内容
+                await self._send_text(mock_msg, reply_content)
+                self.memoryList[chat_id].append({"role": "assistant", "content": reply_content})
+                
+                if self.enableTTS:
+                    await self._send_voice(mock_msg, reply_content)
+            
+        except Exception as e:
+            logging.error(f"[FeishuClient] 执行行为 API 调用失败: {e}")
+    async def _resolve_behavior_prompt(self, behavior: BehaviorItem) -> str:
+        """解析行为配置，生成具体的 Prompt 指令"""
+        action = behavior.action
+        
+        if action.type == "prompt":
+            return action.prompt
+            
+        elif action.type == "random":
+            if not action.random or not action.random.events:
+                return None
+                
+            events = action.random.events
+            if action.random.type == "random":
+                return random.choice(events)
+            elif action.random.type == "order":
+                idx = action.random.orderIndex
+                if idx >= len(events):
+                    idx = 0
+                selected = events[idx]
+                # 更新索引 (仅内存生效)
+                action.random.orderIndex = idx + 1
+                return selected
+                
+        return None            

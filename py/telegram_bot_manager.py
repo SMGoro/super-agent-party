@@ -1,6 +1,7 @@
 import asyncio, threading, weakref, logging, time
-from typing import Optional, Dict, Any
-from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from py.behavior_engine import BehaviorSettings
 from py.telegram_client import TelegramClient
 
 class TelegramBotConfig(BaseModel):
@@ -12,6 +13,10 @@ class TelegramBotConfig(BaseModel):
     enableTTS: bool
     bot_token: str            # Telegram 必填
     wakeWord: str              # 唤醒词
+    # --- 新增：行为规则设置 ---
+    behaviorSettings: Optional[BehaviorSettings] = None
+    # Telegram 特定的推送目标 ID 列表 (Chat IDs)
+    behaviorTargetChatIds: List[str] = Field(default_factory=list)
 
 class TelegramBotManager:
     def __init__(self):
@@ -62,35 +67,84 @@ class TelegramBotManager:
 
 
     def _run_bot_thread(self, config: TelegramBotConfig):
+        # 1. 创建并设置循环
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+
+        # 2. 定义统一的异步启动入口
+        async def main_startup():
+            try:
+                # --- 步骤 A: 异步加载设置 (替代 asyncio.run) ---
+                from py.get_setting import load_settings
+                from py.behavior_engine import global_behavior_engine, BehaviorSettings
+                
+                settings = await load_settings()
+                behavior_data = settings.get("behaviorSettings", {})
+                
+                # 获取目标频道列表
+                target_ids = config.behaviorTargetChatIds
+                if not target_ids:
+                    tg_conf = settings.get("telegramBotConfig", {})
+                    target_ids = tg_conf.get("behaviorTargetChatIds", [])
+                
+                # --- 步骤 B: 同步行为配置 ---
+                if behavior_data:
+                    logging.info(f"Telegram 线程: 检测到行为配置，正在同步... 目标频道数: {len(target_ids)}")
+                    target_map = {"telegram": target_ids}
+                    # 更新全局行为引擎
+                    global_behavior_engine.update_config(behavior_data, target_map)
+                    
+                    # 同步到本地 config 对象
+                    if isinstance(behavior_data, dict):
+                        config.behaviorSettings = BehaviorSettings(**behavior_data)
+                    else:
+                        config.behaviorSettings = behavior_data
+                    config.behaviorTargetChatIds = target_ids
+
+                # --- 步骤 C: 初始化 Client ---
+                self.bot_client = TelegramClient()
+                self.bot_client.TelegramAgent = config.TelegramAgent
+                self.bot_client.memoryLimit = config.memoryLimit
+                self.bot_client.separators = config.separators or ["。", "\n", "？", "！"]
+                self.bot_client.reasoningVisible = config.reasoningVisible
+                self.bot_client.quickRestart = config.quickRestart
+                self.bot_client.enableTTS = config.enableTTS
+                self.bot_client.wakeWord = config.wakeWord
+                self.bot_client.bot_token = config.bot_token
+                self.bot_client.config = config
+                self.bot_client._manager_ref = weakref.ref(self)
+                self.bot_client._ready_callback = self._on_bot_ready
+
+                # --- 步骤 D: 启动行为引擎 (此时 Loop 已在运行，可以 create_task) ---
+                if not global_behavior_engine.is_running:
+                    asyncio.create_task(global_behavior_engine.start())
+                    logging.info("行为引擎已在 Telegram 线程启动")
+
+                # 标记启动完成（允许主线程继续）
+                self._startup_complete.set()
+
+                # --- 步骤 E: 运行 Bot (阻塞) ---
+                await self.bot_client.run()
+
+            except Exception as e:
+                if not self._stop_requested:
+                    logging.error(f"Telegram 机器人启动/运行异常: {e}")
+                    self._startup_error = str(e)
+                # 确保主线程不被卡死
+                if not self._startup_complete.is_set():
+                    self._startup_complete.set()
+                if not self._ready_complete.is_set():
+                    self._ready_complete.set()
+
+        # 3. 开始运行 Loop
         try:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
-            self.bot_client = TelegramClient()
-            self.bot_client.TelegramAgent = config.TelegramAgent
-            self.bot_client.memoryLimit = config.memoryLimit
-            self.bot_client.separators = config.separators or ["。", "\n", "？", "！"]
-            self.bot_client.reasoningVisible = config.reasoningVisible
-            self.bot_client.quickRestart = config.quickRestart
-            self.bot_client.enableTTS = config.enableTTS
-            self.bot_client.wakeWord = config.wakeWord
-            self.bot_client.bot_token = config.bot_token
-            self.bot_client._manager_ref = weakref.ref(self)
-            self.bot_client._ready_callback = self._on_bot_ready
-
-
-            self._startup_complete.set()
-            self.loop.run_until_complete(self.bot_client.run())
+            self.loop.run_until_complete(main_startup())
         except Exception as e:
             if not self._stop_requested:
-                logging.error(f"Telegram 机器人线程异常: {e}")
-                self._startup_error = str(e)
-            if not self._startup_complete.is_set():
-                self._startup_complete.set()
-            if not self._ready_complete.is_set():
-                self._ready_complete.set()
+                logging.error(f"Telegram 线程 Loop 异常: {e}")
         finally:
             self._cleanup()
-
+            
     def _on_bot_ready(self):
         """机器人就绪回调（普通函数）"""
         self.is_running = True
@@ -161,3 +215,29 @@ class TelegramBotManager:
             "ready_completed": self._ready_complete.is_set(),
             "stop_requested": self._stop_requested,
         }
+    
+    def update_behavior_config(self, config: TelegramBotConfig):
+        """
+        热更新行为配置，不重启机器人
+        """
+        # 更新 Manager 的本地记录
+        self.config = config
+        
+        # 1. 更新 Client 内部的实时参数
+        if self.bot_client:
+            self.bot_client.TelegramAgent = config.TelegramAgent 
+            self.bot_client.enableTTS = config.enableTTS
+            self.bot_client.wakeWord = config.wakeWord
+            self.bot_client.config = config # 同步整个 config 对象
+
+        # 2. 更新全局行为引擎
+        from py.behavior_engine import global_behavior_engine
+        target_map = {
+            "telegram": config.behaviorTargetChatIds
+        }
+        
+        global_behavior_engine.update_config(
+            config.behaviorSettings,
+            target_map
+        )
+        logging.info("Telegram 机器人: 行为配置已热更新，计时器已重置")

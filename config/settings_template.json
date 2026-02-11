@@ -428,7 +428,8 @@
       "reasoningVisible": true,
       "quickRestart": true,
       "enableTTS":false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "dingtalkBotConfig": {
       "DingtalkAgent": "super-model",
@@ -439,7 +440,8 @@
       "reasoningVisible": true,
       "quickRestart": true,
       "enableTTS": false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "telegramBotConfig": {
       "TelegramAgent": "super-model",
@@ -449,7 +451,8 @@
       "quickRestart": true,
       "enableTTS": false,
       "bot_token": "",
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "discordBotConfig": {
       "token": "",
@@ -459,7 +462,8 @@
       "reasoning_visible": true,
       "quick_restart": true,
       "enable_tts": false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "slackBotConfig": {
       "bot_token": "",    
@@ -470,7 +474,8 @@
       "reasoning_visible": true,
       "quick_restart": true,
       "enable_tts": false,
-      "wakeWord": ""
+      "wakeWord": "",
+      "behaviorTargetChatIds": []
     },
     "VRMConfig": {
       "name": "default",

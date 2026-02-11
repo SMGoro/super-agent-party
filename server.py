@@ -1,40 +1,184 @@
 # -- coding: utf-8 --
+# ==========================================
+# 第一步：在加载任何沉重库之前，先搞定端口
+# ==========================================
 import sys
 import os
 import argparse
 import socket
+import errno
 
-# ==========================================
-# 第一步：在加载任何沉重库之前，先搞定端口
-# ==========================================
 parser = argparse.ArgumentParser(description="Run the ASGI application server.")
 parser.add_argument("--host", default="127.0.0.1")
 parser.add_argument("--port", type=int, default=3456)
-# 使用 parse_known_args 比较稳妥，防止有其他未定义的参数导致报错
 args, _ = parser.parse_known_args()
 
 HOST = args.host
 PREFERED_PORT = args.port
-FINAL_PORT = PREFERED_PORT
 
-def is_port_in_use(host, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
+def is_addr_in_use_error(e):
+    """跨平台判断是否为地址被占用错误"""
+    if hasattr(e, 'errno'):
+        if e.errno == errno.EADDRINUSE:
+            return True
+        # Windows 有时用 WSAEADDRINUSE (10048)
+        if sys.platform == 'win32' and e.errno == 10048:
+            return True
+    # Windows winerror 属性
+    if hasattr(e, 'winerror') and e.winerror == 10048:
+        return True
+    # macOS/Linux 错误消息
+    if 'address already in use' in str(e).lower():
+        return True
+    return False
 
-# 逻辑：如果 3456 被占用了，或者我们明确传了 0
-if PREFERED_PORT == 0 or is_port_in_use(HOST, PREFERED_PORT):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, 0)) # 系统自动分配
-        FINAL_PORT = s.getsockname()[1]
-else:
-    # 3456 没被占用，就用 3456
-    FINAL_PORT = PREFERED_PORT
+def is_permission_error(e):
+    """跨平台判断是否为权限/拒绝访问错误"""
+    if isinstance(e, PermissionError):
+        return True
+    if hasattr(e, 'errno'):
+        if e.errno in (errno.EACCES, errno.EPERM):
+            return True
+        # Windows ERROR_ACCESS_DENIED (5)
+        if sys.platform == 'win32' and e.errno == 13:
+            return True
+    if hasattr(e, 'winerror') and e.winerror in (5, 10013):
+        return True
+    err_str = str(e).lower()
+    if any(x in err_str for x in ['permission', 'denied', 'access', 'not permitted']):
+        return True
+    return False
 
-# 变量覆盖，确保你代码后续使用的 PORT 是正确的
+def force_bind_or_fallback(host, preferred_port):
+    """
+    跨平台端口绑定：
+    1. 尝试强制绑定指定端口（处理TIME_WAIT）
+    2. 如果被真正占用/无权限/系统保留，自动降级到随机端口
+    3. 绝不抛出异常导致退出
+    """
+    # 尝试绑定首选端口
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # 关键：允许快速复用 TIME_WAIT 状态的端口
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, preferred_port))
+        sock.close()
+        return preferred_port
+        
+    except (socket.error, OSError, PermissionError) as e:
+        # 判断错误类型
+        if is_addr_in_use_error(e):
+            reason = "in use"
+        elif is_permission_error(e):
+            reason = "permission denied/system reserved"
+        else:
+            reason = f"error ({e})"
+        
+        print(f"Port {preferred_port} unavailable ({reason}), auto-assigning...", 
+              file=sys.stderr, flush=True)
+        
+        # 关闭失败的 socket
+        try:
+            if sock:
+                sock.close()
+        except:
+            pass
+        
+        # 降级：让系统分配端口
+        return auto_assign_port(host)
+        
+    except Exception as e:
+        # 捕获所有其他异常
+        print(f"Unexpected error binding port {preferred_port}: {e}, auto-assigning...", 
+              file=sys.stderr, flush=True)
+        try:
+            if sock:
+                sock.close()
+        except:
+            pass
+        return auto_assign_port(host)
+
+def auto_assign_port(host):
+    """自动分配可用端口，带多重降级"""
+    # 尝试 127.0.0.1
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        print(f"Auto-assigned port: {port}", file=sys.stderr, flush=True)
+        return port
+    except Exception as e:
+        print(f"Failed to bind {host}: {e}", file=sys.stderr, flush=True)
+        try:
+            sock.close()
+        except:
+            pass
+    
+    # 降级 1: 尝试 0.0.0.0 (所有接口)
+    if host != "0.0.0.0":
+        try:
+            print("Trying 0.0.0.0...", file=sys.stderr, flush=True)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Auto-assigned port on 0.0.0.0: {port}", file=sys.stderr, flush=True)
+            return port
+        except Exception as e:
+            print(f"Failed to bind 0.0.0.0: {e}", file=sys.stderr, flush=True)
+            try:
+                sock.close()
+            except:
+                pass
+    
+    # 降级 2: 尝试 localhost
+    if host != "localhost":
+        try:
+            print("Trying localhost...", file=sys.stderr, flush=True)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("localhost", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Auto-assigned port on localhost: {port}", file=sys.stderr, flush=True)
+            return port
+        except Exception as e:
+            print(f"Failed to bind localhost: {e}", file=sys.stderr, flush=True)
+            try:
+                sock.close()
+            except:
+                pass
+    
+    # 最后手段：硬编码高位端口（极端情况）
+    fallback_ports = [45678, 45679, 45680, 0]
+    for fp in fallback_ports:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host if host != "0.0.0.0" else "127.0.0.1", fp))
+            port = sock.getsockname()[1]
+            sock.close()
+            print(f"Fallback to hardcoded port: {port}", file=sys.stderr, flush=True)
+            return port
+        except:
+            try:
+                sock.close()
+            except:
+                pass
+            continue
+    
+    # 理论上不会到这里，如果真的到了，返回一个肯定能用的
+    return 0
+
+# 执行端口查找
+FINAL_PORT = force_bind_or_fallback(HOST, PREFERED_PORT)
 PORT = FINAL_PORT
 
-# 核心：立刻打印！这样 Electron 在 0.1 秒内就能拿到端口，
-# 即使后面加载 onnxruntime 花了 5 秒，Electron 也已经提前知道端口了。
+# 核心：立刻打印！
 print(f"REAL_PORT_FOUND:{PORT}", flush=True)
 
 # ==========================================
@@ -716,6 +860,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         todo_write_tool, 
         manage_processes_tool,
         docker_manage_ports_tool,
+        read_skill_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -729,6 +874,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
         local_net_tool,            # 本地网络工具
+        read_skill_tool_local,
     )
 
     from py.cdp_tool import (
@@ -817,6 +963,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "todo_write_tool": todo_write_tool,
         "manage_processes_tool": manage_processes_tool,
         "docker_manage_ports_tool": docker_manage_ports_tool,
+        "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -828,6 +975,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
+        "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -1130,41 +1278,45 @@ def get_system_context() -> str:
 5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
 """
 
+
 async def get_project_skills_summary(cwd: str) -> str:
-    """
-    扫描项目中的 .party/skills 目录，生成技能清单
-    """
     skills_root = Path(cwd) / ".party" / "skills"
     if not skills_root.exists() or not skills_root.is_dir():
         return ""
 
-    found_skills = []
-    # 遍历 .party/skills 下的每一个文件夹
-    for skill_dir in skills_root.iterdir():
+    found_skills_blocks = []
+    for skill_dir in sorted(skills_root.iterdir()):
         if skill_dir.is_dir():
             skill_id = skill_dir.name
-            # 查找元数据文件以确认它是规范的 Skill
-            doc_file = None
+            doc_file_path = None
             for name in ["SKILL.md", "skill.md", "SKILLS.md", "skills.md"]:
                 if (skill_dir / name).exists():
-                    doc_file = name
+                    doc_file_path = skill_dir / name
                     break
             
-            if doc_file:
-                # 提示 AI 该技能的 ID 和文档的相对路径
-                relative_path = f".party/skills/{skill_id}/{doc_file}"
-                found_skills.append(f"- **{skill_id}**: 说明文档位于 `{relative_path}`")
+            yaml_meta = ""
+            if doc_file_path:
+                try:
+                    content = doc_file_path.read_text(encoding='utf-8')
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3: yaml_meta = parts[1].strip()
+                except: pass
+
+            skill_info = f"- **{skill_id}**"
+            if yaml_meta:
+                # 提示词中只展示精简的 YAML 元数据
+                skill_info += f":\n```yaml\n{yaml_meta}\n```"
             else:
-                # 如果没有 md 文件，仅列出 ID
-                found_skills.append(f"- **{skill_id}**: (未找到标准说明文件)")
+                skill_info += " (可用)"
+            found_skills_blocks.append(skill_info)
 
-    if not found_skills:
-        return ""
+    if not found_skills_blocks: return ""
 
-    summary = "\n\n🛠️ **当前项目可用技能 (Agent Skills)**：\n"
-    summary += "以下是本项目特有的增强技能，定义了特定任务的操作流程和规范。如果你需要执行相关任务，**必须先阅读**对应的说明文档以确保符合项目规范：\n"
-    summary += "\n".join(found_skills)
-    summary += "\n\n*提示：你可以使用文件读取工具（如 `cat` 或 `bash_tool_local`）查看上述路径的详细内容。*"
+    summary = "\n\n🛠️ **当前项目专属技能 (Agent Skills)**：\n"
+    summary += "检测到本项目特有的 Agent 技能定义。在执行相关任务前，请务必使用读取skill的工具查看技能的完整实现细节和规范：\n\n"
+    summary += "\n".join(found_skills_blocks)
+    summary += "\n\n*提示：你可以通过读取skill的工具获取该技能文件夹的文件树和完整说明文档。*"
     return summary
 
 async def tools_change_messages(request: ChatRequest, settings: dict):
@@ -4331,6 +4483,7 @@ async def execute_tool_manually(request: Request):
         bochaai_search_async,
         jina_crawler_async,
         Crawl4Ai_search_async, 
+        firecrawl_search_async,
     )
     from py.know_base import query_knowledge_base
     from py.agent_tool import agent_tool_call
@@ -4366,6 +4519,7 @@ async def execute_tool_manually(request: Request):
         todo_write_tool, 
         manage_processes_tool,
         docker_manage_ports_tool,
+        read_skill_tool,
     )
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
@@ -4379,6 +4533,7 @@ async def execute_tool_manually(request: Request):
         glob_files_tool_local,     # 本地 glob 查找
         todo_write_tool_local,     # 本地任务管理
         local_net_tool,            # 本地网络工具
+        read_skill_tool_local,
     )
 
     from py.cdp_tool import (
@@ -4409,6 +4564,7 @@ async def execute_tool_manually(request: Request):
         "query_knowledge_base": query_knowledge_base,
         "jina_crawler_async": jina_crawler_async,
         "Crawl4Ai_search_async": Crawl4Ai_search_async,
+        "firecrawl_search_async": firecrawl_search_async,
         "agent_tool_call": agent_tool_call,
         "a2a_tool_call": a2a_tool_call,
         "custom_llm_tool": custom_llm_tool,
@@ -4466,6 +4622,7 @@ async def execute_tool_manually(request: Request):
         "todo_write_tool": todo_write_tool,
         "manage_processes_tool": manage_processes_tool,
         "docker_manage_ports_tool": docker_manage_ports_tool,
+        "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
@@ -4477,6 +4634,7 @@ async def execute_tool_manually(request: Request):
         "glob_files_tool_local": glob_files_tool_local,         # 本地 glob 查找
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
+        "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
     }
     
     if tool_name not in _TOOL_HOOKS:
@@ -8575,6 +8733,71 @@ def get_ip():
     ip = get_internal_ip()
     return {"ip": ip}
 
+async def sync_all_bots_behavior(settings_dict: dict):
+    """
+    统一同步所有平台机器人的行为引擎配置
+    """
+    behavior_data = settings_dict.get("behaviorSettings", {})
+    
+    # --- 1. 同步飞书 ---
+    try:
+        if 'feishu_bot_manager' in globals() and feishu_bot_manager.is_running:
+            from py.feishu_bot_manager import FeishuBotConfig
+            feishu_data = settings_dict.get("feishuBotConfig", {})
+            feishu_data["behaviorSettings"] = behavior_data
+            new_config = FeishuBotConfig(**feishu_data)
+            feishu_bot_manager.update_behavior_config(new_config)
+            print("WebSocket Sync: 飞书机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Feishu): {e}")
+
+    # --- 2. 同步钉钉 ---
+    try:
+        if 'dingtalk_bot_manager' in globals() and dingtalk_bot_manager.is_running:
+            from py.dingtalk_bot_manager import DingtalkBotConfig
+            ding_data = settings_dict.get("dingtalkBotConfig", {})
+            ding_data["behaviorSettings"] = behavior_data
+            new_ding_config = DingtalkBotConfig(**ding_data)
+            dingtalk_bot_manager.update_behavior_config(new_ding_config)
+            print("WebSocket Sync: 钉钉机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (DingTalk): {e}")
+
+    # --- 3. 同步 Discord (新增) ---
+    try:
+        if 'discord_bot_manager' in globals() and discord_bot_manager.is_running:
+            from py.discord_bot_manager import DiscordBotConfig
+            discord_data = settings_dict.get("discordBotConfig", {})
+            discord_data["behaviorSettings"] = behavior_data
+            new_discord_config = DiscordBotConfig(**discord_data)
+            discord_bot_manager.update_behavior_config(new_discord_config)
+            print("WebSocket Sync: Discord 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Discord): {e}")
+
+    # --- 4. 同步 Telegram (新增) ---
+    try:
+        if 'telegram_bot_manager' in globals() and telegram_bot_manager.is_running:
+            from py.telegram_bot_manager import TelegramBotConfig
+            tg_data = settings_dict.get("telegramBotConfig", {})
+            tg_data["behaviorSettings"] = behavior_data
+            new_tg_config = TelegramBotConfig(**tg_data)
+            telegram_bot_manager.update_behavior_config(new_tg_config)
+            print("WebSocket Sync: Telegram 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Telegram): {e}")
+
+    # --- 5. 同步 Slack (新增) ---
+    try:
+        if 'slack_bot_manager' in globals() and slack_bot_manager.is_running:
+            from py.slack_bot_manager import SlackBotConfig
+            slack_data = settings_dict.get("slackBotConfig", {})
+            slack_data["behaviorSettings"] = behavior_data
+            new_slack_config = SlackBotConfig(**slack_data)
+            slack_bot_manager.update_behavior_config(new_slack_config)
+            print("WebSocket Sync: Slack 机器人行为引擎已同步")
+    except Exception as e:
+        print(f"WebSocket Sync Error (Slack): {e}")
 
 settings_lock = asyncio.Lock()
 @app.websocket("/ws")
@@ -8607,7 +8830,11 @@ async def websocket_endpoint(websocket: WebSocket):
             if data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
             elif data.get("type") == "save_settings":
-                await save_settings(data.get("data", {}))
+                settings_dict = data.get("data", {})
+                # 1. 正常的保存逻辑
+                await save_settings(settings_dict)
+                await sync_all_bots_behavior(settings_dict)
+
                 await websocket.send_json({
                     "type": "settings_saved",
                     "correlationId": data.get("correlationId"),
@@ -8774,9 +9001,6 @@ app.include_router(uv_router)
 
 from py.node_api import router as node_router 
 app.include_router(node_router)
-
-from py.git_api import router as git_router
-app.include_router(git_router)
 
 from py.extensions import router as extensions_router
 
