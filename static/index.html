@@ -10504,1259 +10504,1265 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </div>
                     </el-form>
                   </div>
-                  <!-- QQ机器人配置页面 -->
-                  <div v-show="subMenu === 'qq_bot'">
-                    <el-form class="settings-form" :model="qqBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- QQ机器人配置头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-brands fa-qq"></i></el-icon>
-                            {{ t('qq_bot_config') }}
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://q.qq.com/" 
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1">
-                                <i class="fa-solid fa-key"></i>
-                              </el-icon>{{ t('gotoQQbot') }}
-                            </el-link>
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://q.qq.com/#/news/detail?id=1376238e8e2fbbc036676bb09d2f37da" 
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1">
-                                <i class="fa-solid fa-file"></i>
-                              </el-icon>{{ t('QQbotNotice') }}
-                            </el-link>
-                          </span>
-                          <div>
-                            <!-- 启动按钮 -->
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button 
-                                type="primary" 
-                                @click="startQQBot" 
-                                :disabled="!isQQBotConfigValid || isQQBotRunning || isStarting"
-                                circle
-                              >
-                                <template v-if="isStarting">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-play"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
-                            
-                            <!-- 停止按钮 -->
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button 
-                                type="danger" 
-                                @click="stopQQBot" 
-                                :disabled="!isQQBotRunning || isStopping"
-                                circle
-                              >
-                                <template v-if="isStopping">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-stop"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
-                            
-                            <!-- 重载按钮 -->
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button 
-                                @click="reloadQQBotConfig" 
-                                :disabled="!isQQBotRunning || isReloading"
-                                circle
-                              >
-                                <template v-if="isReloading">
-                                  <i class="fa-solid fa-rotate fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-rotate"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
-                          </div>
-                        </div>
-                        <div class="tool-content">
-                            <!-- 主智能体选择 -->
-                            <el-form-item :label="t('mainAgent')" required>
-                              <el-select 
-                                v-model="qqBotConfig.QQAgent"
-                                @change="changeQQAgent">
-                                <el-option
-                                  :label="t('defaultAgent')"
-                                  value="super-model"
+
+                  <!-- 合并后的 IM 机器人聚合页面 -->
+                  <div v-show="subMenu === 'im_bot'">
+                    <el-tabs v-model="activeImBotTab" class="im-bot-tabs">
+                      
+                      <!-- QQ 机器人子标签 -->
+                      <el-tab-pane :label="t('qqBot')" name="qq">
+                        <el-form class="settings-form" :model="qqBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- QQ机器人配置头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-brands fa-qq"></i></el-icon>
+                                {{ t('qq_bot_config') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://q.qq.com/" 
+                                  target="_blank"
                                 >
-                                </el-option>
-                                <el-option
-                                  v-for="(agent, id) in agents"
-                                  :key="id"
-                                  :label="agent.name"
-                                  :value="id"
+                                  <el-icon class="mr-1">
+                                    <i class="fa-solid fa-key"></i>
+                                  </el-icon>{{ t('gotoQQbot') }}
+                                </el-link>
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://q.qq.com/#/news/detail?id=1376238e8e2fbbc036676bb09d2f37da" 
+                                  target="_blank"
                                 >
-                                </el-option>
-                              </el-select>
-                            </el-form-item>
-                            <el-alert
-                              type="info"
-                              :closable="false"
-                              class="mb-2"
-                            >
-                              <template #default>
-                                <div class="alert-content">
-                                  {{ t('goToMainAgentNotice1') }}
-                                  <el-link
-                                    type="primary"
-                                    :underline="false"
-                                    class="font-medium"
-                                    @click="switchToMainAgent"
+                                  <el-icon class="mr-1">
+                                    <i class="fa-solid fa-file"></i>
+                                  </el-icon>{{ t('QQbotNotice') }}
+                                </el-link>
+                              </span>
+                              <div>
+                                <!-- 启动按钮 -->
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button 
+                                    type="primary" 
+                                    @click="startQQBot" 
+                                    :disabled="!isQQBotConfigValid || isQQBotRunning || isStarting"
+                                    circle
                                   >
-                                    <el-icon class="mr-1">
-                                      <i class="fa-solid fa-key"></i>
-                                    </el-icon>{{ t('MainAgentInterface') }}
-                                  </el-link>
-                                </div>
-                              </template>
-                            </el-alert>
-                            <!-- 角色卡选择 -->
-                            <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                              <el-switch 
-                              v-model="memorySettings.is_memory" 
-                              @click.stop @change="changeMemory" 
-                              ></el-switch>
-                            </el-form-item>
-                            <el-form-item :label="t('selectMemory')">
-                              <el-select 
-                                v-model="memorySettings.selectedMemory" 
-                                :placeholder="t('selectMemoryPlaceholder')"
-                                class="full-width-input"
-                                @change ="changeMemory"
-                                >
-                                <el-option
-                                  v-for="memory in memories"
-                                  :key="memory.id"
-                                  :label="memory.name"
-                                  :value="memory.id"
-                                />
-                              </el-select>
-                            </el-form-item>
-                            <el-alert
-                              type="info"
-                              :closable="false"
-                              class="mb-2"
-                            >
-                              <template #default>
-                                <div class="alert-content">
-                                  {{ t('goToMemoryNotice1') }}
-                                  <el-link
-                                    type="primary"
-                                    :underline="false"
-                                    class="font-medium"
-                                    @click="switchToMemory"
+                                    <template v-if="isStarting">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-play"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+                                
+                                <!-- 停止按钮 -->
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button 
+                                    type="danger" 
+                                    @click="stopQQBot" 
+                                    :disabled="!isQQBotRunning || isStopping"
+                                    circle
                                   >
-                                    <el-icon class="mr-1">
-                                      <i class="fa-solid fa-key"></i>
-                                    </el-icon>{{ t('memoryInterface') }}
-                                  </el-link>
-                                </div>
-                              </template>
-                            </el-alert>
-                            <el-form-item :label="t('separators')">
-                              <el-select
-                                v-model="qqBotConfig.separators"
-                                multiple
-                                filterable
-                                allow-create
-                                @keyup.enter.native="handleEnter"
-                                @create="handleCreateSeparator"
-                                @change="autoSaveSettings"
-                              >
-                                <el-option
-                                  v-for="sep in filteredSeparators"
-                                  :key="sep.value"
-                                  :label="sep.label"
-                                  :value="sep.value"
+                                    <template v-if="isStopping">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-stop"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+                                
+                                <!-- 重载按钮 -->
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button 
+                                    @click="reloadQQBotConfig" 
+                                    :disabled="!isQQBotRunning || isReloading"
+                                    circle
+                                  >
+                                    <template v-if="isReloading">
+                                      <i class="fa-solid fa-rotate fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-rotate"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+                              </div>
+                            </div>
+                            <div class="tool-content">
+                                <!-- 主智能体选择 -->
+                                <el-form-item :label="t('mainAgent')" required>
+                                  <el-select 
+                                    v-model="qqBotConfig.QQAgent"
+                                    @change="changeQQAgent">
+                                    <el-option
+                                      :label="t('defaultAgent')"
+                                      value="super-model"
+                                    >
+                                    </el-option>
+                                    <el-option
+                                      v-for="(agent, id) in agents"
+                                      :key="id"
+                                      :label="agent.name"
+                                      :value="id"
+                                    >
+                                    </el-option>
+                                  </el-select>
+                                </el-form-item>
+                                <el-alert
+                                  type="info"
+                                  :closable="false"
+                                  class="mb-2"
+                                >
+                                  <template #default>
+                                    <div class="alert-content">
+                                      {{ t('goToMainAgentNotice1') }}
+                                      <el-link
+                                        type="primary"
+                                        :underline="false"
+                                        class="font-medium"
+                                        @click="switchToMainAgent"
+                                      >
+                                        <el-icon class="mr-1">
+                                          <i class="fa-solid fa-key"></i>
+                                        </el-icon>{{ t('MainAgentInterface') }}
+                                      </el-link>
+                                    </div>
+                                  </template>
+                                </el-alert>
+                                <!-- 角色卡选择 -->
+                                <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                  <el-switch 
+                                  v-model="memorySettings.is_memory" 
+                                  @click.stop @change="changeMemory" 
+                                  ></el-switch>
+                                </el-form-item>
+                                <el-form-item :label="t('selectMemory')">
+                                  <el-select 
+                                    v-model="memorySettings.selectedMemory" 
+                                    :placeholder="t('selectMemoryPlaceholder')"
+                                    class="full-width-input"
+                                    @change ="changeMemory"
+                                    >
+                                    <el-option
+                                      v-for="memory in memories"
+                                      :key="memory.id"
+                                      :label="memory.name"
+                                      :value="memory.id"
+                                    />
+                                  </el-select>
+                                </el-form-item>
+                                <el-alert
+                                  type="info"
+                                  :closable="false"
+                                  class="mb-2"
+                                >
+                                  <template #default>
+                                    <div class="alert-content">
+                                      {{ t('goToMemoryNotice1') }}
+                                      <el-link
+                                        type="primary"
+                                        :underline="false"
+                                        class="font-medium"
+                                        @click="switchToMemory"
+                                      >
+                                        <el-icon class="mr-1">
+                                          <i class="fa-solid fa-key"></i>
+                                        </el-icon>{{ t('memoryInterface') }}
+                                      </el-link>
+                                    </div>
+                                  </template>
+                                </el-alert>
+                                <el-form-item :label="t('separators')">
+                                  <el-select
+                                    v-model="qqBotConfig.separators"
+                                    multiple
+                                    filterable
+                                    allow-create
+                                    @keyup.enter.native="handleEnter"
+                                    @create="handleCreateSeparator"
+                                    @change="autoSaveSettings"
+                                  >
+                                    <el-option
+                                      v-for="sep in filteredSeparators"
+                                      :key="sep.value"
+                                      :label="sep.label"
+                                      :value="sep.value"
+                                    />
+                                  </el-select>
+                                </el-form-item>
+                                <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                  <el-slider
+                                    v-model="qqBotConfig.memoryLimit"
+                                    :min="0"
+                                    :max="1000"
+                                    :step="2"
+                                    show-input
+                                    @input="autoSaveSettings"
+                                  />
+                                </el-form-item>
+                                <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                  <el-switch
+                                    v-model="qqBotConfig.reasoningVisible"
+                                    @change="autoSaveSettings"
+                                  ></el-switch>
+                                </el-form-item>
+                                <el-form-item :label="t('is_sandbox')" class="form-item-align" label-position="left">
+                                  <el-switch
+                                    v-model="qqBotConfig.is_sandbox"
+                                    @change="autoSaveSettings"
+                                  ></el-switch>
+                                </el-form-item>
+                                <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                  <el-switch
+                                    v-model="qqBotConfig.quickRestart"
+                                    @change="autoSaveSettings"
+                                  ></el-switch>
+                                </el-form-item>
+                                <el-form-item label="APP ID" required>
+                                    <el-input @change="autoSaveSettings" v-model="qqBotConfig.appid" :placeholder="t('enter_qq_bot_app_id')" class="full-width-input"></el-input>
+                                </el-form-item>
+                                <el-form-item label="APP Secret" required>
+                                    <el-input @change="autoSaveSettings" v-model="qqBotConfig.secret" :placeholder="t('enter_qq_bot_secret')" show-password class="full-width-input"></el-input>
+                                </el-form-item>
+                            </div>
+                          </div>
+                        </el-form>
+                      </el-tab-pane>
+
+                      <!-- 飞书机器人子标签 -->
+                      <el-tab-pane :label="t('feishuBot')" name="feishu">
+                        <el-form class="settings-form" :model="feishuBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- 飞书机器人配置头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-solid fa-paper-plane"></i></el-icon>
+                                {{ t('feishu_bot_config') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://open.feishu.cn/app"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                                  {{ t('gotoFeishuBot') }}
+                                </el-link>
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://open.feishu.cn/document/develop-an-echo-bot/introduction?from=op_develop_app"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
+                                  {{ t('feishuBotNotice') }}
+                                </el-link>
+                              </span>
+
+                              <!-- 按钮组 -->
+                              <div>
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button
+                                    type="primary"
+                                    @click="startFeishuBot"
+                                    :disabled="!isfeishuBotConfigValid || isFeishuBotRunning || isFeishuStarting"
+                                    circle
+                                  >
+                                    <template v-if="isFeishuStarting">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-play"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button
+                                    type="danger"
+                                    @click="stopFeishuBot"
+                                    :disabled="!isFeishuBotRunning || isFeishuStopping"
+                                    circle
+                                  >
+                                    <template v-if="isFeishuStopping">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-stop"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button
+                                    @click="reloadfeishuBotConfig"
+                                    :disabled="!isFeishuBotRunning || isFeishuReloading"
+                                    circle
+                                  >
+                                    <template v-if="isFeishuReloading">
+                                      <i class="fa-solid fa-rotate fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-rotate"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
+                              </div>
+                            </div>
+
+                            <!-- 表单内容 -->
+                            <div class="tool-content">
+                              <!-- 主智能体 -->
+                              <el-form-item :label="t('mainAgent')" required>
+                                <el-select v-model="feishuBotConfig.FeishuAgent" @change="autoSaveSettings">
+                                  <el-option :label="t('defaultAgent')" value="super-model" />
+                                  <el-option
+                                    v-for="(agent, id) in agents"
+                                    :key="id"
+                                    :label="agent.name"
+                                    :value="id"
+                                  />
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- 角色卡 / 记忆 -->
+                              <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="memorySettings.is_memory"
+                                  @change="changeMemory"
+                                ></el-switch>
+                              </el-form-item>
+                              <el-form-item :label="t('selectMemory')">
+                                <el-select
+                                  v-model="memorySettings.selectedMemory"
+                                  :placeholder="t('selectMemoryPlaceholder')"
+                                  class="full-width-input"
+                                  @change="changeMemory"
+                                >
+                                  <el-option
+                                    v-for="mem in memories"
+                                    :key="mem.id"
+                                    :label="mem.name"
+                                    :value="mem.id"
+                                  />
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- 分隔符 -->
+                              <el-form-item :label="t('separators')">
+                                <el-select
+                                  v-model="feishuBotConfig.separators"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  @create="handleCreateFeishuSeparator"
+                                  @change="autoSaveSettings"
+                                >
+                                  <el-option
+                                    v-for="sep in filteredFeishuSeparators"
+                                    :key="sep.value"
+                                    :label="sep.label"
+                                    :value="sep.value"
+                                  />
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- 记忆轮数 -->
+                              <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                <el-slider
+                                  v-model="feishuBotConfig.memoryLimit"
+                                  :min="0"
+                                  :max="1000"
+                                  :step="2"
+                                  show-input
+                                  @input="autoSaveSettings"
                                 />
-                              </el-select>
-                            </el-form-item>
-                            <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                              <el-slider
-                                v-model="qqBotConfig.memoryLimit"
-                                :min="0"
-                                :max="1000"
-                                :step="2"
-                                show-input
-                                @input="autoSaveSettings"
-                              />
-                            </el-form-item>
-                            <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                              <el-switch
-                                v-model="qqBotConfig.reasoningVisible"
-                                @change="autoSaveSettings"
-                              ></el-switch>
-                            </el-form-item>
-                            <el-form-item :label="t('is_sandbox')" class="form-item-align" label-position="left">
-                              <el-switch
-                                v-model="qqBotConfig.is_sandbox"
-                                @change="autoSaveSettings"
-                              ></el-switch>
-                            </el-form-item>
-                            <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                              <el-switch
-                                v-model="qqBotConfig.quickRestart"
-                                @change="autoSaveSettings"
-                              ></el-switch>
-                            </el-form-item>
-                            <el-form-item label="APP ID" required>
-                                <el-input @change="autoSaveSettings" v-model="qqBotConfig.appid" :placeholder="t('enter_qq_bot_app_id')" class="full-width-input"></el-input>
-                            </el-form-item>
-                            <el-form-item label="APP Secret" required>
-                                <el-input @change="autoSaveSettings" v-model="qqBotConfig.secret" :placeholder="t('enter_qq_bot_secret')" show-password class="full-width-input"></el-input>
-                            </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
-                  </div>
+                              </el-form-item>
 
-                  <!-- 飞书机器人配置页面 -->
-                  <div v-show="subMenu === 'feishu_bot'">
-                    <el-form class="settings-form" :model="feishuBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 飞书机器人配置头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-solid fa-paper-plane"></i></el-icon>
-                            {{ t('feishu_bot_config') }}
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://open.feishu.cn/app"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
-                              {{ t('gotoFeishuBot') }}
-                            </el-link>
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://open.feishu.cn/document/develop-an-echo-bot/introduction?from=op_develop_app"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
-                              {{ t('feishuBotNotice') }}
-                            </el-link>
-                          </span>
+                              <!-- 推理显示 -->
+                              <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="feishuBotConfig.reasoningVisible"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
 
-                          <!-- 按钮组 -->
-                          <div>
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button
-                                type="primary"
-                                @click="startFeishuBot"
-                                :disabled="!isfeishuBotConfigValid || isFeishuBotRunning || isFeishuStarting"
-                                circle
-                              >
-                                <template v-if="isFeishuStarting">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-play"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 快速重启 -->
+                              <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="feishuBotConfig.quickRestart"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button
-                                type="danger"
-                                @click="stopFeishuBot"
-                                :disabled="!isFeishuBotRunning || isFeishuStopping"
-                                circle
-                              >
-                                <template v-if="isFeishuStopping">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-stop"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 启用TTS -->
+                              <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="feishuBotConfig.enableTTS"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button
-                                @click="reloadfeishuBotConfig"
-                                :disabled="!isFeishuBotRunning || isFeishuReloading"
-                                circle
-                              >
-                                <template v-if="isFeishuReloading">
-                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                              <el-form-item :label="t('wakeWord')">
+                                <el-input
+                                  v-model="feishuBotConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item :label="t('behaviorTargetChatIds')">
+                                <template #label>
+                                  <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span>{{ t('behaviorTargetChatIds') }}</span>
+                                  </div>
                                 </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-rotate"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                                <el-select
+                                  v-model="feishuBotConfig.behaviorTargetChatIds"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  default-first-option
+                                  :placeholder="t('enterChatIdPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings();"
+                                >
+                                  <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- APP 凭证 -->
+                              <el-form-item label="APP ID" required>
+                                <el-input
+                                  v-model="feishuBotConfig.appid"
+                                  :placeholder="t('enter_feishu_bot_app_id')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                              <el-form-item label="APP Secret" required>
+                                <el-input
+                                  v-model="feishuBotConfig.secret"
+                                  :placeholder="t('enter_feishu_bot_secret')"
+                                  show-password
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                            </div>
                           </div>
-                        </div>
+                        </el-form>
+                      </el-tab-pane>
 
-                        <!-- 表单内容 -->
-                        <div class="tool-content">
-                          <!-- 主智能体 -->
-                          <el-form-item :label="t('mainAgent')" required>
-                            <el-select v-model="feishuBotConfig.FeishuAgent" @change="autoSaveSettings">
-                              <el-option :label="t('defaultAgent')" value="super-model" />
-                              <el-option
-                                v-for="(agent, id) in agents"
-                                :key="id"
-                                :label="agent.name"
-                                :value="id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                      <!-- 钉钉机器人子标签 -->
+                      <el-tab-pane :label="t('dingtalkBot')" name="dingtalk">
+                        <el-form class="settings-form" :model="dingtalkBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- 钉钉机器人配置头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-solid fa-bolt"></i></el-icon>
+                                {{ t('dingtalk_bot_config') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://open-dev.dingtalk.com/fe/app"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                                  {{ t('gotoDingtalkBot') }}
+                                </el-link>
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://open.dingtalk.com/document/orgapp/stream-mode"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
+                                  {{ t('dingtalkBotNotice') }}
+                                </el-link>
+                              </span>
 
-                          <!-- 角色卡 / 记忆 -->
-                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="memorySettings.is_memory"
-                              @change="changeMemory"
-                            ></el-switch>
-                          </el-form-item>
-                          <el-form-item :label="t('selectMemory')">
-                            <el-select
-                              v-model="memorySettings.selectedMemory"
-                              :placeholder="t('selectMemoryPlaceholder')"
-                              class="full-width-input"
-                              @change="changeMemory"
-                            >
-                              <el-option
-                                v-for="mem in memories"
-                                :key="mem.id"
-                                :label="mem.name"
-                                :value="mem.id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                              <!-- 按钮组 (启动/停止/重载) -->
+                              <div>
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button
+                                    type="primary"
+                                    @click="startDingtalkBot"
+                                    :disabled="!isdingtalkBotConfigValid || isDingtalkBotRunning || isDingtalkStarting"
+                                    circle
+                                  >
+                                    <i v-if="isDingtalkStarting" class="fa-solid fa-spinner fa-spin"></i>
+                                    <i v-else class="fa-solid fa-play"></i>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 分隔符 -->
-                          <el-form-item :label="t('separators')">
-                            <el-select
-                              v-model="feishuBotConfig.separators"
-                              multiple
-                              filterable
-                              allow-create
-                              @create="handleCreateFeishuSeparator"
-                              @change="autoSaveSettings"
-                            >
-                              <el-option
-                                v-for="sep in filteredFeishuSeparators"
-                                :key="sep.value"
-                                :label="sep.label"
-                                :value="sep.value"
-                              />
-                            </el-select>
-                          </el-form-item>
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button
+                                    type="danger"
+                                    @click="stopDingtalkBot"
+                                    :disabled="!isDingtalkBotRunning || isDingtalkStopping"
+                                    circle
+                                  >
+                                    <i v-if="isDingtalkStopping" class="fa-solid fa-spinner fa-spin"></i>
+                                    <i v-else class="fa-solid fa-stop"></i>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 记忆轮数 -->
-                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                            <el-slider
-                              v-model="feishuBotConfig.memoryLimit"
-                              :min="0"
-                              :max="1000"
-                              :step="2"
-                              show-input
-                              @input="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <!-- 推理显示 -->
-                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="feishuBotConfig.reasoningVisible"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <!-- 快速重启 -->
-                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="feishuBotConfig.quickRestart"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <!-- 启用TTS -->
-                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="feishuBotConfig.enableTTS"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <el-form-item :label="t('wakeWord')">
-                            <el-input
-                              v-model="feishuBotConfig.wakeWord"
-                              :placeholder="t('botWakeWordPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item :label="t('behaviorTargetChatIds')">
-                            <template #label>
-                              <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button
+                                    @click="reloadDingtalkBot"
+                                    :disabled="!isDingtalkBotRunning || isDingtalkReloading"
+                                    circle
+                                  >
+                                    <i v-if="isDingtalkReloading" class="fa-solid fa-rotate fa-spin"></i>
+                                    <i v-else class="fa-solid fa-rotate"></i>
+                                  </el-button>
+                                </el-tooltip>
                               </div>
-                            </template>
-                            <el-select
-                              v-model="feishuBotConfig.behaviorTargetChatIds"
-                              multiple
-                              filterable
-                              allow-create
-                              default-first-option
-                              :placeholder="t('enterChatIdPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings();"
-                            >
-                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
-                            </el-select>
-                          </el-form-item>
+                            </div>
 
-                          <!-- APP 凭证 -->
-                          <el-form-item label="APP ID" required>
-                            <el-input
-                              v-model="feishuBotConfig.appid"
-                              :placeholder="t('enter_feishu_bot_app_id')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                          <el-form-item label="APP Secret" required>
-                            <el-input
-                              v-model="feishuBotConfig.secret"
-                              :placeholder="t('enter_feishu_bot_secret')"
-                              show-password
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
-                  </div>
+                            <!-- 表单内容 -->
+                            <div class="tool-content">
+                              <!-- 主智能体选择 -->
+                              <el-form-item :label="t('mainAgent')" required>
+                                <el-select v-model="dingtalkBotConfig.DingtalkAgent" @change="autoSaveSettings">
+                                  <el-option :label="t('defaultAgent')" value="super-model" />
+                                  <el-option
+                                    v-for="(agent, id) in agents"
+                                    :key="id"
+                                    :label="agent.name"
+                                    :value="id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                  <!-- 钉钉机器人配置页面 -->
-                  <div v-show="subMenu === 'dingtalk_bot'">
-                    <el-form class="settings-form" :model="dingtalkBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 钉钉机器人配置头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-solid fa-bolt"></i></el-icon>
-                            {{ t('dingtalk_bot_config') }}
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://open-dev.dingtalk.com/fe/app"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
-                              {{ t('gotoDingtalkBot') }}
-                            </el-link>
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://open.dingtalk.com/document/orgapp/stream-mode"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
-                              {{ t('dingtalkBotNotice') }}
-                            </el-link>
-                          </span>
+                              <!-- 角色卡 / 记忆 -->
+                              <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
+                              </el-form-item>
+                              
+                              <el-form-item :label="t('selectMemory')">
+                                <el-select
+                                  v-model="memorySettings.selectedMemory"
+                                  :placeholder="t('selectMemoryPlaceholder')"
+                                  class="full-width-input"
+                                  @change="changeMemory"
+                                >
+                                  <el-option v-for="mem in memories" :key="mem.id" :label="mem.name" :value="mem.id" />
+                                </el-select>
+                              </el-form-item>
 
-                          <!-- 按钮组 (启动/停止/重载) -->
-                          <div>
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button
-                                type="primary"
-                                @click="startDingtalkBot"
-                                :disabled="!isdingtalkBotConfigValid || isDingtalkBotRunning || isDingtalkStarting"
-                                circle
-                              >
-                                <i v-if="isDingtalkStarting" class="fa-solid fa-spinner fa-spin"></i>
-                                <i v-else class="fa-solid fa-play"></i>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 分隔符 (钉钉由于不支持流式原地更新，分隔符尤为重要) -->
+                              <el-form-item :label="t('separators')">
+                                <el-select
+                                  v-model="dingtalkBotConfig.separators"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  @create="handleCreateDingtalkSeparator"
+                                  @change="autoSaveSettings"
+                                >
+                                  <el-option
+                                    v-for="sep in filteredDingtalkSeparators"
+                                    :key="sep.value"
+                                    :label="sep.label"
+                                    :value="sep.value"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button
-                                type="danger"
-                                @click="stopDingtalkBot"
-                                :disabled="!isDingtalkBotRunning || isDingtalkStopping"
-                                circle
-                              >
-                                <i v-if="isDingtalkStopping" class="fa-solid fa-spinner fa-spin"></i>
-                                <i v-else class="fa-solid fa-stop"></i>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 记忆轮数 -->
+                              <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                <el-slider
+                                  v-model="dingtalkBotConfig.memoryLimit"
+                                  :min="0" :max="1000" :step="2"
+                                  show-input
+                                  @input="autoSaveSettings"
+                                />
+                              </el-form-item>
 
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button
-                                @click="reloadDingtalkBot"
-                                :disabled="!isDingtalkBotRunning || isDingtalkReloading"
-                                circle
-                              >
-                                <i v-if="isDingtalkReloading" class="fa-solid fa-rotate fa-spin"></i>
-                                <i v-else class="fa-solid fa-rotate"></i>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 功能开关 -->
+                              <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="dingtalkBotConfig.reasoningVisible" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="dingtalkBotConfig.quickRestart" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+
+                              <el-form-item :label="t('wakeWord')">
+                                <el-input
+                                  v-model="dingtalkBotConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item :label="t('behaviorTargetChatIds')">
+                                <template #label>
+                                  <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span>{{ t('behaviorTargetChatIds') }}</span>
+                                  </div>
+                                </template>
+                                <el-select
+                                  v-model="dingtalkBotConfig.behaviorTargetChatIds"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  default-first-option
+                                  :placeholder="t('enterChatIdPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings();"
+                                >
+                                  <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- 钉钉凭证 (对应飞书 appid/secret) -->
+                              <el-form-item label="Client ID" required>
+                                <el-input
+                                  v-model="dingtalkBotConfig.appKey"
+                                  :placeholder="t('enter_dingtalk_bot_app_key')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                              
+                              <el-form-item label="Client Secret" required>
+                                <el-input
+                                  v-model="dingtalkBotConfig.appSecret"
+                                  :placeholder="t('enter_dingtalk_bot_app_secret')"
+                                  show-password
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                            </div>
                           </div>
-                        </div>
+                        </el-form>
+                      </el-tab-pane>
 
-                        <!-- 表单内容 -->
-                        <div class="tool-content">
-                          <!-- 主智能体选择 -->
-                          <el-form-item :label="t('mainAgent')" required>
-                            <el-select v-model="dingtalkBotConfig.DingtalkAgent" @change="autoSaveSettings">
-                              <el-option :label="t('defaultAgent')" value="super-model" />
-                              <el-option
-                                v-for="(agent, id) in agents"
-                                :key="id"
-                                :label="agent.name"
-                                :value="id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                      <!-- Telegram 机器人子标签 -->
+                      <el-tab-pane :label="t('telegramBot')" name="telegram">
+                        <el-form class="settings-form" :model="telegramBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- 头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-solid fa-paper-plane"></i></el-icon>
+                                {{ t('telegram_bot_config') }}
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://t.me/BotFather"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                                  {{ t('gotoTelegramBot') }}
+                                </el-link>
+                                <el-link
+                                  type="primary"
+                                  :underline="false"
+                                  href="https://core.telegram.org/bots/api"
+                                  target="_blank"
+                                >
+                                  <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
+                                  {{ t('telegramBotNotice') }}
+                                </el-link>
+                              </span>
 
-                          <!-- 角色卡 / 记忆 -->
-                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
-                          </el-form-item>
-                          
-                          <el-form-item :label="t('selectMemory')">
-                            <el-select
-                              v-model="memorySettings.selectedMemory"
-                              :placeholder="t('selectMemoryPlaceholder')"
-                              class="full-width-input"
-                              @change="changeMemory"
-                            >
-                              <el-option v-for="mem in memories" :key="mem.id" :label="mem.name" :value="mem.id" />
-                            </el-select>
-                          </el-form-item>
+                              <!-- 按钮组 -->
+                              <div>
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button
+                                    type="primary"
+                                    @click="startTelegramBot"
+                                    :disabled="!isTelegramBotConfigValid || isTelegramBotRunning || isTelegramStarting"
+                                    circle
+                                  >
+                                    <template v-if="isTelegramStarting">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-play"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 分隔符 (钉钉由于不支持流式原地更新，分隔符尤为重要) -->
-                          <el-form-item :label="t('separators')">
-                            <el-select
-                              v-model="dingtalkBotConfig.separators"
-                              multiple
-                              filterable
-                              allow-create
-                              @create="handleCreateDingtalkSeparator"
-                              @change="autoSaveSettings"
-                            >
-                              <el-option
-                                v-for="sep in filteredDingtalkSeparators"
-                                :key="sep.value"
-                                :label="sep.label"
-                                :value="sep.value"
-                              />
-                            </el-select>
-                          </el-form-item>
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button
+                                    type="danger"
+                                    @click="stopTelegramBot"
+                                    :disabled="!isTelegramBotRunning || isTelegramStopping"
+                                    circle
+                                  >
+                                    <template v-if="isTelegramStopping">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-stop"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 记忆轮数 -->
-                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                            <el-slider
-                              v-model="dingtalkBotConfig.memoryLimit"
-                              :min="0" :max="1000" :step="2"
-                              show-input
-                              @input="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <!-- 功能开关 -->
-                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="dingtalkBotConfig.reasoningVisible" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="dingtalkBotConfig.quickRestart" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-
-                          <el-form-item :label="t('wakeWord')">
-                            <el-input
-                              v-model="dingtalkBotConfig.wakeWord"
-                              :placeholder="t('botWakeWordPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item :label="t('behaviorTargetChatIds')">
-                            <template #label>
-                              <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button
+                                    @click="reloadTelegramBotConfig"
+                                    :disabled="!isTelegramBotRunning || isTelegramReloading"
+                                    circle
+                                  >
+                                    <template v-if="isTelegramReloading">
+                                      <i class="fa-solid fa-rotate fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-rotate"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
                               </div>
-                            </template>
-                            <el-select
-                              v-model="dingtalkBotConfig.behaviorTargetChatIds"
-                              multiple
-                              filterable
-                              allow-create
-                              default-first-option
-                              :placeholder="t('enterChatIdPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings();"
-                            >
-                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
-                            </el-select>
-                          </el-form-item>
+                            </div>
 
-                          <!-- 钉钉凭证 (对应飞书 appid/secret) -->
-                          <el-form-item label="Client ID" required>
-                            <el-input
-                              v-model="dingtalkBotConfig.appKey"
-                              :placeholder="t('enter_dingtalk_bot_app_key')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                          
-                          <el-form-item label="Client Secret" required>
-                            <el-input
-                              v-model="dingtalkBotConfig.appSecret"
-                              :placeholder="t('enter_dingtalk_bot_app_secret')"
-                              show-password
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
-                  </div>
+                            <!-- 表单 -->
+                            <div class="tool-content">
+                              <!-- 主智能体 -->
+                              <el-form-item :label="t('mainAgent')" required>
+                                <el-select v-model="telegramBotConfig.TelegramAgent" @change="autoSaveSettings">
+                                  <el-option :label="t('defaultAgent')" value="super-model" />
+                                  <el-option
+                                    v-for="(agent, id) in agents"
+                                    :key="id"
+                                    :label="agent.name"
+                                    :value="id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                  <!-- Telegram 机器人配置页面 -->
-                  <div v-show="subMenu === 'telegram_bot'">
-                    <el-form class="settings-form" :model="telegramBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-solid fa-paper-plane"></i></el-icon>
-                            {{ t('telegram_bot_config') }}
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://t.me/BotFather"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
-                              {{ t('gotoTelegramBot') }}
-                            </el-link>
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              href="https://core.telegram.org/bots/api"
-                              target="_blank"
-                            >
-                              <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
-                              {{ t('telegramBotNotice') }}
-                            </el-link>
-                          </span>
+                              <!-- 角色卡 / 记忆 -->
+                              <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="memorySettings.is_memory"
+                                  @change="changeMemory"
+                                ></el-switch>
+                              </el-form-item>
+                              <el-form-item :label="t('selectMemory')">
+                                <el-select
+                                  v-model="memorySettings.selectedMemory"
+                                  :placeholder="t('selectMemoryPlaceholder')"
+                                  class="full-width-input"
+                                  @change="changeMemory"
+                                >
+                                  <el-option
+                                    v-for="mem in memories"
+                                    :key="mem.id"
+                                    :label="mem.name"
+                                    :value="mem.id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                          <!-- 按钮组 -->
-                          <div>
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button
-                                type="primary"
-                                @click="startTelegramBot"
-                                :disabled="!isTelegramBotConfigValid || isTelegramBotRunning || isTelegramStarting"
-                                circle
-                              >
-                                <template v-if="isTelegramStarting">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-play"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 分隔符 -->
+                              <el-form-item :label="t('separators')">
+                                <el-select
+                                  v-model="telegramBotConfig.separators"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  @create="handleCreateTelegramSeparator"
+                                  @change="autoSaveSettings"
+                                >
+                                  <el-option
+                                    v-for="sep in filteredTelegramSeparators"
+                                    :key="sep.value"
+                                    :label="sep.label"
+                                    :value="sep.value"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button
-                                type="danger"
-                                @click="stopTelegramBot"
-                                :disabled="!isTelegramBotRunning || isTelegramStopping"
-                                circle
-                              >
-                                <template v-if="isTelegramStopping">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-stop"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 记忆轮数 -->
+                              <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                <el-slider
+                                  v-model="telegramBotConfig.memoryLimit"
+                                  :min="0"
+                                  :max="1000"
+                                  :step="2"
+                                  show-input
+                                  @input="autoSaveSettings"
+                                />
+                              </el-form-item>
 
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button
-                                @click="reloadTelegramBotConfig"
-                                :disabled="!isTelegramBotRunning || isTelegramReloading"
-                                circle
-                              >
-                                <template v-if="isTelegramReloading">
-                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                              <!-- 推理显示 -->
+                              <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="telegramBotConfig.reasoningVisible"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
+
+                              <!-- 快速重启 -->
+                              <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="telegramBotConfig.quickRestart"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
+
+                              <!-- 启用 TTS -->
+                              <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                                <el-switch
+                                  v-model="telegramBotConfig.enableTTS"
+                                  @change="autoSaveSettings"
+                                ></el-switch>
+                              </el-form-item>
+
+                              <el-form-item :label="t('wakeWord')">
+                                <el-input
+                                  v-model="telegramBotConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item :label="t('behaviorTargetChatIds')">
+                                <template #label>
+                                  <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span>{{ t('behaviorTargetChatIds') }}</span>
+                                  </div>
                                 </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-rotate"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                                <el-select
+                                  v-model="telegramBotConfig.behaviorTargetChatIds"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  default-first-option
+                                  :placeholder="t('enterChatIdPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings();"
+                                >
+                                  <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- Bot Token -->
+                              <el-form-item label="Bot Token" required>
+                                <el-input
+                                  v-model="telegramBotConfig.bot_token"
+                                  :placeholder="t('enterTelegramBotToken')"
+                                  show-password
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                            </div>
                           </div>
-                        </div>
+                        </el-form>
+                      </el-tab-pane>
 
-                        <!-- 表单 -->
-                        <div class="tool-content">
-                          <!-- 主智能体 -->
-                          <el-form-item :label="t('mainAgent')" required>
-                            <el-select v-model="telegramBotConfig.TelegramAgent" @change="autoSaveSettings">
-                              <el-option :label="t('defaultAgent')" value="super-model" />
-                              <el-option
-                                v-for="(agent, id) in agents"
-                                :key="id"
-                                :label="agent.name"
-                                :value="id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                      <!-- Discord 机器人子标签 -->
+                      <el-tab-pane :label="t('discordBot')" name="discord">
+                        <el-form class="settings-form" :model="discordBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- 头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-brands fa-discord"></i></el-icon>
+                                {{ t('discord_bot_config') }}
+                                <el-link type="primary" :underline="false" href="https://discord.com/developers/applications" target="_blank">
+                                  <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                                  {{ t('gotoDiscordBot') }}
+                                </el-link>
+                                <el-link type="primary" :underline="false" href="https://discord.com/developers/docs/intro" target="_blank">
+                                  <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
+                                  {{ t('discordBotNotice') }}
+                                </el-link>
+                              </span>
 
-                          <!-- 角色卡 / 记忆 -->
-                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="memorySettings.is_memory"
-                              @change="changeMemory"
-                            ></el-switch>
-                          </el-form-item>
-                          <el-form-item :label="t('selectMemory')">
-                            <el-select
-                              v-model="memorySettings.selectedMemory"
-                              :placeholder="t('selectMemoryPlaceholder')"
-                              class="full-width-input"
-                              @change="changeMemory"
-                            >
-                              <el-option
-                                v-for="mem in memories"
-                                :key="mem.id"
-                                :label="mem.name"
-                                :value="mem.id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                              <!-- 按钮组 -->
+                              <div>
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button
+                                    type="primary"
+                                    @click="startDiscordBot"
+                                    :disabled="!isDiscordBotConfigValid || isDiscordBotRunning || isDiscordStarting"
+                                    circle
+                                  >
+                                    <template v-if="isDiscordStarting">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-play"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 分隔符 -->
-                          <el-form-item :label="t('separators')">
-                            <el-select
-                              v-model="telegramBotConfig.separators"
-                              multiple
-                              filterable
-                              allow-create
-                              @create="handleCreateTelegramSeparator"
-                              @change="autoSaveSettings"
-                            >
-                              <el-option
-                                v-for="sep in filteredTelegramSeparators"
-                                :key="sep.value"
-                                :label="sep.label"
-                                :value="sep.value"
-                              />
-                            </el-select>
-                          </el-form-item>
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button
+                                    type="danger"
+                                    @click="stopDiscordBot"
+                                    :disabled="!isDiscordBotRunning || isDiscordStopping"
+                                    circle
+                                  >
+                                    <template v-if="isDiscordStopping">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-stop"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 记忆轮数 -->
-                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                            <el-slider
-                              v-model="telegramBotConfig.memoryLimit"
-                              :min="0"
-                              :max="1000"
-                              :step="2"
-                              show-input
-                              @input="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <!-- 推理显示 -->
-                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="telegramBotConfig.reasoningVisible"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <!-- 快速重启 -->
-                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="telegramBotConfig.quickRestart"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <!-- 启用 TTS -->
-                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
-                            <el-switch
-                              v-model="telegramBotConfig.enableTTS"
-                              @change="autoSaveSettings"
-                            ></el-switch>
-                          </el-form-item>
-
-                          <el-form-item :label="t('wakeWord')">
-                            <el-input
-                              v-model="telegramBotConfig.wakeWord"
-                              :placeholder="t('botWakeWordPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item :label="t('behaviorTargetChatIds')">
-                            <template #label>
-                              <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button
+                                    @click="reloadDiscordBot"
+                                    :disabled="!isDiscordBotRunning || isDiscordReloading"
+                                    circle
+                                  >
+                                    <template v-if="isDiscordReloading">
+                                      <i class="fa-solid fa-rotate fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-rotate"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
                               </div>
-                            </template>
-                            <el-select
-                              v-model="telegramBotConfig.behaviorTargetChatIds"
-                              multiple
-                              filterable
-                              allow-create
-                              default-first-option
-                              :placeholder="t('enterChatIdPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings();"
-                            >
-                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
-                            </el-select>
-                          </el-form-item>
+                            </div>
 
-                          <!-- Bot Token -->
-                          <el-form-item label="Bot Token" required>
-                            <el-input
-                              v-model="telegramBotConfig.bot_token"
-                              :placeholder="t('enterTelegramBotToken')"
-                              show-password
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
-                  </div>
+                            <!-- 表单 -->
+                            <div class="tool-content">
+                              <!-- 主智能体 -->
+                              <el-form-item :label="t('mainAgent')" required>
+                                <el-select v-model="discordBotConfig.llm_model" @change="autoSaveSettings">
+                                  <el-option :label="t('defaultAgent')" value="super-model" />
+                                  <el-option
+                                    v-for="(agent, id) in agents"
+                                    :key="id"
+                                    :label="agent.name"
+                                    :value="id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                  <!-- Discord 机器人配置页面 -->
-                  <div v-show="subMenu === 'discord_bot'">
-                    <el-form class="settings-form" :model="discordBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-brands fa-discord"></i></el-icon>
-                            {{ t('discord_bot_config') }}
-                            <el-link type="primary" :underline="false" href="https://discord.com/developers/applications" target="_blank">
-                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
-                              {{ t('gotoDiscordBot') }}
-                            </el-link>
-                            <el-link type="primary" :underline="false" href="https://discord.com/developers/docs/intro" target="_blank">
-                              <el-icon class="mr-1"><i class="fa-solid fa-file"></i></el-icon>
-                              {{ t('discordBotNotice') }}
-                            </el-link>
-                          </span>
+                              <!-- 记忆 -->
+                              <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
+                              </el-form-item>
+                              <el-form-item :label="t('selectMemory')">
+                                <el-select
+                                  v-model="memorySettings.selectedMemory"
+                                  :placeholder="t('selectMemoryPlaceholder')"
+                                  class="full-width-input"
+                                  @change="changeMemory"
+                                >
+                                  <el-option
+                                    v-for="mem in memories"
+                                    :key="mem.id"
+                                    :label="mem.name"
+                                    :value="mem.id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                          <!-- 按钮组 -->
-                          <div>
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button
-                                type="primary"
-                                @click="startDiscordBot"
-                                :disabled="!isDiscordBotConfigValid || isDiscordBotRunning || isDiscordStarting"
-                                circle
-                              >
-                                <template v-if="isDiscordStarting">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-play"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 分隔符 -->
+                              <el-form-item :label="t('separators')">
+                                <el-select
+                                  v-model="discordBotConfig.separators"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  @create="handleCreateDiscordSeparator"
+                                  @change="autoSaveSettings"
+                                >
+                                  <el-option
+                                    v-for="sep in filteredDiscordSeparators"
+                                    :key="sep.value"
+                                    :label="sep.label"
+                                    :value="sep.value"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button
-                                type="danger"
-                                @click="stopDiscordBot"
-                                :disabled="!isDiscordBotRunning || isDiscordStopping"
-                                circle
-                              >
-                                <template v-if="isDiscordStopping">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-stop"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 记忆轮数 -->
+                              <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                <el-slider
+                                  v-model="discordBotConfig.memory_limit"
+                                  :min="0"
+                                  :max="1000"
+                                  :step="2"
+                                  show-input
+                                  @input="autoSaveSettings"
+                                />
+                              </el-form-item>
 
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button
-                                @click="reloadDiscordBot"
-                                :disabled="!isDiscordBotRunning || isDiscordReloading"
-                                circle
-                              >
-                                <template v-if="isDiscordReloading">
-                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                              <!-- 推理显示 -->
+                              <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="discordBotConfig.reasoning_visible" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <!-- 快速重启 -->
+                              <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="discordBotConfig.quick_restart" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <!-- 启用 TTS -->
+                              <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                                <el-switch v-model="discordBotConfig.enable_tts" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <el-form-item :label="t('wakeWord')">
+                                <el-input
+                                  v-model="discordBotConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item :label="t('behaviorTargetChatIds')">
+                                <template #label>
+                                  <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span>{{ t('behaviorTargetChatIds') }}</span>
+                                  </div>
                                 </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-rotate"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                                <el-select
+                                  v-model="discordBotConfig.behaviorTargetChatIds"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  default-first-option
+                                  :placeholder="t('enterChatIdPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings();"
+                                >
+                                  <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- Bot Token -->
+                              <el-form-item label="Bot Token" required>
+                                <el-input
+                                  v-model="discordBotConfig.token"
+                                  show-password
+                                  :placeholder="t('enterDiscordBotToken')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                            </div>
                           </div>
-                        </div>
+                        </el-form>
+                      </el-tab-pane>
 
-                        <!-- 表单 -->
-                        <div class="tool-content">
-                          <!-- 主智能体 -->
-                          <el-form-item :label="t('mainAgent')" required>
-                            <el-select v-model="discordBotConfig.llm_model" @change="autoSaveSettings">
-                              <el-option :label="t('defaultAgent')" value="super-model" />
-                              <el-option
-                                v-for="(agent, id) in agents"
-                                :key="id"
-                                :label="agent.name"
-                                :value="id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                      <!-- Slack 机器人子标签 -->
+                      <el-tab-pane :label="t('slackBot')" name="slack">
+                        <el-form class="settings-form" :model="slackBotConfig" label-position="top">
+                          <div class="tool-item">
+                            <!-- 头部 -->
+                            <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                              <span>
+                                <el-icon><i class="fa-brands fa-slack"></i></el-icon>
+                                {{ t('slack_bot_config') || 'Slack 机器人配置' }}
+                                <el-link type="primary" :underline="false" href="https://api.slack.com/apps" target="_blank">
+                                  <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
+                                  {{ t('gotoSlackBot') || '前往 Slack App 控制台' }}
+                                </el-link>
+                              </span>
 
-                          <!-- 记忆 -->
-                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
-                          </el-form-item>
-                          <el-form-item :label="t('selectMemory')">
-                            <el-select
-                              v-model="memorySettings.selectedMemory"
-                              :placeholder="t('selectMemoryPlaceholder')"
-                              class="full-width-input"
-                              @change="changeMemory"
-                            >
-                              <el-option
-                                v-for="mem in memories"
-                                :key="mem.id"
-                                :label="mem.name"
-                                :value="mem.id"
-                              />
-                            </el-select>
-                          </el-form-item>
+                              <!-- 按钮组 -->
+                              <div>
+                                <el-tooltip :content="t('start_bot')" placement="top">
+                                  <el-button
+                                    type="primary"
+                                    @click="startSlackBot"
+                                    :disabled="!isSlackBotConfigValid || isSlackBotRunning || isSlackStarting"
+                                    circle
+                                  >
+                                    <template v-if="isSlackStarting">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-play"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 分隔符 -->
-                          <el-form-item :label="t('separators')">
-                            <el-select
-                              v-model="discordBotConfig.separators"
-                              multiple
-                              filterable
-                              allow-create
-                              @create="handleCreateDiscordSeparator"
-                              @change="autoSaveSettings"
-                            >
-                              <el-option
-                                v-for="sep in filteredDiscordSeparators"
-                                :key="sep.value"
-                                :label="sep.label"
-                                :value="sep.value"
-                              />
-                            </el-select>
-                          </el-form-item>
+                                <el-tooltip :content="t('stop_bot')" placement="top">
+                                  <el-button
+                                    type="danger"
+                                    @click="stopSlackBot"
+                                    :disabled="!isSlackBotRunning || isSlackStopping"
+                                    circle
+                                  >
+                                    <template v-if="isSlackStopping">
+                                      <i class="fa-solid fa-spinner fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-stop"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
 
-                          <!-- 记忆轮数 -->
-                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                            <el-slider
-                              v-model="discordBotConfig.memory_limit"
-                              :min="0"
-                              :max="1000"
-                              :step="2"
-                              show-input
-                              @input="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <!-- 推理显示 -->
-                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="discordBotConfig.reasoning_visible" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <!-- 快速重启 -->
-                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="discordBotConfig.quick_restart" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <!-- 启用 TTS -->
-                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
-                            <el-switch v-model="discordBotConfig.enable_tts" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <el-form-item :label="t('wakeWord')">
-                            <el-input
-                              v-model="discordBotConfig.wakeWord"
-                              :placeholder="t('botWakeWordPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item :label="t('behaviorTargetChatIds')">
-                            <template #label>
-                              <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>{{ t('behaviorTargetChatIds') }}</span>
+                                <el-tooltip :content="t('reload_bot')" placement="top">
+                                  <el-button
+                                    @click="reloadSlackBot"
+                                    :disabled="!isSlackBotRunning || isSlackReloading"
+                                    circle
+                                  >
+                                    <template v-if="isSlackReloading">
+                                      <i class="fa-solid fa-rotate fa-spin"></i>
+                                    </template>
+                                    <template v-else>
+                                      <i class="fa-solid fa-rotate"></i>
+                                    </template>
+                                  </el-button>
+                                </el-tooltip>
                               </div>
-                            </template>
-                            <el-select
-                              v-model="discordBotConfig.behaviorTargetChatIds"
-                              multiple
-                              filterable
-                              allow-create
-                              default-first-option
-                              :placeholder="t('enterChatIdPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings();"
-                            >
-                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
-                            </el-select>
-                          </el-form-item>
+                            </div>
 
-                          <!-- Bot Token -->
-                          <el-form-item label="Bot Token" required>
-                            <el-input
-                              v-model="discordBotConfig.token"
-                              show-password
-                              :placeholder="t('enterDiscordBotToken')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
-                  </div>
+                            <!-- 表单 -->
+                            <div class="tool-content">
+                              <!-- 主智能体 -->
+                              <el-form-item :label="t('mainAgent')" required>
+                                <el-select v-model="slackBotConfig.llm_model" @change="autoSaveSettings">
+                                  <el-option :label="t('defaultAgent')" value="super-model" />
+                                  <el-option
+                                    v-for="(agent, id) in agents"
+                                    :key="id"
+                                    :label="agent.name"
+                                    :value="id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
+                              <!-- 记忆 (这里和 Discord 一样，直接绑定 memorySettings) -->
+                              <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
+                              </el-form-item>
+                              <el-form-item :label="t('selectMemory')">
+                                <el-select
+                                  v-model="memorySettings.selectedMemory"
+                                  :placeholder="t('selectMemoryPlaceholder')"
+                                  class="full-width-input"
+                                  @change="changeMemory"
+                                >
+                                  <el-option
+                                    v-for="mem in memories"
+                                    :key="mem.id"
+                                    :label="mem.name"
+                                    :value="mem.id"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                  <!-- Slack 机器人配置页面 -->
-                  <div v-show="subMenu === 'slack_bot'">
-                    <el-form class="settings-form" :model="slackBotConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-brands fa-slack"></i></el-icon>
-                            {{ t('slack_bot_config') || 'Slack 机器人配置' }}
-                            <el-link type="primary" :underline="false" href="https://api.slack.com/apps" target="_blank">
-                              <el-icon class="mr-1"><i class="fa-solid fa-key"></i></el-icon>
-                              {{ t('gotoSlackBot') || '前往 Slack App 控制台' }}
-                            </el-link>
-                          </span>
+                              <!-- 分隔符 -->
+                              <el-form-item :label="t('separators')">
+                                <el-select
+                                  v-model="slackBotConfig.separators"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  @create="handleCreateSlackSeparator"
+                                  @change="autoSaveSettings"
+                                >
+                                  <el-option
+                                    v-for="sep in filteredSlackSeparators"
+                                    :key="sep.value"
+                                    :label="sep.label"
+                                    :value="sep.value"
+                                  />
+                                </el-select>
+                              </el-form-item>
 
-                          <!-- 按钮组 -->
-                          <div>
-                            <el-tooltip :content="t('start_bot')" placement="top">
-                              <el-button
-                                type="primary"
-                                @click="startSlackBot"
-                                :disabled="!isSlackBotConfigValid || isSlackBotRunning || isSlackStarting"
-                                circle
-                              >
-                                <template v-if="isSlackStarting">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-play"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 记忆轮数 -->
+                              <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                                <el-slider
+                                  v-model="slackBotConfig.memory_limit"
+                                  :min="0"
+                                  :max="1000"
+                                  :step="2"
+                                  show-input
+                                  @input="autoSaveSettings"
+                                />
+                              </el-form-item>
 
-                            <el-tooltip :content="t('stop_bot')" placement="top">
-                              <el-button
-                                type="danger"
-                                @click="stopSlackBot"
-                                :disabled="!isSlackBotRunning || isSlackStopping"
-                                circle
-                              >
-                                <template v-if="isSlackStopping">
-                                  <i class="fa-solid fa-spinner fa-spin"></i>
-                                </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-stop"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                              <!-- 推理显示 -->
+                              <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="slackBotConfig.reasoning_visible" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
 
-                            <el-tooltip :content="t('reload_bot')" placement="top">
-                              <el-button
-                                @click="reloadSlackBot"
-                                :disabled="!isSlackBotRunning || isSlackReloading"
-                                circle
-                              >
-                                <template v-if="isSlackReloading">
-                                  <i class="fa-solid fa-rotate fa-spin"></i>
+                              <!-- 快速重启 -->
+                              <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
+                                <el-switch v-model="slackBotConfig.quick_restart" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <!-- 启用 TTS -->
+                              <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
+                                <el-switch v-model="slackBotConfig.enable_tts" @change="autoSaveSettings"></el-switch>
+                              </el-form-item>
+
+                              <el-form-item :label="t('wakeWord')">
+                                <el-input
+                                  v-model="slackBotConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item :label="t('behaviorTargetChatIds')">
+                                <template #label>
+                                  <div style="display: flex; align-items: center; gap: 5px;">
+                                    <span>{{ t('behaviorTargetChatIds') }}</span>
+                                  </div>
                                 </template>
-                                <template v-else>
-                                  <i class="fa-solid fa-rotate"></i>
-                                </template>
-                              </el-button>
-                            </el-tooltip>
+                                <el-select
+                                  v-model="slackBotConfig.behaviorTargetChatIds"
+                                  multiple
+                                  filterable
+                                  allow-create
+                                  default-first-option
+                                  :placeholder="t('enterChatIdPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings();"
+                                >
+                                  <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
+                                </el-select>
+                              </el-form-item>
+
+                              <!-- Bot Token (Slack 需要两个) -->
+                              <el-form-item label="Bot User OAuth Token (xoxb-...)" required>
+                                <el-input
+                                  v-model="slackBotConfig.bot_token"
+                                  show-password
+                                  placeholder="xoxb-xxxxxxxxxxxx"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+
+                              <el-form-item label="App-Level Token (xapp-...)" required>
+                                <el-input
+                                  v-model="slackBotConfig.app_token"
+                                  show-password
+                                  placeholder="xapp-1-xxxxxxxxxxxx"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                />
+                              </el-form-item>
+                            </div>
                           </div>
-                        </div>
+                        </el-form>
+                      </el-tab-pane>
 
-                        <!-- 表单 -->
-                        <div class="tool-content">
-                          <!-- 主智能体 -->
-                          <el-form-item :label="t('mainAgent')" required>
-                            <el-select v-model="slackBotConfig.llm_model" @change="autoSaveSettings">
-                              <el-option :label="t('defaultAgent')" value="super-model" />
-                              <el-option
-                                v-for="(agent, id) in agents"
-                                :key="id"
-                                :label="agent.name"
-                                :value="id"
-                              />
-                            </el-select>
-                          </el-form-item>
-
-                          <!-- 记忆 (这里和 Discord 一样，直接绑定 memorySettings) -->
-                          <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="memorySettings.is_memory" @change="changeMemory"></el-switch>
-                          </el-form-item>
-                          <el-form-item :label="t('selectMemory')">
-                            <el-select
-                              v-model="memorySettings.selectedMemory"
-                              :placeholder="t('selectMemoryPlaceholder')"
-                              class="full-width-input"
-                              @change="changeMemory"
-                            >
-                              <el-option
-                                v-for="mem in memories"
-                                :key="mem.id"
-                                :label="mem.name"
-                                :value="mem.id"
-                              />
-                            </el-select>
-                          </el-form-item>
-
-                          <!-- 分隔符 -->
-                          <el-form-item :label="t('separators')">
-                            <el-select
-                              v-model="slackBotConfig.separators"
-                              multiple
-                              filterable
-                              allow-create
-                              @create="handleCreateSlackSeparator"
-                              @change="autoSaveSettings"
-                            >
-                              <el-option
-                                v-for="sep in filteredSlackSeparators"
-                                :key="sep.value"
-                                :label="sep.label"
-                                :value="sep.value"
-                              />
-                            </el-select>
-                          </el-form-item>
-
-                          <!-- 记忆轮数 -->
-                          <el-form-item :label="t('conversationRounds')" class="form-item-align">
-                            <el-slider
-                              v-model="slackBotConfig.memory_limit"
-                              :min="0"
-                              :max="1000"
-                              :step="2"
-                              show-input
-                              @input="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <!-- 推理显示 -->
-                          <el-form-item :label="t('reasoningVisibleEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="slackBotConfig.reasoning_visible" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <!-- 快速重启 -->
-                          <el-form-item :label="t('quickRestartEnable')" class="form-item-align" label-position="left">
-                            <el-switch v-model="slackBotConfig.quick_restart" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <!-- 启用 TTS -->
-                          <el-form-item :label="t('enableTTS')" class="form-item-align" label-position="left">
-                            <el-switch v-model="slackBotConfig.enable_tts" @change="autoSaveSettings"></el-switch>
-                          </el-form-item>
-
-                          <el-form-item :label="t('wakeWord')">
-                            <el-input
-                              v-model="slackBotConfig.wakeWord"
-                              :placeholder="t('botWakeWordPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item :label="t('behaviorTargetChatIds')">
-                            <template #label>
-                              <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>{{ t('behaviorTargetChatIds') }}</span>
-                              </div>
-                            </template>
-                            <el-select
-                              v-model="slackBotConfig.behaviorTargetChatIds"
-                              multiple
-                              filterable
-                              allow-create
-                              default-first-option
-                              :placeholder="t('enterChatIdPlaceholder')"
-                              class="full-width-input"
-                              @change="autoSaveSettings();"
-                            >
-                              <!-- 这里通常为空，用户通过输入并回车来创建新的 ID -->
-                            </el-select>
-                          </el-form-item>
-
-                          <!-- Bot Token (Slack 需要两个) -->
-                          <el-form-item label="Bot User OAuth Token (xoxb-...)" required>
-                            <el-input
-                              v-model="slackBotConfig.bot_token"
-                              show-password
-                              placeholder="xoxb-xxxxxxxxxxxx"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-
-                          <el-form-item label="App-Level Token (xapp-...)" required>
-                            <el-input
-                              v-model="slackBotConfig.app_token"
-                              show-password
-                              placeholder="xapp-1-xxxxxxxxxxxx"
-                              class="full-width-input"
-                              @change="autoSaveSettings"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                    </el-form>
+                    </el-tabs>
                   </div>
-
                   <!-- 翻译机器人 -->
                   <div v-show="subMenu === 'translate_bot'" class="page translate-container">
                     <el-form class="settings-form" label-position="top">

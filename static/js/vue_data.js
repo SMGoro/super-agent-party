@@ -1459,16 +1459,12 @@ let vue_data = {
     deployTiles: [
       { id: 'table_pet', title: 'tablePet', icon: "fa-solid fa-user-ninja"},
       { id: 'live_stream', title: 'live_stream_bot', icon: "fa-solid fa-video"},
-      { id: 'qq_bot', title: 'qqBot', icon: 'fa-brands fa-qq' },
-      { id: 'feishu_bot', title: 'feishuBot', icon: 'fa-solid fa-paper-plane' },
-      { id: 'dingtalk_bot', title: 'dingtalkBot', icon: 'fa-solid fa-bolt' },
-      { id: 'discord_bot', title: 'discordBot', icon: 'fa-brands fa-discord' },
-      { id: 'telegram_bot', title: 'telegramBot', icon: 'fa-brands fa-telegram' },
-      { id: 'slack_bot', title: 'slackBot', icon: 'fa-brands fa-slack' },
+      { id: 'im_bot', title: 'imBot', icon: 'fa-solid fa-comment' },
       { id: 'read_bot', title: 'readBot', icon: "fa-solid fa-book-open-reader"}, 
       { id: 'translate_bot', title: 'translateBot', icon: "fa-solid fa-language"}, 
       { id: 'bot_config', title: 'bot_config', icon: 'fa-solid fa-robot' }
     ],
+    activeImBotTab: 'qq',
     sourceText: '',
     translatedText: '',
     isTranslating: false,
