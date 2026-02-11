@@ -544,7 +544,8 @@ async function waitForBackend() {
   let retries = 0;
 
   console.log(`⏳ 正在等待 http://127.0.0.1:${PORT}/health 响应...`);
-
+  console.log(`⏳ 更新后的首次启动时会花费更久的时间，请耐心等待...`);
+  console.log(`⏳ The first launch after an update may take longer, please be patient...`);
   while (retries < MAX_RETRIES) {
     try {
       const response = await fetch(`http://127.0.0.1:${PORT}/health`);
