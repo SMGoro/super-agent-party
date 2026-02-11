@@ -523,13 +523,13 @@ async function startBackend() {
         }
       });
 
-      // 30秒超时保护
+      // 5分钟超时保护
       setTimeout(() => {
         if (!isHandshaked) {
           if (backendProcess) backendProcess.kill();
           reject(new Error('后端启动超时：未能从 Python 日志捕获 REAL_PORT_FOUND 信号'));
         }
-      }, 30000);
+      }, 360000*5);
 
     } catch (err) {
       reject(err);
