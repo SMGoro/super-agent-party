@@ -467,7 +467,6 @@ let vue_data = {
       { value: 'global', label: 'global' },
     ],
     imgHostOptions:[
-      { value: 'smms', label: 'smms' },
       { value: 'easyImage2', label: 'easyImage2' }
     ],
     showRestartDialog: false,

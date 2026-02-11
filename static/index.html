@@ -10436,17 +10436,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   <span>
                                     {{ t('imgHostType') }}
                                     <el-link
-                                      v-if="BotConfig.imgHost === 'smms'"
-                                      type="primary"
-                                      :underline="false"
-                                      href="https://sm.ms/" 
-                                      target="_blank"
-                                    >
-                                      <el-icon class="mr-1">
-                                        <i class="fa-solid fa-key"></i>
-                                      </el-icon>{{ t('gotoAPI') }}
-                                    </el-link>
-                                    <el-link
                                       v-if="BotConfig.imgHost === 'easyImage2'"
                                       type="primary"
                                       :underline="false"
@@ -10470,16 +10459,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 >
                                 </el-option>
                               </el-select>
-                            </el-form-item>
-                            <!--sm.ms图床-->
-                            <el-form-item v-if="BotConfig.imgHost === 'smms'" :label="t('apiKey')">
-                              <el-input
-                                v-model="BotConfig.SMMS_api_key"
-                                :placeholder="t('apiKeyPlaceholder')"
-                                class="full-width-input"
-                                show-password
-                                @change="autoSaveSettings"
-                              />
                             </el-form-item>
                             <!--easyimage2图床-->
                             <el-form-item v-if="BotConfig.imgHost === 'easyImage2'" :label="t('baseURL')">
