@@ -9002,9 +9002,6 @@ app.include_router(uv_router)
 from py.node_api import router as node_router 
 app.include_router(node_router)
 
-from py.git_api import router as git_router
-app.include_router(git_router)
-
 from py.extensions import router as extensions_router
 
 app.include_router(extensions_router)

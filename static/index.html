@@ -7210,7 +7210,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
                   <!-- Node.js 卡片：已安装 & 未安装 双状态 -->
-                  <el-card shadow="hover" class="sherpa-card">
+                  <el-card shadow="hover" class="sherpa-card" v-if="chromeMCPSettings.type=='external'">
                     <!-- 头部：标题 + 状态标签 -->
                     <div class="card-header d-flex justify-content-between align-items-center">
                       <span><strong>Node.js</strong></span>
@@ -7220,7 +7220,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-if="!nodeInstalled"
                           type="primary"
                           :loading="nodeInstalling"
-                          @click="installNode"
+                          @click="openRepository('https://nodejs.org/en/download')"
                         >
                           <i class="fa-solid fa-download"></i>
                           {{ t('installNode') }}
@@ -7231,15 +7231,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-tag>
                       </div>
                     </div>
-
-                    <!-- 进度条 -->
-                    <el-progress
-                      v-if="nodeInstalling && nodeProgress > 0"
-                      :percentage="nodeProgress"
-                      :status="nodeProgress === 100 ? 'success' : null"
-                      style="margin-top: 16px;"
-                      :stroke-width="10"
-                    />
                   </el-card>
                 </el-form> 
                 <!-- Web端提示 -->
@@ -7353,7 +7344,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-if="!uvInstalled"
                           type="primary"
                           :loading="uvInstalling"
-                          @click="installUv"
+                          @click="openRepository('https://docs.astral.sh/uv/getting-started/installation/')"
                         >
                           <i class="fa-solid fa-download"></i>
                           {{ t('installUv') }}
@@ -7364,15 +7355,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-tag>
                       </div>
                     </div>
-
-                    <!-- 进度条 -->
-                    <el-progress
-                      v-if="uvInstalling && uvProgress > 0"
-                      :percentage="uvProgress"
-                      :status="uvProgress === 100 ? 'success' : null"
-                      style="margin-top: 16px;"
-                      :stroke-width="10"
-                    />
                   </el-card>
                 </el-form> 
               </div>
@@ -13225,7 +13207,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         v-if="!nodeInstalled"
                         type="primary"
                         :loading="nodeInstalling"
-                        @click="installNode"
+                        @click="openRepository('https://nodejs.org/en/download')"
                       >
                         <i class="fa-solid fa-download"></i>
                         {{ t('installNode') }}
@@ -13236,15 +13218,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-tag>
                     </div>
                   </div>
-
-                  <!-- 进度条 -->
-                  <el-progress
-                    v-if="nodeInstalling && nodeProgress > 0"
-                    :percentage="nodeProgress"
-                    :status="nodeProgress === 100 ? 'success' : null"
-                    style="margin-top: 16px;"
-                    :stroke-width="10"
-                  />
                 </el-card>
                 <!-- uv 卡片：已安装 & 未安装 双状态 -->
                 <el-card shadow="hover" class="sherpa-card">
@@ -13257,7 +13230,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         v-if="!uvInstalled"
                         type="primary"
                         :loading="uvInstalling"
-                        @click="installUv"
+                        @click="openRepository('https://docs.astral.sh/uv/getting-started/installation/')"
                       >
                         <i class="fa-solid fa-download"></i>
                         {{ t('installUv') }}
@@ -13268,58 +13241,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-tag>
                     </div>
                   </div>
-
-                  <!-- 进度条 -->
-                  <el-progress
-                    v-if="uvInstalling && uvProgress > 0"
-                    :percentage="uvProgress"
-                    :status="uvProgress === 100 ? 'success' : null"
-                    style="margin-top: 16px;"
-                    :stroke-width="10"
-                  />
-                </el-card>
-                <!-- Git 卡片：已安装 & 未安装 双状态 -->
-                <el-card
-                  shadow="hover"
-                  class="sherpa-card"
-                >
-                  <!-- 头部：标题 + 状态标签 -->
-                  <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><strong>Git</strong></span>
-
-                    <div class="d-flex gap-2">
-                      <!-- 未安装 -->
-                      <el-button
-                        v-if="!gitInstalled"
-                        type="primary"
-                        :loading="gitInstalling"
-                        @click="installGit"
-                      >
-                        <i class="fa-solid fa-download"></i>
-                        {{ t('installGit') }}
-                      </el-button>
-
-                      <!-- 已安装 -->
-                      <el-tag
-                        v-else
-                        type="success"
-                        effect="dark"
-                        size="large"
-                      >
-                      <i class="fa-solid fa-circle-check"></i>
-                        {{ t('installed') }}
-                      </el-tag>
-                    </div>
-                  </div>
-
-                  <!-- 进度条：只在安装过程中出现 -->
-                  <el-progress
-                    v-if="gitInstalling && gitProgress > 0"
-                    :percentage="gitProgress"
-                    :status="gitProgress === 100 ? 'success' : null"
-                    style="margin-top: 16px;"
-                    :stroke-width="10"
-                  />
                 </el-card>
               </div>
               <!-- 智能体页面 -->
