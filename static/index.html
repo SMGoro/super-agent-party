@@ -4907,6 +4907,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-select
                           v-model="reasonerSettings.stop_words"
                           multiple
+                          :reserve-keyword="false"
                           filterable
                           allow-create
                           :placeholder="t('stopWordsPlaceholder')"
@@ -5617,6 +5618,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-select
                           v-model="ttsSettings.separators"
                           multiple
+                          :reserve-keyword="false"
                           filterable
                           allow-create
                           @keyup.enter.native="handleEnter"
@@ -5650,6 +5652,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <el-select
                         v-model="ttsSettings.bufferWordList"
                         multiple
+                        :reserve-keyword="false"
                         filterable
                         allow-create
                         :placeholder="t('bufferWordPlaceholder')"
@@ -10429,6 +10432,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   <el-select
                                     v-model="qqBotConfig.separators"
                                     multiple
+                                    :reserve-keyword="false"
                                     filterable
                                     allow-create
                                     @keyup.enter.native="handleEnter"
@@ -10605,6 +10609,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="feishuBotConfig.separators"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   @create="handleCreateFeishuSeparator"
@@ -10673,6 +10678,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="feishuBotConfig.behaviorTargetChatIds"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   default-first-option
@@ -10811,6 +10817,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="dingtalkBotConfig.separators"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   @create="handleCreateDingtalkSeparator"
@@ -10863,6 +10870,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="dingtalkBotConfig.behaviorTargetChatIds"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   default-first-option
@@ -11021,6 +11029,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="telegramBotConfig.separators"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   @create="handleCreateTelegramSeparator"
@@ -11089,6 +11098,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="telegramBotConfig.behaviorTargetChatIds"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   default-first-option
@@ -11225,6 +11235,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="discordBotConfig.separators"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   @create="handleCreateDiscordSeparator"
@@ -11284,6 +11295,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="discordBotConfig.behaviorTargetChatIds"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   default-first-option
@@ -11416,6 +11428,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="slackBotConfig.separators"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   @create="handleCreateSlackSeparator"
@@ -11475,6 +11488,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <el-select
                                   v-model="slackBotConfig.behaviorTargetChatIds"
                                   multiple
+                                  :reserve-keyword="false"
                                   filterable
                                   allow-create
                                   default-first-option
