@@ -6,17 +6,9 @@ from urllib.parse import urlparse
 import aiohttp
 from io import BytesIO
 import asyncio
-from PyPDF2 import PdfReader
-from docx import Document
-from openpyxl import load_workbook
-from striprtf.striprtf import rtf_to_text
-from odf import text
-from odf.opendocument import load  # ODF 处理移动到这里避免重复导入
-from pptx import Presentation
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 from py.get_setting  import get_host,get_port,BLOCKLIST
 import zipfile
-import xml.etree.ElementTree as ET
 # 平台检测
 IS_WINDOWS = sys.platform == 'win32'
 IS_MAC = sys.platform == 'darwin'
@@ -278,6 +270,7 @@ import posixpath  # 新增导入
 def _process_epub(content):
     """同步处理EPUB内容，返回JSON格式的章节结构"""
     try:
+        import xml.etree.ElementTree as ET
         chapters = []
         processed_files = set()  # 用于记录已处理的文件路径
 
@@ -354,6 +347,7 @@ def _process_epub(content):
 def _parse_epub_chapter(html_data):
     """解析单个章节内容，返回(标题, 正文)"""
     try:
+        import xml.etree.ElementTree as ET
         root = ET.fromstring(html_data)
         ns = {'xhtml': 'http://www.w3.org/1999/xhtml'}
         
@@ -432,6 +426,8 @@ def _process_odt(content):
     from odf.teletype import extractText
     
     try:
+        from odf import text
+        from odf.opendocument import load
         doc = load(BytesIO(content))
         text_content = []
         for para in doc.getElementsByType(text.P):
@@ -455,6 +451,7 @@ def _process_pdf(content):
     """同步处理PDF内容"""
     text = []
     try:
+        from PyPDF2 import PdfReader
         with BytesIO(content) as pdf_file:
             reader = PdfReader(pdf_file)
             for page in reader.pages:
@@ -471,6 +468,7 @@ async def handle_docx(content):
 
 def _process_docx(content):
     """同步处理DOCX内容（增加表格处理）"""
+    from docx import Document
     doc = Document(BytesIO(content))
     text = []
     for para in doc.paragraphs:
@@ -491,6 +489,7 @@ def _process_excel(content):
     
     # 1. 优先尝试使用 openpyxl (针对 .xlsx, .xlsm)
     try:
+        from openpyxl import load_workbook
         # data_only=True 读取公式计算后的值而不是公式本身
         wb = load_workbook(filename=BytesIO(content), read_only=True, data_only=True)
         
@@ -559,6 +558,7 @@ async def handle_rtf(content):
 def _process_rtf(content):
     """同步处理RTF内容"""
     try:
+        from striprtf.striprtf import rtf_to_text
         return rtf_to_text(content.decode('utf-8', errors='replace'))
     except Exception as e:
         raise RuntimeError(f"RTF解析失败: {str(e)}")
@@ -571,6 +571,7 @@ async def handle_pptx(content):
 def _process_pptx(content):
     """同步处理PPTX内容"""
     try:
+        from pptx import Presentation
         prs = Presentation(BytesIO(content))
         text = []
         for slide in prs.slides:

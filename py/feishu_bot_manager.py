@@ -3,24 +3,17 @@ import asyncio
 import json
 import random
 import threading
-import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 import weakref
 import aiohttp
 import io
 import base64
 import logging
 import re
-import time
 from pydantic import BaseModel, Field
-import requests
-from PIL import Image
 from openai import AsyncOpenAI
 
-import lark_oapi as lark
-from lark_oapi.api.im.v1 import *
-from lark_oapi.api.im.v1 import GetMessageResourceRequest as ResReq
-from lark_oapi.api.im.v1 import GetMessageResourceResponse as ResResp
+
 
 from py.get_setting import convert_to_opus_simple, get_port, load_settings
 
@@ -152,7 +145,7 @@ class FeishuBotManager:
                 logging.error(f"飞书线程同步行为配置失败: {e}")
                 import traceback
                 print(traceback.format_exc())
-            
+            import lark_oapi as lark
             # --- 3. 初始化飞书 SDK ---
             lark_client = lark.Client.builder()\
                 .app_id(config.appid)\
@@ -450,7 +443,7 @@ class FeishuClient:
         # 告知引擎：飞书平台的执行逻辑由我负责
         global_behavior_engine.register_handler("feishu", self.execute_behavior_event)
         
-    def sync_handle_message(self, data: P2ImMessageReceiveV1) -> None:
+    def sync_handle_message(self, data) -> None:
         """同步消息处理函数，用于注册到飞书事件分发器"""
         # 检查是否已请求停止
         if self._shutdown_requested:
@@ -487,7 +480,7 @@ class FeishuClient:
             if not self._shutdown_requested:
                 print(f"处理消息时发生异常: {e}")
 
-    async def handle_message(self, data: P2ImMessageReceiveV1) -> None:
+    async def handle_message(self, data) -> None:
         """处理飞书消息的主函数"""
         # 1. 基础检查
         if self._shutdown_requested: return
@@ -562,6 +555,7 @@ class FeishuClient:
             try:
                 image_key = json.loads(msg.content).get("image_key", "")
                 if image_key:
+                    from lark_oapi.api.im.v1 import GetMessageResourceRequest as ResReq
                     # 下载图片逻辑
                     res_req = ResReq.builder().message_id(msg.message_id).file_key(image_key).type("image").build()
                     res_resp = self.lark_client.im.v1.message_resource.get(res_req)
@@ -800,7 +794,7 @@ class FeishuClient:
                 file_name = "reply.wav"
                 msg_type = "file"
                 logging.info("发送模式: 普通文件 (Wav)")
-
+            from lark_oapi.api.im.v1 import CreateFileRequest, CreateFileRequestBody
             # 1. 上传文件
             # 注意：飞书上传接口区分 file_type
             upload_req = CreateFileRequest.builder() \
@@ -825,7 +819,7 @@ class FeishuClient:
             content_str = json.dumps({"file_key": file_key})
             
             chat_type = original_msg.chat_type
-            
+            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody, ReplyMessageRequest, ReplyMessageRequestBody
             # 构建请求对象
             if chat_type == "p2p":
                 req_builder = CreateMessageRequest.builder() \
@@ -1001,7 +995,7 @@ class FeishuClient:
                     opus_file = io.BytesIO(opus_data)
                     
                     logging.info("开始上传opus语音文件到飞书...")
-                    
+                    from lark_oapi.api.im.v1 import CreateFileRequest, CreateFileRequestBody
                     try:
                         upload_req = CreateFileRequest.builder() \
                             .request_body(
@@ -1040,7 +1034,7 @@ class FeishuClient:
                     # 发送语音消息
                     chat_type = original_msg.chat_type
                     audio_content = json.dumps({"file_key": file_key})
-                    
+                    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody, ReplyMessageRequest, ReplyMessageRequestBody
                     try:
                         if chat_type == "p2p":
                             req = CreateMessageRequest.builder() \
@@ -1221,7 +1215,7 @@ class FeishuClient:
             
             chat_type = original_msg.chat_type
             msg_type = "post"  # 关键：改为 post 类型
-            
+            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody, ReplyMessageRequest, ReplyMessageRequestBody
             if chat_type == "p2p":  # 私聊
                 req = CreateMessageRequest.builder()\
                     .receive_id_type("chat_id")\
@@ -1272,7 +1266,7 @@ class FeishuClient:
             
             # 转换为文件对象
             img_file = io.BytesIO(image_data)
-            
+            from lark_oapi.api.im.v1 import CreateImageRequest, CreateImageRequestBody
             # 上传图片
             upload_req = CreateImageRequest.builder()\
                 .request_body(
@@ -1292,7 +1286,7 @@ class FeishuClient:
             
             # 发送图片消息
             chat_type = original_msg.chat_type
-            
+            from lark_oapi.api.im.v1 import  CreateMessageRequest, CreateMessageRequestBody, ReplyMessageRequest, ReplyMessageRequestBody
             if chat_type == "p2p":  # 私聊
                 req = CreateMessageRequest.builder()\
                     .receive_id_type("chat_id")\

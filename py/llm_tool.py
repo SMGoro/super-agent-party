@@ -1,14 +1,9 @@
 import base64
 import json
-import socket
-import ipaddress
 import aiohttp
-import os
-from urllib.parse import urlparse, urlunparse, urljoin
-from urllib.robotparser import RobotFileParser
+from urllib.parse import urlparse
 from py.get_setting import load_settings, get_host, get_port # 确保导入了这两个函数
 from openai import AsyncOpenAI
-from ollama import AsyncClient as OllamaClient
 
 from py.load_files import check_robots_txt, is_private_ip, sanitize_url
 
@@ -132,6 +127,7 @@ async def custom_llm_tool(tool_name, query, image_url=None):
     for llmTool in llmTools:
         if llmTool['enabled'] and llmTool['name'] == tool_name:
             if llmTool['type'] == 'ollama':
+                from ollama import AsyncClient as OllamaClient
                 client = OllamaClient(host=llmTool['base_url'])
                 try:
                     content = query

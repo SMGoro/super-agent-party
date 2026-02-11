@@ -1,228 +1,180 @@
 import asyncio
-import os
 import json
 import uuid
+import shutil
 from pathlib import Path
+from typing import Dict, Any
+
 import httpx
 import aiofiles
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-# 假设您的应用中定义了一个默认的模型存储目录
+# 确保 py.get_setting 里面没有 heavy import
 from py.get_setting import DEFAULT_EBD_DIR 
 
 router = APIRouter(prefix="/minilm-model")
 
+# --- 全局内存进度条 (Key: task_id, Value: dict) ---
+download_progress: Dict[str, Dict[str, Any]] = {}
+
 # --- 模型配置 ---
-# 模型的本地目录名称
 MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2" 
-# MiniLM 运行时所需的关键文件列表
 REQUIRED_FILES = ["model_O4.onnx", "tokenizer.json"] 
 
-# 假设的下载源
 MODELS = {
     "modelscope": {
-        # 使用更具描述性的键名 model_url 和 tokenizer_url
         "model_url": "https://modelscope.cn/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/master/onnx/model_O4.onnx",
         "tokenizer_url": "https://modelscope.cn/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/master/tokenizer.json",
-        # 必须定义 files_to_download 列表供下载接口使用
         "files_to_download": [
-            {"filename": "model_O4.onnx", "url_key": "model_url", "progress_key": "model"},
-            {"filename": "tokenizer.json", "url_key": "tokenizer_url", "progress_key": "tokenizer"},
+            {"filename": "model_O4.onnx", "url_key": "model_url"},
+            {"filename": "tokenizer.json", "url_key": "tokenizer_url"},
         ]
     },
     "huggingface": {
         "model_url": "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/onnx/model_O4.onnx?download=true",
         "tokenizer_url": "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json?download=true",
         "files_to_download": [
-            {"filename": "model_O4.onnx", "url_key": "model_url", "progress_key": "model"},
-            {"filename": "tokenizer.json", "url_key": "tokenizer_url", "progress_key": "tokenizer"},
+            {"filename": "model_O4.onnx", "url_key": "model_url"},
+            {"filename": "tokenizer.json", "url_key": "tokenizer_url"},
         ]
     }
 }
 
 # ---------- 工具函数 ----------
 def get_model_dir() -> Path:
-    """获取 MiniLM 模型在本地的完整路径"""
     return Path(DEFAULT_EBD_DIR) / MODEL_NAME
 
 def model_exists() -> bool:
-    """检查所有必需的模型文件是否存在"""
     d = get_model_dir()
-    # 检查所有 REQUIRED_FILES 是否都存在于目录下
     return all((d / f).is_file() for f in REQUIRED_FILES)
 
-async def download_file(url: str, dest: Path, progress_id: str):
-    """异步下载单个文件并记录进度"""
-    tmp = dest.with_suffix(".downloading")
-    progress_file_path = Path(DEFAULT_EBD_DIR) / f"{progress_id}.json"
+async def download_file_worker(url: str, dest: Path, task_id: str):
+    """
+    工作线程：只负责下载和更新内存字典
+    """
+    # 初始化进度
+    download_progress[task_id] = {
+        "filename": dest.name,
+        "done": 0,
+        "total": 0,
+        "complete": False,
+        "failed": False,
+        "error": None
+    }
     
-    # 确保进度文件开始时存在，避免下载监听器抛出 FileNotFoundError
-    progress_file_path.write_text(json.dumps({"done": 0, "total": 0})) 
-
+    tmp = dest.with_suffix(".downloading")
+    
     try:
-        async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             async with client.stream("GET", url) as resp:
-                resp.raise_for_status() # 检查 HTTP 状态码
+                if resp.status_code != 200:
+                    raise Exception(f"HTTP Error: {resp.status_code}")
+                
                 total = int(resp.headers.get("content-length", 0))
+                download_progress[task_id]["total"] = total
+                
                 done = 0
                 async with aiofiles.open(tmp, "wb") as f:
                     async for chunk in resp.aiter_bytes(1024 * 64):
                         await f.write(chunk)
                         done += len(chunk)
-                        # 实时更新进度文件
-                        progress_file_path.write_text(
-                            json.dumps({"done": done, "total": total, "filename": dest.name})
-                        )
-        tmp.rename(dest)
-        # 下载完成后，将 total 设置为 done，确保监听器能识别完成
-        progress_file_path.write_text(
-            json.dumps({"done": done, "total": done, "filename": dest.name, "complete": True})
-        )
+                        # 更新内存，不写磁盘
+                        download_progress[task_id]["done"] = done
+        
+        # 下载完成
+        await asyncio.to_thread(tmp.rename, dest)
+        download_progress[task_id]["complete"] = True
+        
     except Exception as e:
-        # 如果下载失败，记录错误信息
-        progress_file_path.write_text(
-            json.dumps({"error": str(e), "filename": dest.name, "failed": True})
-        )
-    finally:
-        # 在下载任务结束后，不管成功与否，保留进度文件直到移除
-        pass 
+        download_progress[task_id]["failed"] = True
+        download_progress[task_id]["error"] = str(e)
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except:
+                pass
 
 # ---------- 接口定义 ----------
 
 @router.get("/status")
 def status():
-    """检查 MiniLM 模型文件是否存在"""
-    return {"exists": model_exists(), "model": MODEL_NAME, "required_files": REQUIRED_FILES}
+    return {"exists": model_exists(), "model": MODEL_NAME}
 
 @router.delete("/remove")
 def remove():
-    """移除本地的 MiniLM 模型目录"""
-    import shutil
     d = get_model_dir()
     if d.exists():
         shutil.rmtree(d)
-    # 清理所有相关的进度文件
-    for f in Path(DEFAULT_EBD_DIR).glob(f"{MODEL_NAME}_*.json"):
-        f.unlink(missing_ok=True)
     return {"ok": True}
 
 @router.get("/download/{source}")
 async def download(source: str):
-    """从指定源异步下载 MiniLM 模型和分词器文件，并流式传输进度"""
     if source not in MODELS:
-        # 更新错误信息，包含新的 sources
-        allowed_sources = list(MODELS.keys())
-        raise HTTPException(status_code=400, detail=f"Bad source: only {', '.join(allowed_sources)} is supported.")
+        raise HTTPException(status_code=400, detail="Invalid source")
     if model_exists():
-        raise HTTPException(status_code=400, detail="Model already exists.")
+        raise HTTPException(status_code=400, detail="Model already exists")
 
     model_subdir = get_model_dir()
     model_subdir.mkdir(parents=True, exist_ok=True)
     
-    # 使用一个总的 ID 来追踪所有的下载任务
-    master_progress_id = f"{MODEL_NAME}_{uuid.uuid4().hex}"
+    # 准备任务
+    source_config = MODELS[source]
+    files_to_sync = [] # 存储 task_id
     
-    # 创建所有下载任务
-    tasks = []
-    file_map = {} # 用于在生成器中查找每个文件进度的映射
-    
-    for item in MODELS[source]["files_to_download"]:
+    # 启动后台任务
+    for item in source_config["files_to_download"]:
+        url = source_config.get(item["url_key"])
+        if not url: continue
+            
         filename = item["filename"]
-        # 使用 item["url_key"] 从 MODELS[source] 中获取对应的 URL
-        url = MODELS[source][item["url_key"]]
-        progress_key = item["progress_key"]
-        
-        # 每个下载任务有一个唯一的 ID
-        task_id = f"{master_progress_id}_{progress_key}" 
+        unique_id = str(uuid.uuid4())
         dest_path = model_subdir / filename
         
-        tasks.append(
-            asyncio.create_task(
-                download_file(url, dest_path, task_id)
-            )
-        )
-        file_map[progress_key] = {"id": task_id, "filename": filename, "done": 0, "total": 0, "complete": False, "failed": False}
+        files_to_sync.append(unique_id)
+        asyncio.create_task(download_file_worker(url, dest_path, unique_id))
 
-
+    # SSE 生成器
     async def event_generator():
-        # 监听所有文件的进度
-        num_files = len(file_map)
-        completed_files = 0
-        
-        # 清理下载进度文件（在任务完成后）
-        def cleanup_progress_files():
-            for key in file_map:
-                try:
-                    # 修复：使用 DEFAULT_EBD_DIR
-                    Path(DEFAULT_EBD_DIR / f"{file_map[key]['id']}.json").unlink(missing_ok=True)
-                except Exception as e:
-                    print(f"Cleanup error for {file_map[key]['filename']}: {e}")
-
         try:
-            while completed_files < num_files:
-                await asyncio.sleep(0.5)
-                current_progress = {"status": "downloading", "files": []}
-                completed_files = 0
-                is_failed = False
+            while True:
+                all_complete = True
+                any_failed = False
+                files_status = []
                 
-                # 遍历所有文件，读取各自的进度文件
-                for key in file_map:
-                    file_info = file_map[key]
-                    progress_file_path = Path(DEFAULT_EBD_DIR) / f"{file_info['id']}.json"
-                    
-                    try:
-                        data = json.loads(progress_file_path.read_text())
-                        
-                        file_info.update({
-                            "done": data.get("done", 0),
-                            "total": data.get("total", 0),
-                            "complete": data.get("complete", False),
-                            "failed": data.get("failed", False),
-                            "error": data.get("error", None)
-                        })
-                        
-                        if file_info["complete"]:
-                            completed_files += 1
-                        if file_info["failed"]:
-                            is_failed = True
-                        
-                    except FileNotFoundError:
-                        # 任务可能刚开始，进度文件尚未创建
-                        pass
-                    except json.JSONDecodeError:
-                        # 进度文件可能正在写入中
-                        pass
-
-                    current_progress["files"].append({
-                        "filename": file_info["filename"],
-                        "done": file_info["done"],
-                        "total": file_info["total"],
-                        "complete": file_info["complete"],
-                        "failed": file_info["failed"],
-                        "error": file_info["error"]
+                for task_id in files_to_sync:
+                    info = download_progress.get(task_id, {
+                        "filename": "initializing...", "done": 0, "total": 0, 
+                        "complete": False, "failed": False
                     })
-                
-                # 传输当前进度
-                yield f"data: {json.dumps(current_progress)}\n\n"
-
-                if is_failed:
-                    current_progress["status"] = "failed"
-                    yield f"data: {json.dumps(current_progress)}\n\n"
-                    break # 退出循环
-
-                if completed_files == num_files:
-                    current_progress["status"] = "complete"
-                    yield f"data: {json.dumps(current_progress)}\n\n"
-                    break # 退出循环
                     
-            # 最终清理
-            cleanup_progress_files()
+                    files_status.append(info)
+                    
+                    if not info.get("complete", False):
+                        all_complete = False
+                    if info.get("failed", False):
+                        any_failed = True
+                
+                payload = {
+                    "status": "failed" if any_failed else ("complete" if all_complete else "downloading"),
+                    "files": files_status
+                }
+                
+                yield f"data: {json.dumps(payload)}\n\n"
+                
+                if all_complete or any_failed:
+                    break
+                    
+                await asyncio.sleep(0.2)
+            
             yield "data: close\n\n"
 
         except Exception as e:
-            print(f"Streaming error: {e}")
-            cleanup_progress_files()
-
+            yield f"data: {json.dumps({'status': 'error', 'msg': str(e)})}\n\n"
+        
+        finally:
+            # 清理内存
+            for task_id in files_to_sync:
+                download_progress.pop(task_id, None)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
