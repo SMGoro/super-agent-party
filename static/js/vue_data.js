@@ -1238,6 +1238,7 @@ let vue_data = {
         { id: 'voice', title: 'CharacterVoice', icon: 'fa-solid fa-volume-high' },
         { id: 'appearance', title: 'CharacterAppearance', icon: 'fa-solid fa-person' },
         { id: 'behavior', title: 'CharacterBehavior', icon: 'fa-solid fa-person-running' },
+        { id: 'vision', title: 'CharacterVision', icon: 'fa-solid fa-eye'},
     ],
     modelTiles: [
       { id: 'service', title: 'modelService', icon: 'fa-solid fa-cloud' },
