@@ -16,6 +16,9 @@ args, _ = parser.parse_known_args()
 HOST = args.host
 PREFERED_PORT = args.port
 
+# 默认关闭 mem0 遥测，避免 posthog 网络重试日志；可通过外部环境变量覆盖
+os.environ.setdefault("MEM0_TELEMETRY", "False")
+
 def is_addr_in_use_error(e):
     """跨平台判断是否为地址被占用错误"""
     if hasattr(e, 'errno'):
