@@ -857,3 +857,191 @@ firecrawl_tool = {
         },
     },
 }
+
+from bs4 import BeautifulSoup
+import re
+
+async def simple_fetch_async(url):
+    """
+    改进的网页抓取工具，返回结构化的清洗后内容
+    支持抓取内网和外网页面
+    """
+    def sync_fetch():
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                return response.text
+            else:
+                return None, f"获取{url}网页信息失败，状态码：{response.status_code}"
+        except requests.RequestException as e:
+            return None, f"获取{url}网页信息失败，错误信息：{str(e)}"
+    
+    def clean_and_extract(html_content):
+        """提取并清洗HTML内容，返回结构化数据"""
+        if not html_content:
+            return None
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 移除不需要的标签
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe', 'noscript']):
+            tag.decompose()
+        
+        structured_content = {
+            'title': '',
+            'sections': []
+        }
+        
+        # 提取页面标题
+        title_tag = soup.find('title')
+        if title_tag:
+            structured_content['title'] = title_tag.get_text().strip()
+        
+        # 提取主要内容区域（优先查找main, article, 或id/class包含content的div）
+        main_content = soup.find('main') or soup.find('article') or \
+                      soup.find('div', {'id': re.compile(r'content|main', re.I)}) or \
+                      soup.find('div', {'class': re.compile(r'content|main|article', re.I)}) or \
+                      soup.body or soup
+        
+        # 提取所有标题和段落
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p']):
+            text = element.get_text(separator=' ', strip=True)
+            
+            # 清洗文本：移除多余空白
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            # 过滤掉过短的内容（可能是噪音）
+            if len(text) < 3:
+                continue
+            
+            if element.name.startswith('h'):
+                # 标题
+                level = int(element.name[1])
+                structured_content['sections'].append({
+                    'type': 'heading',
+                    'level': level,
+                    'content': text
+                })
+            else:
+                # 段落
+                structured_content['sections'].append({
+                    'type': 'paragraph',
+                    'content': text
+                })
+        
+        return structured_content
+    
+    try:
+        # 检查 robots.txt 合规性
+        if not await check_robots_txt(url):
+            return {
+                'error': 'PermissionError',
+                'message': '合规拒绝: 目标网站禁止抓取'
+            }
+        
+        loop = asyncio.get_event_loop()
+        html_content = await loop.run_in_executor(None, sync_fetch)
+        
+        if isinstance(html_content, tuple):
+            # 返回的是错误信息
+            return {
+                'error': 'FetchError',
+                'message': html_content[1]
+            }
+        
+        # 清洗并提取结构化内容
+        structured_data = clean_and_extract(html_content)
+        
+        if not structured_data or not structured_data['sections']:
+            return {
+                'error': 'ParseError',
+                'message': '无法从页面中提取有效内容'
+            }
+        
+        return structured_data
+        
+    except Exception as e:
+        return {
+            'error': 'UnexpectedError',
+            'message': str(e)
+        }
+
+
+# OpenAI function 定义
+simple_fetch_tool = {
+    "type": "function",
+    "function": {
+        "name": "simple_fetch_async",
+        "description": "抓取指定URL的网页内容。支持内网和外网地址。会自动检查robots.txt合规性。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "需要抓取的URL地址。",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+}
+
+async def markdown_new_async(original_url):
+    """
+    通过 markdown.new 服务将网页转换为 Markdown 格式
+    """
+    
+    def sync_crawler():
+        # 拼接 markdown.new 的服务地址
+        detail_url = "https://markdown.new/"
+        url = f"{detail_url}{original_url}"
+        
+        try:
+            # 添加一个基础的 User-Agent 防屏蔽
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            # 发起请求
+            response = requests.get(url, headers=headers, timeout=60)
+            
+            if response.status_code == 200:
+                # markdown.new 默认直接返回纯文本的 markdown 内容
+                return response.text
+            else:
+                return f"获取{original_url}网页信息失败，状态码：{response.status_code}"
+                
+        except requests.RequestException as e:
+            return f"获取{original_url}网页信息失败，错误信息：{str(e)}"
+
+    try:
+        # 检查 robots.txt 合规性（保持与你原有逻辑一致）
+        if not await check_robots_txt(original_url):
+            raise PermissionError(f"合规拒绝: 目标网站禁止抓取")
+            
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, sync_crawler)
+    except Exception as e:
+        print(f"Async execution error in markdown_new: {e}")
+        return str(e)
+    
+markdown_new_tool = {
+    "type": "function",
+    "function": {
+        "name": "markdown_new_async",
+        "description": "通过 markdown.new 服务获取指定URL的网页内容，并自动转换为结构化的 Markdown 文本。此工具非常轻量高效，适用于外网链接。请勿传入本机地址或内网地址（会无法访问）。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "original_url": {
+                    "type": "string",
+                    "description": "需要爬取的原始URL地址。必须是完整的 http 或 https 开头的网址。",
+                },
+            },
+            "required": ["original_url"],
+        },
+    },
+}

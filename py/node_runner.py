@@ -1,10 +1,14 @@
 import os
-import json, subprocess, asyncio, aiohttp, socket, time
+import json, asyncio, socket
 from pathlib import Path
 from typing import Dict, Optional
-from py.get_setting import EXT_DIR
+from py.get_setting import EXT_DIR, IS_DOCKER
 
-PORT_RANGE = (3100, 13999)   # 给扩展自动分配的端口池
+PORT_RANGE = (3100, 13999)
+
+# 获取环境变量（由 Docker 或 Electron 注入）
+ELECTRON_NODE = os.environ.get("ELECTRON_NODE_EXEC")
+ELECTRON_NPM_CLI = os.environ.get("ELECTRON_NPM_CLI")
 
 class NodeExtension:
     def __init__(self, ext_id: str):
@@ -12,7 +16,26 @@ class NodeExtension:
         self.proc: Optional[asyncio.subprocess.Process] = None
         self.port: Optional[int] = None
         self.root     = Path(EXT_DIR) / ext_id
-        self.pkg      = json.loads((self.root / "package.json").read_text())
+        self.pkg      = json.loads((self.root / "package.json").read_text(encoding="utf-8"))
+
+    def _get_exec_cmds(self):
+        """智能生成 node 和 npm 的执行命令列表"""
+        if IS_DOCKER or not ELECTRON_NODE:
+            # Docker 或原生环境：直接使用系统全局的 node 和 npm
+            npm_exe = "npm.cmd" if os.name == "nt" else "npm"
+            return ["node"], [npm_exe]
+        else:
+            # Electron 桌面端环境：
+            # Node 命令: electron.exe
+            # NPM 命令: electron.exe /path/to/npm-cli.js
+            return [ELECTRON_NODE], [ELECTRON_NODE, ELECTRON_NPM_CLI]
+
+    def _get_env(self):
+        """生成带 ELECTRON_RUN_AS_NODE 标记的环境变量"""
+        env = os.environ.copy()
+        if not IS_DOCKER and ELECTRON_NODE:
+            env["ELECTRON_RUN_AS_NODE"] = "1"
+        return env
 
     async def start(self) -> int:
         if self.proc and self.proc.returncode is None:
@@ -20,17 +43,21 @@ class NodeExtension:
 
         pkg_file = self.root / "package.json"
         nm_folder = self.root / "node_modules"
+        
+        node_cmd, npm_cmd = self._get_exec_cmds()
+        run_env = self._get_env()
 
         # 0. 快速判断：node_modules 存在且比 package.json 新
         if nm_folder.is_dir() and nm_folder.stat().st_mtime >= pkg_file.stat().st_mtime:
             print(f"[{self.ext_id}] node_modules 已存在，跳过 npm install")
         else:
-            # 1. 根据平台找 npm 可执行文件
-            npm_exe = "npm.cmd" if os.name == "nt" else "npm"
-            print(f"[{self.ext_id}] 首次/依赖变更，执行 {npm_exe} install")
+            print(f"[{self.ext_id}] 首次/依赖变更，执行 npm install")
+            # 1. 启动 npm install
+            # 注意这里使用 *npm_cmd 解包列表
             proc = await asyncio.create_subprocess_exec(
-                npm_exe, "install", "--production",
+                *npm_cmd, "install", "--production",
                 cwd=self.root,
+                env=run_env,  # 必须传入修改后的环境变量
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT
             )
@@ -46,11 +73,13 @@ class NodeExtension:
 
         # 3. 起进程
         self.proc = await asyncio.create_subprocess_exec(
-            "node", "index.js", str(self.port),
+            *node_cmd, "index.js", str(self.port),
             cwd=self.root,
+            env=run_env, # 必须传入修改后的环境变量
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
         )
+        
         # 4. 等健康
         await _wait_port(self.port)
         return self.port

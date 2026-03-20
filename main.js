@@ -443,7 +443,9 @@ async function startBackend() {
   return new Promise((resolve, reject) => {
     try {
       console.log('🔍 准备启动后端进程...');
-
+      const npmCliPath = isDev 
+        ? path.join(__dirname, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+        : path.join(process.resourcesPath, 'npm', 'bin', 'npm-cli.js');
       const spawnOptions = {
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
@@ -452,6 +454,8 @@ async function startBackend() {
           NODE_ENV: isDev ? 'development' : 'production',
           PYTHONIOENCODING: 'utf-8',
           PYTHONUNBUFFERED: '1', // 强制 Python 实时刷新缓冲区
+          ELECTRON_NODE_EXEC: process.execPath, 
+          ELECTRON_NPM_CLI: npmCliPath,
         }
       };
 
@@ -1638,10 +1642,11 @@ app.whenReady().then(async () => {
     });
     // 文件对话框处理器
     ipcMain.handle('open-file-dialog', async (options) => {
+      const allAllowed = [...ALLOWED_EXTENSIONS, ...ALLOWED_IMAGE_EXTENSIONS];
       const result = await dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
         filters: [
-          { name: locales[currentLanguage].supportedFiles, extensions: ALLOWED_EXTENSIONS },
+          { name: locales[currentLanguage].supportedFiles, extensions: allAllowed },
           { name: locales[currentLanguage].allFiles, extensions: ['*'] }
         ]
       })
@@ -1679,30 +1684,55 @@ app.on('before-quit', async (event) => {
   // 防止重复处理退出事件
   if (isQuitting) return;
   
-  // 标记退出状态并阻止默认退出行为
+  // 标记退出状态并阻止默认退出行为 (以便我们执行异步操作)
   isQuitting = true;
   event.preventDefault();
   
+  console.log('正在准备退出应用...');
+
   try {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     
-    // 1. 尝试停止QQ机器人
+    // 1. 停止前端的机器人 (保留你原有的逻辑)
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.webContents.executeJavaScript(`
         if (window.stopQQBotHandler) window.stopQQBotHandler();
         if (window.stopFeishuBotHandler) window.stopFeishuBotHandler();
-        if (window.stopDingtalkBotHandler) window.stopDingtalkBotHandler(); // 核心
+        if (window.stopDingtalkBotHandler) window.stopDingtalkBotHandler();
         if (window.stopDiscordBotHandler) window.stopDiscordBotHandler();
         if (window.stopTelegramBotHandler) window.stopTelegramBotHandler();
         if (window.stopSlackBotHandler) window.stopSlackBotHandler();
       `);
-
-      // 等待机器人停止（最多1秒）
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 给前端一点时间清理
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    // 2. 停止后端进程
+    // 2. ★★★ 新增：通知 Python 后端优雅退出 ★★★
+    // 只要 PORT 存在，就尝试发送 HTTP 请求
+    if (PORT && backendProcess) {
+      try {
+        console.log('通知后端执行优雅关闭...');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
+
+        await fetch(`http://${HOST}:${PORT}/sys/shutdown`, { 
+          method: 'POST',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        // 给 Python 1.5 秒的时间去执行 lifespan 中的 node_mgr.stop()
+        console.log('等待后端清理资源...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      } catch (err) {
+        console.log('后端优雅关闭请求失败或超时 (可能后端已关闭):', err.message);
+      }
+    }
+
+    // 3. 最后的补刀 (保留你原有的逻辑，作为保险)
+    // 如果 Python 还没死透，或者出错了，强制杀死它
     if (backendProcess) {
+      console.log('执行强制进程清理...');
       if (process.platform === 'win32') {
         spawn('taskkill', ['/pid', backendProcess.pid, '/f', '/t']);
       } else {
@@ -1710,13 +1740,15 @@ app.on('before-quit', async (event) => {
       }
       backendProcess = null;
     }
+
   } catch (error) {
     console.error('退出时发生错误:', error);
   } finally {
-    // 3. 最终退出应用
+    // 4. 最终退出 Electron
     app.exit(0);
   }
 });
+
 
 // 自动退出处理
 app.on('window-all-closed', () => {

@@ -20,6 +20,8 @@ import aiofiles.os
 import hashlib
 import anyio
 
+from py.get_setting import SKILLS_DIR
+
 # 尝试导入SDK，如果是在独立环境运行则忽略错误
 try:
     from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
@@ -342,9 +344,12 @@ def get_safe_container_name(cwd: str) -> str:
     path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
     return f"sandbox-{path_hash}"
 
-async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandbox-templates:latest") -> str:
-    """获取或创建基于路径的持久化沙盒"""
+async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandbox-templates:claude-code") -> str:
+    """获取或创建基于路径的持久化沙盒，并映射全局skills目录"""
     container_name = get_safe_container_name(cwd)
+    
+    # 获取主机的全局skills目录
+    host_skills_dir = SKILLS_DIR
     
     check_proc = await asyncio.create_subprocess_exec(
         "docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "--format", "{{.Names}}|{{.Status}}",
@@ -359,13 +364,18 @@ async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandb
         if "Up" in status:
             return container_name
         else:
+            # 启动已存在的容器
             await asyncio.create_subprocess_exec("docker", "start", container_name, stdout=asyncio.subprocess.PIPE)
             return container_name
     
+    # 创建新容器，映射主机的全局skills目录
+    # 注意：我们将主机skills目录映射到容器内的 /root/.agents/skills
+    # 这是标准Agent Skills CLI使用的路径
     create_cmd = [
         "docker", "run", "-d",
         "--name", container_name,
-        "-v", f"{cwd}:/workspace",
+        "-v", f"{cwd}:/workspace",  # 映射工作目录
+        "-v", f"{host_skills_dir}:/home/agent/.agents/skills",   # 映射全局skills目录到容器内
         "-w", "/workspace",
         "--restart", "unless-stopped",
         image_name,
@@ -380,6 +390,23 @@ async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandb
     stdout, stderr = await proc.communicate()
     
     if proc.returncode == 0:
+        # 容器创建成功，确保容器内的skills目录权限正确
+        try:
+            # 设置容器内skills目录的权限
+            chown_cmd = [
+                "docker", "exec", container_name,
+                "chown", "-R", "root:root", "/root/.agents/skills"
+            ]
+            chown_proc = await asyncio.create_subprocess_exec(
+                *chown_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await chown_proc.communicate()
+        except Exception:
+            # 权限设置失败不影响主要功能
+            pass
+        
         return container_name
     else:
         # 简单重试逻辑
@@ -387,6 +414,7 @@ async def get_or_create_docker_sandbox(cwd: str, image_name: str = "docker/sandb
             await asyncio.sleep(0.5)
             return await get_or_create_docker_sandbox(cwd, image_name)
         raise Exception(f"Failed to create sandbox: {stderr.decode()}")
+
 
 async def _exec_docker_cmd_simple(cwd: str, cmd_list: list) -> str:
     """内部辅助函数：在容器内执行简单命令并获取输出"""
@@ -536,7 +564,7 @@ async def todo_write_tool(action: str, id: str = None, content: str = None, prio
     try:
         real_cwd = await _get_current_cwd()
         container_name = await get_or_create_docker_sandbox(real_cwd)
-        todo_file = "/workspace/.party/ai_todos.json"
+        todo_file = "/workspace/.agent/ai_todos.json"
         
         try:
             data = await _exec_docker_cmd_simple(real_cwd, ["cat", todo_file])
@@ -607,7 +635,7 @@ async def todo_write_tool(action: str, id: str = None, content: str = None, prio
             tmp.write(json.dumps(todos, indent=2, ensure_ascii=False))
             tmp_path = tmp.name
         
-        await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", "/workspace/.party"])
+        await _exec_docker_cmd_simple(real_cwd, ["mkdir", "-p", "/workspace/.agent"])
         dest = f"{container_name}:{todo_file}"
         proc = await asyncio.create_subprocess_exec("docker", "cp", tmp_path, dest, stdout=asyncio.subprocess.PIPE)
         await proc.wait()
@@ -627,9 +655,41 @@ async def list_files_tool(path: str = ".", show_all: bool = True) -> str:
     except Exception as e: return str(e)
 
 async def read_file_tool(path: str) -> str:
+    """[Docker] 读取文件：增加大小限制和结构化提示"""
     try:
         real_cwd = await _get_current_cwd()
-        return await _exec_docker_cmd_simple(real_cwd, ["cat", "-n", path])
+        # 使用 shell 脚本限制读取前 2000 行，并返回总行数提示
+        script = f"""
+        if [ ! -f "{path}" ]; then echo "[Error] File not found: {path}"; exit 0; fi
+        total=$(wc -l < "{path}" 2>/dev/null || echo 0)
+        head -n 2000 "{path}" | cat -n
+        if [ "$total" -gt 2000 ]; then
+            echo ""
+            echo "... [Warning] File truncated (Too large). Showing 1 to 2000 of $total lines."
+            echo "💡 [Next Step Hint] Use 'read_file_range' to read specific lines (e.g. start: 2001, end: 2500) or 'tail_file' to read the end of the log."
+        fi
+        """
+        return await _exec_docker_cmd_simple(real_cwd, ["sh", "-c", script])
+    except Exception as e: return str(e)
+
+async def read_file_range_tool(path: str, start_line: int, end_line: int) -> str:
+    """[Docker] 精准读取文件指定行范围"""
+    try:
+        if start_line < 1 or end_line < start_line:
+            return "[Error] Invalid line range."
+        real_cwd = await _get_current_cwd()
+        # 使用 awk 高效读取指定行，并带上行号
+        script = f"""awk 'NR>={start_line} && NR<={end_line} {{printf "%5d | %s\\n", NR, $0}}' "{path}" """
+        return await _exec_docker_cmd_simple(real_cwd, ["sh", "-c", script])
+    except Exception as e: return str(e)
+
+async def tail_file_tool(path: str, lines: int = 100) -> str:
+    """[Docker] 读取文件末尾（常用于日志）"""
+    try:
+        real_cwd = await _get_current_cwd()
+        # 先打行号，再 tail
+        script = f"""cat -n "{path}" | tail -n {lines}"""
+        return await _exec_docker_cmd_simple(real_cwd, ["sh", "-c", script])
     except Exception as e: return str(e)
 
 async def edit_file_tool(path: str, content: str) -> str:
@@ -761,48 +821,68 @@ from typing import Tuple
 
 def validate_bash_command(command: str, cwd: str, mode: str = "default") -> Tuple[bool, str]:
     """
-    优化的安全策略：
-    - 允许重定向到 /dev/null
-    - 允许 cd 进入常见的容器内合法路径
-    - 仅在非 YOLO 模式下限制环境变量访问
+    安全校验策略（增强版）：
+    1. 严格禁止路径遍历（../）
+    2. 禁止访问敏感系统目录
+    3. 允许正常的文件操作和相对路径
     """
     
-    # ===== 第一层：硬性边界（修正后的正则）=====
-    escape_patterns = [
-        (r'\.\./\.\.', "Path traversal"),                           
-        # 允许 > /dev/null，拦截其他绝对路径写操作
-        (r'>\s*/(?!dev/null)[a-zA-Z/]+', "Write to system path"),   
-        # 允许 cd 进入 /workspace 或 /tmp，拦截其他根路径跳转
-        (r'cd\s+/(?!workspace|tmp)[^/]', "Chdir to system root"),   
+    # ===== 1. 路径遍历防御 (核心修复) =====
+    # 解析：
+    # (?:\s|^|/)  -> 前面必须是 空格、开头、或斜杠 (防止匹配到 valid..file 这种文件名)
+    # \.\.        -> 也就是 ".."
+    # (?:/|\s|$)  -> 后面必须是 斜杠、空格、或结尾 (防止匹配到 ..valid 这种文件名)
+    # 结果：能拦截 "../", "/..", " .. ", "ls .."，但不会误伤 "echo loading..."
+    traversal_pattern = r'(?:\s|^|/)\.\.(?:/|\s|$)'
+    
+    if re.search(traversal_pattern, command):
+        return False, "Path traversal detected (usage of '..' is blocked to keep agent in workspace)"
+
+    # ===== 2. 绝对路径与敏感目录防御 =====
+    # 常见敏感目录前缀
+    sensitive_roots = [
+        r'/etc', r'/var', r'/root', r'/bin', r'/sbin', r'/usr',  # Linux
+        r'C:\\Windows', r'C:\\Program Files', r'C:\\Users'       # Windows
     ]
     
-    for pattern, reason in escape_patterns:
-        if re.search(pattern, command, re.IGNORECASE):
-            return False, f"{reason} blocked: {pattern}"
-    
-    # ===== 第二层：毁灭性操作（保持严格）=====
+    # 检查是否直接操作了敏感路径
+    for root in sensitive_roots:
+        # 匹配 空格+路径 或 开头+路径
+        # 例如: "cat /etc/passwd" 或 "/etc/init.d/..."
+        if re.search(r'(?:\s|^)' + root, command, re.IGNORECASE):
+            return False, f"Access to system directory '{root}' is blocked"
+
+    # 针对 cd 命令的额外保护：禁止 cd /... (除非是 /workspace 或 /tmp)
+    # 拦截: cd /etc, cd /
+    # 放行: cd ., cd subfolder, cd /workspace
+    if re.search(r'\bcd\s+/(?!(workspace|tmp|dev/null))', command, re.IGNORECASE):
+            return False, "Changing directory to outside workspace is blocked"
+
+    # ===== 3. 毁灭性操作（保持原样）=====
     destructive_patterns = [
         (r'rm\s+-rf\s*/', "Recursive delete root"),                
         (r'mkfs\.[a-z]+', "Filesystem format"),                    
         (r'dd\s+if=.*of=/dev/[a-z]', "Direct device write"),       
-        (r'>?\s*/dev/(sda|hd|nvme|mmcblk)', "Block device access"), 
+        (r'>?\s*/dev/(sda|hd|nvme|mmcblk)', "Block device access"),
+        (r':\(\)\{\s*:\|:&?\s*\};\s*:', "Fork bomb"), # 新增 Fork bomb 防御
     ]
     
     for pattern, reason in destructive_patterns:
         if re.search(pattern, command, re.IGNORECASE):
             return False, f"Destructive operation blocked: {reason}"
     
-    # ===== 第三层：风险操作（仅在非 YOLO 模式下拦截）=====
+    # ===== 4. 风险操作（非 YOLO 模式拦截）=====
     if mode != "yolo":
         risk_patterns = [
-            (r'curl.*\|.*sh', "Remote pipe to shell"),
-            (r'wget.*\|.*sh', "Remote pipe to shell"), 
-            (r'~\s*/', "Home directory access"),
+            # 允许 wget/curl，但禁止直接管道给 shell 执行 (如 curl | sh)
+            (r'(curl|wget).*\|\s*(sh|bash|zsh|python|perl|php)', "Remote execution via pipe"),
+            # 禁止访问环境变量 HOME，防止泄露主机用户目录
             (r'\$\{?HOME\}?', "HOME env variable usage"),
+            (r'~\s*/', "Home directory access via ~"),
         ]
         for pattern, reason in risk_patterns:
-            if re.search(pattern, command, re.I):
-                return False, f"{reason} blocked in {mode} mode (use yolo to allow)"
+            if re.search(pattern, command, re.IGNORECASE):
+                return False, f"{reason} blocked in {mode} mode"
     
     return True, command
 
@@ -922,61 +1002,86 @@ async def list_files_tool_local(path: str = ".", show_all: bool = True) -> str:
         return f"[Error] List failed: {str(e)}"
 
 async def read_file_tool_local(path: str) -> str:
-    """[Local] 读取文件：支持大文件截断读取 (Max 2000行)，自动检测二进制文件"""
+    """[Local] 读取文件：支持大文件截断读取，并返回结构化下一步建议"""
     try:
         cwd = await _get_current_cwd()
         target = resolve_strict_path(cwd, path, check_symlink=True)
 
-        if not target.exists():
-            return f"[Error] File not found: {path}"
-        
-        if not target.is_file():
-            return f"[Error] Not a file: {path}"
+        if not target.exists() or not target.is_file():
+            return f"[Error] File not found or not a file: {path}"
 
-        # 1. 二进制文件快速检测 (读取前1KB检查空字节)
         try:
             with open(target, 'rb') as f_bin:
-                chunk = f_bin.read(1024)
-                if b'\0' in chunk:
+                if b'\0' in f_bin.read(1024):
                     return f"[Error] Cannot read binary file: {path}"
         except Exception as e:
             return f"[Error] Failed to check file type: {str(e)}"
 
-        # 2. 限制读取大小，防止内存爆炸
         MAX_LINES = 2000
-        MAX_BYTES = 500 * 1024  # 500KB Limit
-        
+        MAX_BYTES = 500 * 1024  
         file_size = target.stat().st_size
         truncated = False
         
         async with aiofiles.open(target, 'r', encoding='utf-8', errors='replace') as f:
-            # 如果文件过大，只读取部分字符
             if file_size > MAX_BYTES:
                 content = await f.read(MAX_BYTES)
                 truncated = True
                 lines = content.splitlines()
-                # 丢弃最后一行，因为可能被字节限制截断了一半
                 if lines: lines.pop()
             else:
                 lines = await f.readlines()
-                # 去除末尾换行符
                 lines = [l.rstrip('\n') for l in lines]
 
-        # 行数截断
         if len(lines) > MAX_LINES:
             lines = lines[:MAX_LINES]
             truncated = True
 
-        # 格式化输出：行号 + 内容
         output = [f"{i+1:4} | {line}" for i, line in enumerate(lines)]
         
         if truncated:
             output.append(f"\n... [Warning] File content truncated (Too large). Showing first {len(lines)} lines.")
+            output.append(f"💡 [Next Step Hint] The file is large. Use 'read_file_range_local' to read lines {len(lines)+1} to {len(lines)+500}, or 'tail_file_local' to view the end.")
             
         return "\n".join(output)
+    except Exception as e: return f"[Error] Read failed: {str(e)}"
 
-    except Exception as e:
-        return f"[Error] Read failed: {str(e)}"
+async def read_file_range_tool_local(path: str, start_line: int, end_line: int) -> str:
+    """[Local] 精准读取文件指定行范围"""
+    try:
+        if start_line < 1 or end_line < start_line:
+            return "[Error] Invalid line range. start_line must be >= 1 and end_line >= start_line."
+            
+        cwd = await _get_current_cwd()
+        target = resolve_strict_path(cwd, path, check_symlink=True)
+        
+        if not target.exists() or not target.is_file(): return f"[Error] File not found: {path}"
+
+        async with aiofiles.open(target, 'r', encoding='utf-8', errors='replace') as f:
+            lines = await f.readlines()
+            
+        if start_line > len(lines):
+            return f"[Error] start_line ({start_line}) is beyond file length ({len(lines)})."
+            
+        subset = lines[start_line - 1 : end_line]
+        return "\n".join(f"{i + start_line:4} | {line.rstrip('\n')}" for i, line in enumerate(subset))
+    except Exception as e: return f"[Error] Range read failed: {str(e)}"
+
+async def tail_file_tool_local(path: str, lines: int = 100) -> str:
+    """[Local] 读取文件末尾（常用于日志）"""
+    try:
+        cwd = await _get_current_cwd()
+        target = resolve_strict_path(cwd, path, check_symlink=True)
+        if not target.exists() or not target.is_file(): return f"[Error] File not found: {path}"
+
+        # 本地简单实现：读入后切片（如果文件极大建议改用 seek 倒序读，但此处通常够用）
+        async with aiofiles.open(target, 'r', encoding='utf-8', errors='replace') as f:
+            all_lines = await f.readlines()
+            
+        subset = all_lines[-lines:] if lines < len(all_lines) else all_lines
+        start_idx = max(1, len(all_lines) - lines + 1)
+        
+        return "\n".join(f"{i + start_idx:4} | {line.rstrip('\n')}" for i, line in enumerate(subset))
+    except Exception as e: return f"[Error] Tail failed: {str(e)}"
 
 async def edit_file_tool_local(path: str, content: str) -> str:
     """[Local] 写入文件：修复了绝对路径误判问题"""
@@ -1235,9 +1340,9 @@ async def edit_file_patch_tool_local(path: str, old_string: str, new_string: str
 async def todo_write_tool_local(action: str, id: str = None, content: str = None, priority: str = "medium", status: str = None) -> str:
     """本地环境任务管理"""
     try:
-        # 1. 获取当前工作目录并确保 .party 文件夹存在
+        # 1. 获取当前工作目录并确保 .agent 文件夹存在
         cwd = await _get_current_cwd()
-        party_dir = Path(cwd) / ".party"
+        party_dir = Path(cwd) / ".agent"
         if not party_dir.exists():
             await aiofiles.os.makedirs(party_dir, exist_ok=True)
         
@@ -1354,10 +1459,13 @@ async def claude_code_async(prompt) -> str | AsyncIterator[str]:
         extra_config = {k: str(v) if v else "" for k, v in extra_config.items()}
 
     async def _stream():
+        permission_mode=ccSettings.get("permissionMode", "default")
+        if permission_mode == "cowork":
+            permission_mode = "bypassPermissions"
         options = ClaudeAgentOptions(
             cwd=cwd,
             continue_conversation=True,
-            permission_mode=ccSettings.get("permissionMode", "default"),
+            permission_mode=permission_mode,
             env={**os.environ, **extra_config}
         )
         async for message in query(prompt=prompt, options=options):
@@ -1383,8 +1491,11 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
 
     async def _stream():
         try:
+            permission_mode=qcSettings.get("permissionMode", "default")
+            if permission_mode == "cowork":
+                permission_mode = "yolo"
             process = await asyncio.create_subprocess_exec(
-                executable, "-p", prompt, "--approval-mode", qcSettings.get("permissionMode", "default"),
+                executable, "-p", prompt, "--approval-mode", permission_mode,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 cwd=cwd, env={**os.environ, **extra_config}
             )
@@ -1398,38 +1509,88 @@ async def qwen_code_async(prompt: str) -> str | AsyncIterator[str]:
 # ==================== [新增] Skill 专用读取工具 ====================
 
 async def read_skill_tool_logic(cwd: str, skill_id: str, is_docker: bool = True) -> str:
-    """内部通用逻辑：读取 Skill 文件夹结构和说明文档"""
-    skill_rel_path = f".party/skills/{skill_id}"
-    
-    # 1. 生成文件树命令/逻辑
+    """
+    内部通用逻辑：读取 Skill 文件夹结构和说明文档。
+    若工作区不存在该技能，且全局技能目录可用，则自动复制到工作区（Docker/Local 均支持）。
+    """
+    skill_rel_path = f".agent/skills/{skill_id}"
+    workspace_skill_path = f"/workspace/.agent/skills/{skill_id}" if is_docker else str(Path(cwd) / ".agent" / "skills" / skill_id)
+
+    # ----- 复制逻辑：工作区缺失时，从全局复制 -----
+    if is_docker:
+        # Docker 环境：利用已映射的全局技能目录
+        container_name = await get_or_create_docker_sandbox(cwd)          # 获取/创建容器
+        global_skill_path = f"/home/agent/.agents/skills/{skill_id}"      # 容器内全局技能路径
+        try:
+            # 1. 检查工作区技能是否存在
+            test_cmd = ["test", "-d", workspace_skill_path]
+            await _exec_docker_cmd_simple(cwd, test_cmd)                  # 不存在会抛出异常
+        except Exception:
+            # 2. 工作区不存在，尝试从全局复制
+            try:
+                # 检查全局技能是否存在
+                test_global = ["test", "-d", global_skill_path]
+                await _exec_docker_cmd_simple(cwd, test_global)
+
+                # 确保目标父目录存在
+                mkdir_cmd = ["mkdir", "-p", f"/workspace/.agent/skills"]
+                await _exec_docker_cmd_simple(cwd, mkdir_cmd)
+
+                # 执行复制
+                cp_cmd = ["cp", "-r", global_skill_path, f"/workspace/.agent/skills/"]
+                await _exec_docker_cmd_simple(cwd, cp_cmd)
+
+                print(f"[Skill AutoCopy][Docker] Copied global skill '{skill_id}' to workspace.")
+            except Exception as e:
+                # 复制失败或全局技能不存在，继续尝试读取工作区（若不存在则后续报错）
+                pass
+    else:
+        # Local 环境：使用 shutil 复制（已实现，但整合到 logic 中统一管理）
+        workspace_path = Path(cwd) / ".agent" / "skills" / skill_id
+        if not workspace_path.exists():
+            global_path = Path(SKILLS_DIR) / skill_id
+            if global_path.exists() and global_path.is_dir():
+                try:
+                    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(
+                        shutil.copytree,
+                        global_path,
+                        workspace_path,
+                        dirs_exist_ok=True
+                    )
+                    print(f"[Skill AutoCopy][Local] Copied global skill '{skill_id}' to workspace.")
+                except Exception as e:
+                    print(f"[Skill AutoCopy][Local] Copy failed: {e}. Will fallback to global read.")
+                    # 降级读取已由主流程处理
+
+    # ----- 原有读取逻辑保持不变（读取工作区技能）-----
     tree_str = ""
     doc_content = ""
-    
+
     if is_docker:
         try:
-            # 获取文件树 (使用 find 命令模拟 tree)
             tree_str = await _exec_docker_cmd_simple(cwd, ["find", skill_rel_path, "-maxdepth", "2", "-not", "-path", '*/.*'])
-            
-            # 查找并读取说明文档
             for name in ["SKILL.md", "skill.md", "SKILLS.md", "skills.md"]:
                 try:
                     doc_path = f"{skill_rel_path}/{name}"
                     doc_content = await _exec_docker_cmd_simple(cwd, ["cat", doc_path])
                     break
-                except: continue
+                except:
+                    continue
         except Exception as e:
             return f"[Error] Skill '{skill_id}' not found or inaccessible in Docker: {str(e)}"
     else:
         try:
-            base_path = Path(cwd) / ".party" / "skills" / skill_id
-            if not base_path.exists(): return f"[Error] Skill '{skill_id}' folder does not exist."
-            
-            # 生成本地文件树
+            base_path = Path(cwd) / ".agent" / "skills" / skill_id
+            if not base_path.exists():
+                return f"[Error] Skill '{skill_id}' folder does not exist in workspace and auto-copy failed or global skill unavailable."
+
+            # 生成本地文件树（深度 ≤2）
             tree_lines = [f"{skill_id}/"]
             for p in base_path.rglob("*"):
                 if p.name.startswith("."): continue
                 depth = len(p.relative_to(base_path).parts)
-                if depth > 2: continue # 限制深度
+                if depth > 2: continue
                 indent = "  " * depth
                 tree_lines.append(f"{indent}{p.name}{'/' if p.is_dir() else ''}")
             tree_str = "\n".join(tree_lines)
@@ -1468,87 +1629,206 @@ TOOLS_REGISTRY = {
     # --- 只读 ---
     "list_files": {
         "type": "function", "function": {
-            "name": "list_files_tool", "description": "List files in docker workspace.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "show_all": {"type": "boolean","default": True}}, "required": ["path"]}
+            "name": "list_files_tool", 
+            "description": "List files in docker workspace.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to list files in (from workspace root)."
+                    }, 
+                    "show_all": {"type": "boolean", "default": True}
+                }, 
+                "required": ["path"]
+            }
         }
     },
     "read_file": {
         "type": "function", "function": {
-            "name": "read_file_tool", "description": "Read file content.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+            "name": "read_file_tool", 
+            "description": "Read file content.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from workspace root)."
+                    }
+                }, 
+                "required": ["path"]
+            }
+        }
+    },
+    "read_file_range": {
+        "type": "function", "function": {
+            "name": "read_file_range_tool", 
+            "description": "Read a specific range of lines from a file. Useful for large files after grepping.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to file"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"}
+                }, 
+                "required": ["path", "start_line", "end_line"]
+            }
+        }
+    },
+    "tail_file": {
+        "type": "function", "function": {
+            "name": "tail_file_tool", 
+            "description": "Read the last N lines of a file. Useful for reading logs.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to file"},
+                    "lines": {"type": "integer", "default": 100, "description": "Number of lines to read from the end"}
+                }, 
+                "required": ["path"]
+            }
         }
     },
     "search_files": {
         "type": "function", "function": {
-            "name": "search_files_tool", "description": "Grep search.",
-            "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}}, "required": ["pattern"]}
+            "name": "search_files_tool", 
+            "description": "Grep search.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "pattern": {"type": "string"}, 
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to directory to search in (from workspace root)."
+                    }
+                }, 
+                "required": ["pattern"]
+            }
         }
     },
     "glob_files": {
         "type": "function", "function": {
-            "name": "glob_files_tool", "description": "Recursive glob.",
-            "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}, "exclude": {"type": "string"}}, "required": ["pattern"]}
+            "name": "glob_files_tool", 
+            "description": "Recursive glob.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern (relative to workspace root)."
+                    }, 
+                    "exclude": {"type": "string"}
+                }, 
+                "required": ["pattern"]
+            }
         }
     },
     "read_skill": {
         "type": "function", "function": {
             "name": "read_skill_tool", 
-            "description": "Read full documentation and file tree for a project-specific skill from .party/skills/.",
-            "parameters": {"type": "object", "properties": {"skill_id": {"type": "string"}}, "required": ["skill_id"]}
+            "description": "Read full documentation and file tree for a project-specific skill from .agent/skills/.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "skill_id": {"type": "string"}
+                }, 
+                "required": ["skill_id"]
+            }
         }
     },
     # --- 编辑 ---
     "edit_file": {
         "type": "function", "function": {
-            "name": "edit_file_tool", "description": "Overwrite file.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}
+            "name": "edit_file_tool", 
+            "description": "Overwrite file.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from workspace root)."
+                    }, 
+                    "content": {"type": "string"}
+                }, 
+                "required": ["path", "content"]
+            }
         }
     },
     "edit_file_patch": {
         "type": "function", "function": {
-            "name": "edit_file_patch_tool", "description": "Precise replacement.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["path", "old_string"]}
+            "name": "edit_file_patch_tool", 
+            "description": "Precise replacement.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from workspace root)."
+                    }, 
+                    "old_string": {"type": "string"}, 
+                    "new_string": {"type": "string"}
+                }, 
+                "required": ["path", "old_string"]
+            }
         }
     },
     # --- 任务 ---
     "todo_write": {
         "type": "function", "function": {
-            "name": "todo_write_tool", "description": "Manage tasks.",
-            "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["create","list","update","delete","toggle"]}, "content": {"type": "string"}, "id": {"type": "string"}}, "required": ["action"]}
+            "name": "todo_write_tool", 
+            "description": "Manage tasks.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "action": {"type": "string", "enum": ["create","list","update","delete","toggle"]}, 
+                    "content": {"type": "string"}, 
+                    "id": {"type": "string"}
+                }, 
+                "required": ["action"]
+            }
         }
     },
-    # --- 基础设施 (核心更新) ---
+    # --- 基础设施 ---
     "bash": {
         "type": "function", "function": {
-            "name": "docker_sandbox_async", "description": "Run bash in Docker.",
+            "name": "docker_sandbox_async", 
+            "description": "Run bash in Docker.",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "command": {"type": "string"}, 
                     "background": {"type": "boolean", "description": "Run non-blocking (server/watcher). Returns PID."}
-                }, "required": ["command"]
+                }, 
+                "required": ["command"]
             }
         }
     },
     "manage_processes": {
         "type": "function", "function": {
-            "name": "manage_processes_tool", "description": "Check logs or kill background processes (Docker & Local).",
+            "name": "manage_processes_tool", 
+            "description": "Check logs or kill background processes (Docker & Local).",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "action": {"type": "string", "enum": ["list", "logs", "kill"]},
                     "pid": {"type": "string"}
-                }, "required": ["action"]
+                }, 
+                "required": ["action"]
             }
         }
     },
     "manage_ports": {
         "type": "function", "function": {
-            "name": "docker_manage_ports_tool", "description": "Forward Docker ports to localhost.",
+            "name": "docker_manage_ports_tool", 
+            "description": "Forward Docker ports to localhost.",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "action": {"type": "string", "enum": ["forward", "stop", "list"]},
                     "container_port": {"type": "integer"},
                     "host_port": {"type": "integer"}
-                }, "required": ["action"]
+                }, 
+                "required": ["action"]
             }
         }
     }
@@ -1558,85 +1838,201 @@ LOCAL_TOOLS_REGISTRY = {
     # --- 只读 ---
     "list_files_local": {
         "type": "function", "function": {
-            "name": "list_files_tool_local", "description": "List local files.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "show_all": {"type": "boolean","default": True}}, "required": ["path"]}
+            "name": "list_files_tool_local", 
+            "description": "List local files.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to list files in (from current working directory)."
+                    }, 
+                    "show_all": {"type": "boolean","default": True}
+                }, 
+                "required": ["path"]
+            }
         }
     },
     "read_file_local": {
         "type": "function", "function": {
-            "name": "read_file_tool_local", "description": "Read local file.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+            "name": "read_file_tool_local", 
+            "description": "Read local file.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from current working directory)."
+                    }
+                }, 
+                "required": ["path"]
+            }
+        }
+    },
+    "read_file_range_local": {
+        "type": "function", "function": {
+            "name": "read_file_range_tool_local", 
+            "description": "Read a specific range of lines from a local file. Useful for large files after grepping.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to file"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"}
+                }, 
+                "required": ["path", "start_line", "end_line"]
+            }
+        }
+    },
+    "tail_file_local": {
+        "type": "function", "function": {
+            "name": "tail_file_tool_local", 
+            "description": "Read the last N lines of a local file. Useful for reading logs.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to file"},
+                    "lines": {"type": "integer", "default": 100}
+                }, 
+                "required": ["path"]
+            }
         }
     },
     "search_files_local": {
          "type": "function", "function": {
-            "name": "search_files_tool_local", "description": "Search local files.",
-            "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}
+            "name": "search_files_tool_local", 
+            "description": "Search local files.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "pattern": {"type": "string"}
+                    # 注意：根据之前的代码实现，search_files_local 似乎没有 path 参数，而是直接在 CWD 搜索。
+                    # 如果需要支持指定路径，需要在实现代码中确认。
+                }, 
+                "required": ["pattern"]
+            }
         }
     },
     "glob_files_local": {
          "type": "function", "function": {
-            "name": "glob_files_tool_local", "description": "Glob local files.",
-            "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}
+            "name": "glob_files_tool_local", 
+            "description": "Glob local files.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern (relative to current working directory)."
+                    }
+                }, 
+                "required": ["pattern"]
+            }
         }
     },
     "read_skill_local": {
         "type": "function", "function": {
             "name": "read_skill_tool_local", 
-            "description": "Read full documentation and file tree for a project-specific skill from .party/skills/ (Local).",
-            "parameters": {"type": "object", "properties": {"skill_id": {"type": "string"}}, "required": ["skill_id"]}
+            "description": "Read full documentation and file tree for a project-specific skill from .agent/skills/ (Local).",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "skill_id": {"type": "string"}
+                }, 
+                "required": ["skill_id"]
+            }
         }
     },
     # --- 编辑 ---
     "edit_file_local": {
         "type": "function", "function": {
-            "name": "edit_file_tool_local", "description": "Write local file.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path"]}
+            "name": "edit_file_tool_local", 
+            "description": "Write local file.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from current working directory)."
+                    }, 
+                    "content": {"type": "string"}
+                }, 
+                "required": ["path"]
+            }
         }
     },
     "edit_file_patch_local": {
         "type": "function", "function": {
-            "name": "edit_file_patch_tool_local", "description": "Patch local file.",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["path", "old_string"]}
+            "name": "edit_file_patch_tool_local", 
+            "description": "Patch local file.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to file (from current working directory)."
+                    }, 
+                    "old_string": {"type": "string"}, 
+                    "new_string": {"type": "string"}
+                }, 
+                "required": ["path", "old_string"]
+            }
         }
     },
     "todo_write_local": {
         "type": "function", "function": {
-            "name": "todo_write_tool_local", "description": "Manage local tasks.",
-            "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["create","list","update","delete","toggle"]}, "content": {"type": "string"}, "id": {"type": "string"}}, "required": ["action"]}
+            "name": "todo_write_tool_local", 
+            "description": "Manage local tasks.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "action": {"type": "string", "enum": ["create","list","update","delete","toggle"]}, 
+                    "content": {"type": "string"}, 
+                    "id": {"type": "string"}
+                }, 
+                "required": ["action"]
+            }
         }
     },
-    # --- 基础设施 (核心更新) ---
+    # --- 基础设施 ---
     "bash_local": {
         "type": "function", "function": {
-            "name": "bash_tool_local", "description": "Run local command.",
+            "name": "bash_tool_local", 
+            "description": "Run local command.",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "command": {"type": "string"},
                     "background": {"type": "boolean", "description": "Run in background."}
-                }, "required": ["command"]
+                }, 
+                "required": ["command"]
             }
         }
     },
     "manage_processes_local": {
         "type": "function", "function": {
-            "name": "manage_processes_tool", "description": "Manage local background processes.",
+            "name": "manage_processes_tool", 
+            "description": "Manage local background processes.",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "action": {"type": "string", "enum": ["list", "logs", "kill"]},
                     "pid": {"type": "string"}
-                }, "required": ["action"]
+                }, 
+                "required": ["action"]
             }
         }
     },
     "local_net_tool": {
         "type": "function", "function": {
-            "name": "local_net_tool", "description": "Check local ports.",
+            "name": "local_net_tool", 
+            "description": "Check local ports.",
             "parameters": {
-                "type": "object", "properties": {
+                "type": "object", 
+                "properties": {
                     "action": {"type": "string", "enum": ["check", "scan"]},
                     "port": {"type": "integer"}
-                }, "required": ["action"]
+                }, 
+                "required": ["action"]
             }
         }
     }
@@ -1665,6 +2061,8 @@ def get_tools_for_mode(mode: str) -> list:
     # 基础只读
     read = [TOOLS_REGISTRY["list_files"], 
             TOOLS_REGISTRY["read_file"], 
+            TOOLS_REGISTRY["read_file_range"],
+            TOOLS_REGISTRY["tail_file"],     
             TOOLS_REGISTRY["search_files"], 
             TOOLS_REGISTRY["glob_files"],
             TOOLS_REGISTRY["read_skill"]
@@ -1684,9 +2082,11 @@ def get_local_tools_for_mode(mode: str) -> list:
     read = [
         LOCAL_TOOLS_REGISTRY["list_files_local"], 
         LOCAL_TOOLS_REGISTRY["read_file_local"], 
+        LOCAL_TOOLS_REGISTRY["read_file_range_local"],
+        LOCAL_TOOLS_REGISTRY["tail_file_local"],    
         LOCAL_TOOLS_REGISTRY["search_files_local"], 
         LOCAL_TOOLS_REGISTRY["glob_files_local"],
-        LOCAL_TOOLS_REGISTRY["read_skill_local"] # <--- 新增
+        LOCAL_TOOLS_REGISTRY["read_skill_local"] 
     ]
     edit = [LOCAL_TOOLS_REGISTRY["edit_file_local"], LOCAL_TOOLS_REGISTRY["edit_file_patch_local"], LOCAL_TOOLS_REGISTRY["todo_write_local"]]
     infra = [

@@ -25,49 +25,29 @@
 
 ### 🚀 **一款拥有无限可能的AI桌面伴侣！**
 
-- ✅ 全渠道一键部署：支持将智能体配置快速部署至多类终端，已兼容经典聊天界面、桌宠机器人、QQ、飞书、Telegram、Discord、Slack聊天机器人、B站、YouTube、twitch直播机器人等场景，开箱即用。
+#### VRM桌宠：支持上传自定义VRM模型，打造专属桌面伴侣
+![image](doc/image/img-1/vrm.jpeg)
 
-- ✅ 生态工具互联：可自由接入第三方智能体与工作流作为工具链（已适配Home Assistant/Claude code/Qwen code/Dify/ComfyUI/MCP/A2A等系统），通过agent-party架构实现跨平台能力聚合。
+#### 任务中心：让你的AI智能体可以在后台执行任何高级任务，自动控制电脑帮你干活
+![image](doc/image/img-1/task.jpeg)
 
-- ✅ 扩展生态丰富：支持自定义扩展开发，通过官网的[扩展市场](https://super-agent-party.github.io/plugins.html)实现社区共享，满足个性化需求。
+#### 多角色群聊：支持酒馆角色卡，支持长期记忆，你可以同时和多个角色一起聊天！
+![image](doc/image/img-1/group.jpeg)
 
-- ✅ 标准化接口开放：提供OpenAI API兼容接口及MCP协议支持，便于开发者直接对接外部系统，实现智能体能力的快速转接与二次开发。VRM桌宠开放了VMC协议，实现跨应用动作同步。VRM桌宠界面支持了webXR协议，你可以在支持XR的设备中沉浸式体验。
+#### 即时通讯机器人：支持一键部署到QQ、飞书、钉钉、Telegram、Discord、Slack
+![image](doc/image/img-1/im.jpeg)
 
-- ✅ 无缝能力增强：无需代码改造即可实现LLM API企业级升级，为现有模型接口无缝集成知识库、实时联网、永久记忆、兼容酒馆(SillyTavern)角色卡、代码执行、多模态能力（视觉/绘图/听觉/语音）、自动化能力（控制智能家居、控制浏览器）、深度思考控制与研究等模块化功能，打造可插拔的LLM增强中台。
+#### 直播机器人：支持一键部署到B站、YouTube、twitch
+![image](doc/image/img-1/yt.jpeg)
 
-- ✅ 全平台兼容适配：覆盖Windows/macOS/Linux原生运行环境，支持Docker容器化部署与Web端云服务，满足多场景技术栈需求。
+#### AI浏览器：让你的AI智能体拥有自己的浏览器，支持自动控制
+![image](doc/image/img-1/browser.jpeg)
 
-## 软件截图
+#### 扩展系统：支持安装扩展，和自己创造新的扩展，下图为galgame扩展
+![image](doc/image/img-1/ext.jpeg)
 
-### 多服务商支持：本地部署引擎(ollama/dify等等)以及云服务商接口均支持
-![image](doc/image/1.jpeg)
-
-### 海量工具：内置各种工具(如知识库、联网、智能家居、浏览器控制)，支持异步调用，不阻塞智能体回复
-![image](doc/image/2.jpeg)
-
-### VRM桌宠：支持上传自定义VRM模型，打造专属桌面伴侣
-![image](doc/image/3.jpeg)
-
-### 扩展系统：支持安装扩展，和自己创造新的扩展，下图为galgame扩展
-![image](doc/image/4.jpeg)
-
-### 酒馆角色卡：支持酒馆角色卡，支持长期记忆
-![image](doc/image/5.jpeg)
-
-### 即时通讯机器人：支持一键部署到QQ、飞书、Telegram、Discord、Slack
-![image](doc/image/6-1.jpeg)
-
-### 直播机器人：支持一键部署到B站、YouTube、twitch
-![image](doc/image/7.jpeg)
-
-### 开发者友好：开放openai API接口、MCP接口，可以将智能体对外转接
-![image](doc/image/8.jpeg)
-
-### AI浏览器：让你的AI智能体拥有自己的浏览器，支持自动控制
-![image](doc/image/9.jpeg)
-
-### 多角色群聊：你可以同时和多个角色一起聊天！
-![image](doc/image/10.jpeg)
+#### 开发者友好：开放openai API接口、MCP接口，可以将智能体对外转接
+![image](doc/image/img-1/api.jpeg)
 
 ## 快速开始
 
@@ -75,23 +55,23 @@
 
 ### windows整合包（推荐！免安装源码版本，支持一键同步到仓库最新版本，无需等待桌面版打包）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/super-agent-party-win-v0.3.7.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/super-agent-party-win-v0.3.7.7z)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-win-v0.3.8.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-win-v0.3.8.7z)
 
 
 ⭐注意！你可以双击`一键更新(update).bat`更新软件，也可以双击`一键启动(start).bat`启动软件。操作系统需要是**Windows 10/11、Window Server 2025**或者后续版本！
 
 ### windows桌面版安装
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-Setup-0.3.7.exe)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/Super-Agent-Party-Setup-0.3.7.exe)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-Setup-0.3.8.exe)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-Setup-0.3.8.exe)
 
 ⭐注意！安装时选择仅为当前用户安装，否则启动时需要管理员权限。操作系统需要是**Windows 10/11、Window Server 2025**或者后续版本！
 
 ### MacOS整合包（目前只支持M芯片，适合开发者，同样是免安装源码版本，支持一键同步到仓库最新版本，无需等待桌面版打包）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/super-agent-party-mac-v0.3.7.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/super-agent-party-mac-v0.3.7.7z)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-mac-v0.3.8.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-mac-v0.3.8.7z)
 
 ⭐注意！你可以在终端使用`一键更新(update).sh`更新软件，也可以在终端使用`一键启动(start).sh`启动软件。在使用前，记得给文件加权限！
 
@@ -104,8 +84,8 @@
 
 ### MacOS桌面版安装（目前只支持M芯片）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Mac.dmg)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/Super-Agent-Party-0.3.7-Mac.dmg)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Mac.dmg)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-0.3.8-Mac.dmg)
 
 ⭐注意！下载后将dmg文件的app文件拖入`/Applications`目录下，然后打开终端，执行以下命令并输入root密码，从而移除从网络下载附加的Quarantine属性：
 
@@ -121,11 +101,11 @@
 
 `.AppImage` 是一种无需安装、即开即用的 Linux 应用格式。适用于大多数 Linux 发行版。
 
-  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Linux.AppImage)
+  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.AppImage)
 
 #### 2. 使用 `.deb` 包安装（适用于 Ubuntu / Debian 系统）
 
-  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Linux.deb)
+  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.deb)
 
 ### docker部署（该版本桌宠只能通过浏览器查看）
 
@@ -157,9 +137,9 @@
 
 ### 与docker版本配套的轻量版客户端，将你的docker版本变成桌面端
 
-👉 [SAP-lite-Windows-exe](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.1/super-agent-party-lite-Setup-0.1.1.exe)
+👉 [SAP-lite-Windows-exe](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.2/super-agent-party-lite-Setup-0.1.2.exe)
 
-👉 [SAP-lite-MacOS-dmg](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.1/super-agent-party-lite-0.1.1-Mac.dmg)
+👉 [SAP-lite-MacOS-dmg](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.2/super-agent-party-lite-0.1.2-Mac.dmg)
 
 
 ### 源码部署
@@ -175,6 +155,25 @@
 ## 扩展
 
 新增了全新的扩展系统，你可以在这里 [扩展列表](https://super-agent-party.github.io/plugins.html) 查看有哪些插件可用，你也可以直接在party中直接在【开发者】->【扩展】中查看和安装插件。你可以在[super-agent-party.github.io](https://github.com/super-agent-party/super-agent-party.github.io) 将你自己开发的扩展添加到官方扩展列表中！
+
+### 已有扩展
+
+| 名称                  | 作者               | 描述                                                                 | 仓库地址                                             |
+|-----------------------|--------------------|--------------------------------------------------------------------|----------------------------------------------------|
+| Super Agent Party Example | heshengtao         | Super Agent Party 的示例插件，用于演示插件架构和能力。                | https://github.com/heshengtao/sap-example          |
+| Super Agent Party Example With NodeJS | heshengtao        | 带nodeJS环境的Super Agent Party 的示例插件 | https://github.com/heshengtao/sap-example-with-node        |
+| Web Preview           | heshengtao         | 为 Super Agent Party 提供网页预览功能的插件。                        | https://github.com/heshengtao/sap-web-preview      |
+| Story Adventure       | heshengtao  | 一款利用 AI 生成故事内容和选项的交互式故事冒险插件。                   | https://github.com/heshengtao/sap-story-adventure  |
+| Live 2D      | heshengtao  | 一款live2d前端插件。                   | https://github.com/heshengtao/sap-live2d  |
+| AI Editor      | heshengtao  | 一款AI编辑器插件。                   | https://github.com/heshengtao/sap-aieditor  |
+| AI galgame      | heshengtao  | 一款AI galgame 插件。                   | https://github.com/heshengtao/sap-aigalgame  |
+| AI tarot reader      | heshengtao  | 一款AI 塔罗牌插件。                   | https://github.com/heshengtao/sap-tarot  |
+| AI sheet      | heshengtao  | 一款AI 表格插件。                   | https://github.com/heshengtao/sap-ai-sheet  |
+| AI drawio      | heshengtao  | 一款AI drawio插件。                   | https://github.com/heshengtao/sap-ai-drawio  |
+| AI mermaid      | heshengtao  | 一款AI mermaid编辑器插件                  | https://github.com/heshengtao/sap-ai-mermaid  |
+| AI RSS reader      | heshengtao  | 一款AI RSS阅读器插件                  | https://github.com/heshengtao/sap-rss  |
+| Remote      | heshengtao  | 一键将 Super Agent Party 暴露到公网             | https://github.com/heshengtao/sap-remote  |
+| Code Server      | heshengtao  | 为 Super Agent Party 提供的 IDE 扩展插件           | https://github.com/heshengtao/sap-code-server  |
 
 ## 硬件要求
 
@@ -235,7 +234,7 @@
 | 对话界面 | 对话界面已支持A2UI、公式、mermaid绘图、HTML代码绘图等前端渲染功能，图像支持下载和复制。支持胶囊模式和小助手模式，方便将对话界面缩小停靠，配合桌面视觉和截图，无缝融入工作娱乐 |
 | 角色扮演 | 支持酒馆角色卡上传、编辑及下载，可为不同角色配置不同语音和形象。支持长期记忆，使用角色卡时，支持多语音，非角色文字支持使用旁白音色，支持表情包 |
 | 大量原生工具 | 工具调用支持异步，支持联网、知识库、控制智能家居、控制浏览器、在沙盒中执行代码、控制comfyui绘图、Claude code操作文件系统等 |
-| 自定义工具接口 | 已支持MCP、A2A、HTTP请求、任意LLM接口作为主智能体的工具使用，让用户以完全自由的方式定制自己的智能体工具链 |
+| 自定义工具接口 | 已支持MCP、Skills、A2A、HTTP请求、任意LLM接口作为主智能体的工具使用，让用户以完全自由的方式定制自己的智能体工具链 |
 | 对外接口开放 | 开发者友好，对外开放模拟openAI和MCP的API接口，以及桌宠API接口 |
 | 扩展系统 | 你可以在这里 [扩展列表](https://super-agent-party.github.io/plugins.html) 查看有哪些插件可用，你也可以直接在party中直接在【开发者】->【扩展】中查看和安装插件。你可以在[super-agent-party.github.io](https://github.com/super-agent-party/super-agent-party.github.io) 将你自己开发的扩展添加到官方扩展列表中！ |
 | 存储空间 | 所有的文件资料均存放在用户本地的数据文件夹中，如果使用NAS部署，还可以作为内网的个人图床、文件床使用 |

@@ -27,6 +27,7 @@ a = Analysis(
         ('static', 'static'),
         ('vrm', 'vrm'),
         ('tiktoken_cache', 'tiktoken_cache'),
+        ('skills', 'skills'),
         *ffmpeg_data, 
     ],
     hiddenimports=[

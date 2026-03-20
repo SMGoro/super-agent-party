@@ -761,7 +761,7 @@ const app = Vue.createApp({
     }
     await this.probeNode();
     await this.probeUv(); 
-    await this.probeGit();
+    await this.probeDocker();
     this.checkMobile();
     this.loadSherpaStatus();
     this.minilmModelStatus();
@@ -963,7 +963,6 @@ const handleRemoteInstall = (data) => {
     this.stopExtensionsPolling();
     clearInterval(this.nodeTimer);
     clearInterval(this.uvTimer); 
-    clearInterval(this.gitTimer);
     if (isElectron) {
       delete window.stopQQBotHandler;
       delete window.stopFeishuBotHandler;
@@ -979,6 +978,14 @@ const handleRemoteInstall = (data) => {
     window.removeEventListener('resize', this.handleResize);
   },
   watch: {
+    sidePanelOpen(val) {
+        if (!val && this.taskRefreshTimer) {
+            clearInterval(this.taskRefreshTimer);
+        } else if (val && this.activeSideView === 'tasks') {
+            this.fetchTasks();
+            this.taskRefreshTimer = setInterval(this.fetchTasks, 3000);
+        }
+    },
     'tempBehavior.trigger.cycle.cycleValue'(newVal) {
       if (newVal === '00:00:00') {
         this.tempBehavior.trigger.cycle.cycleValue = '00:00:01';
@@ -1134,28 +1141,10 @@ const handleRemoteInstall = (data) => {
     },
   },
   computed: {
-    // 动态获取当前正在编辑的配置对象
-    currentBrainSettings() {
-      if (!this.currentEditingKey) return null;
-      // 根据 key 拼接字符串来访问 data 中的数据
-      // 例如：'prefrontalCortex' -> this.prefrontalCortexSettings
-      return this[`${this.currentEditingKey}Settings`];
-    },
-
-    // 动态获取模态框标题
-    currentBrainTitle() {
-      if (!this.currentEditingKey) return '';
-      // 这里复用你已有的翻译 key
-      return this.t(this.currentEditingKey); // 结果如: "前额叶 设置"
-    },
-    isAllBrainsActive() {
-      // 注意：使用 this. 且不需要 .value
-      return (
-        this.prefrontalCortexSettings.enabled &&
-        this.NeocortexSettings.enabled &&
-        this.LimbicSystemSettings.enabled &&
-        this.ReptilianBrainSettings.enabled
-      );
+    hasWorkspacePath() {
+        return this.CLISettings && 
+               this.CLISettings.cc_path && 
+               this.CLISettings.cc_path.trim() !== '';
     },
     dynamicUserAgent() {
       // 1. 定义一个较新的 Chrome 版本号 (定期更新这个版本号可以保持最佳兼容性)
@@ -1637,23 +1626,25 @@ const handleRemoteInstall = (data) => {
   methods: {
     ...vue_methods,
   },
-  directives: {
+directives: {
     morph: {
       mounted(el, binding, vnode) {
-        // 获取组件实例 context
         const vm = binding.instance; 
         el._update = (content) => {
-           // 使用 morphdom 的逻辑 (参考上文 script 中的 updateElement)
-           // 这里的 formatFn 我们直接调用组件的 methods
-           const html = vm.formatMessage(content, -1); // 传入内容进行渲染
-           
-           // ... 执行 morphdom(el, html_wrapper) ...
-           // (将上文 step 2 的 updateElement 逻辑复制到这里)
-           
-           // 简单版实现：
+           const html = vm.formatMessage(content, -1);
            const wrapper = document.createElement('div');
            wrapper.innerHTML = html;
-           morphdom(el, wrapper, { childrenOnly: true });
+           morphdom(el, wrapper, { 
+               childrenOnly: true,
+               onBeforeElUpdated: (fromEl, toEl) => {
+                   // 只保护 MathJax 自身的标签，不保护父元素
+                   const tag = fromEl.tagName || '';
+                   if (tag.startsWith('MJX-') || fromEl.classList.contains('MathJax')) return false;
+                   if (fromEl.tagName === 'PRE' && fromEl.isEqualNode(toEl)) return false;
+                   return true;
+               }
+           });
+           // 流式输出期间不调用 MathJax，避免和 morphdom 打架
         };
         el._update(binding.value);
       },
@@ -1663,7 +1654,7 @@ const handleRemoteInstall = (data) => {
         }
       }
     }
-  },
+},
   created() {
       if (this.browserTabs.length > 0) {
           this.currentTabId = this.browserTabs[0].id;

@@ -168,6 +168,8 @@ const IMAGE_MIME_WHITELIST = [
   'image/bmp'
 ];
 
+
+const ALL_ALLOWED_EXTENSIONS = [...new Set([...ALLOWED_EXTENSIONS, ...ALLOWED_IMAGE_EXTENSIONS])];
 let vue_methods = {
   handleUpdateAction() {
     if (this.updateDownloaded) {
@@ -217,7 +219,29 @@ let vue_methods = {
   async deleteMessage(index) {
     this.stopGenerate();
     this.messages.splice(index, 1);
+    if (this.conversationId === null) {
+        this.conversationId = uuid.v4();
+        const newConv = {
+            id: this.conversationId,
+            title: this.generateConversationTitle(messagesPayload),
+            mainAgent: this.mainAgent,
+            timestamp: Date.now(),
+            messages: this.messages,
+            fileLinks: this.fileLinks,
+            system_prompt: this.system_prompt,
+        };
+        this.conversations.unshift(newConv);
+    } else {
+        const conv = this.conversations.find(conv => conv.id === this.conversationId);
+        if (conv) {
+            conv.messages = this.messages;
+            conv.timestamp = Date.now();
+            conv.fileLinks = this.fileLinks;
+        }
+    }
     await this.autoSaveSettings();
+    await this.saveConversations();
+    console.log("delete message");
   },
 
   openEditDialog(type, content, index = null) {
@@ -451,6 +475,7 @@ let vue_methods = {
     async loadConversation(convId) {
       const conversation = this.conversations.find(c => c.id === convId);
       if (conversation) {
+        console.log("convid:"+convId);
         this.conversationId = convId;
         this.messages = [...conversation.messages];
         this.fileLinks = conversation.fileLinks;
@@ -474,6 +499,16 @@ let vue_methods = {
       this.inAutoMode = false; // 重置自动模式状态
       this.scrollToBottom();
       this.sendMessagesToExtension(); // 发送消息到插件
+      this.$nextTick(() => {
+          setTimeout(() => {
+              if (window.MathJax) {
+                  const els = document.querySelectorAll('.stream-content');
+                  window.MathJax.typesetClear([...els]); // 先清除旧渲染
+                  window.MathJax.typesetPromise([...els]).catch(() => {});
+              }
+          }, 200);
+      });
+
       this.autoSaveSettings();
     },
     switchToagents() {
@@ -635,7 +670,21 @@ let vue_methods = {
     formatMessage(content, index) {
       if (!content) return '';
 
-      // ... (前面表格优化的代码保持不变)
+      // 目的是防止 markdown-it 因为最后一行缺少 '|' 而在 Table 和 Paragraph 之间反复横跳
+      let processedForRender = content.trimEnd(); 
+      
+      // 获取最后一行
+      const lines = content.split('\n');
+      const lastLine = lines[lines.length - 1].trim();
+
+      // 如果最后一行以 '|' 开头（看起来像是表格行）
+      // 并且它还不是分隔行（即不是 |---| 这种）
+      // 并且它没有以 '|' 结尾
+      if (lastLine.startsWith('|') && !lastLine.endsWith('|') && !/^[|\s-:]+$/.test(lastLine)) {
+        // 临时在渲染用的字符串末尾补上 ' |'，让解析器认为这一行结束了
+        // 注意：这不会修改 this.messages 里的真实数据，只影响本次渲染
+        processedForRender += ' |';
+      }
 
       // --- 预处理阶段 ---
       const parts = this.splitCodeAndText(content);
@@ -706,10 +755,45 @@ let vue_methods = {
         }
       }).join('');
 
-      // --- 渲染阶段及后续恢复保持不变 ---
-      // ... 
       let rendered = md.render(processedContent);
-      // ... (恢复 LaTeX, 处理链接等)
+      // --- 恢复阶段 ---
+      // 恢复 LaTeX
+      latexPlaceholders.forEach(({ placeholder, latex }) => {
+        rendered = rendered.replace(placeholder, latex);
+      });
+
+      // 处理未闭合代码块的转义 (如果有)
+      rendered = rendered.replace(/\\\`/g, '`').replace(/\\\$/g, '$');
+
+      // 处理思考中的状态 (Thinking...)
+      const currentMsg = this.messages[index];
+      // 只有当是最后一条消息、角色是助手、且正在输入时才显示“思考中”图标
+      if (index === this.messages.length - 1 && currentMsg?.role === 'assistant' && this.isTyping && currentMsg.content !== currentMsg.pure_content) {
+        // 注意：这里不要直接加在 rendered 字符串里，最好在模板中通过 v-if 控制，
+        // 但为了兼容您的逻辑，我们保留：
+        rendered = `<div class="thinking-header"><i class="fa-solid fa-lightbulb"></i> ${this.t('thinking')}</div>` + rendered;
+      }
+
+      // --- 后处理 (MathJax & Mermaid) ---
+      // 我们不再在 formatMessage 内部直接调用 MathJax，而是将其推入队列
+      this.$nextTick(() => {
+        this.queueMathJax(index);
+        this.initCopyButtons();
+        this.initPreviewButtons();
+        // Mermaid 也可以在这里懒加载
+      });
+
+      // 处理链接 (保持您原有的 DOM 操作逻辑，但建议用正则替换以提高性能)
+      // 使用正则替换 href，比创建 DOM 树快得多
+      rendered = rendered.replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"([^>]*)>/g, (match, href, otherAttrs) => {
+        // 检查是否为脚注
+        if (otherAttrs.includes('footnote-ref') || otherAttrs.includes('footnote-backref') || href.startsWith('#')) {
+          return match; 
+        }
+        const formattedHref = this.formatFileUrl(href);
+        return `<a href="${formattedHref}" target="_blank"${otherAttrs}>`;
+      });
+
       return rendered;
     },
 
@@ -1602,6 +1686,10 @@ let vue_methods = {
             this.TTSrunning = false;
         }
 
+        if (typeof this.sendTTSStatusToVRM === 'function') {
+            this.sendTTSStatusToVRM('ttsStarted', {});
+        }
+
         // --- 桌面截图逻辑 (Electron) ---
         if (vue_data.isElectron && this.visionSettings?.desktopVision) {
             if (this.visionSettings.enableWakeWord && this.visionSettings.wakeWord) {
@@ -1757,7 +1845,6 @@ let vue_methods = {
         let tts_buffer = '';
         let isCodeBlock = false;
         this.cur_voice = 'default';
-        let max_rounds = this.settings.max_rounds || 0;
         
         const toolCallStack = [];
         // 内部函数：准备发送给 API 的消息历史
@@ -1848,9 +1935,15 @@ let vue_methods = {
             return sanitized;
         };
 
-        let messagesPayload = max_rounds === 0 ? prepareMessages(this.messages) : prepareMessages(this.messages.slice(-max_rounds));
+        let messagesPayload = prepareMessages(this.messages);
         console.log(messagesPayload);
         let currentMsg;
+
+        if(this.extensionsSystemPromptsDict){
+            const combinedPrompt = Object.values(this.extensionsSystemPromptsDict).filter(Boolean).join('\n\n');
+            if (messagesPayload[0].role === 'system') messagesPayload[0].content += '\n\n' + combinedPrompt;
+            else messagesPayload.unshift({ role: 'system', content: combinedPrompt });
+        }
 
         // === 【修复 1】: 是恢复模式则复用最后一条消息，否则创建新消息 ===
         if (isResume && this.messages.length > 0) {
@@ -1979,7 +2072,7 @@ let vue_methods = {
                         // 2. 处理工具 Loading 状态 (保持原样)
                         if (delta.tool_progress) {
                             const progress = delta.tool_progress;
-                            let toolCallId = progress.tool_call_id; // 优先使用后端提供的 ID
+                            let toolCallId = progress.tool_call_id || progress.id; 
                             
                             // 【修复】使用栈管理，替代原来的 toolCallIdMap[progress.name]
                             if (!toolCallId) {
@@ -2137,15 +2230,29 @@ let vue_methods = {
                             } 
                             // === 普通流式工具逻辑 ===
                             else if (tool.type === 'tool_result_stream' && tool.title === "tool_result_stream") {
-                                // ... (保持原样)
-                                const blockEndTag = '</div>';
-                                let lastBlockEndIndex = currentMsg.content.lastIndexOf(blockEndTag);
-                                if (lastBlockEndIndex > -1) {
-                                    const contentToAppend = '<br>' + escapeHtml(tool.content).replace(/\n/g, '<br>');
-                                    currentMsg.content = currentMsg.content.substring(0, lastBlockEndIndex) + contentToAppend + currentMsg.content.substring(lastBlockEndIndex);
+                                const preIdMatch = `id="pre-result-${toolCallId}"`;
+                                let preStartIndex = currentMsg.content.lastIndexOf(preIdMatch);
+                                
+                                if (preStartIndex > -1) {
+                                    let nextPreEndIndex = currentMsg.content.indexOf('</pre>', preStartIndex);
+                                    if (nextPreEndIndex > -1) {
+                                        // 【修复点 2】：<pre> 内部自带换行，不要执行 replace(/\n/g, '<br>')
+                                        const contentToAppend = escapeHtml(tool.content);
+                                        currentMsg.content = currentMsg.content.substring(0, nextPreEndIndex) + contentToAppend + currentMsg.content.substring(nextPreEndIndex);
+                                    }
                                 } else {
-                                    currentMsg.content += ' ' + escapeHtml(tool.content).replace(/\n/g, '<br>');
+                                    // 兜底方案：如果找不到对应的 id，就找最后一个 </pre>
+                                    const blockEndTag = '</pre>';
+                                    let lastBlockEndIndex = currentMsg.content.lastIndexOf(blockEndTag);
+                                    if (lastBlockEndIndex > -1) {
+                                        const contentToAppend = escapeHtml(tool.content);
+                                        currentMsg.content = currentMsg.content.substring(0, lastBlockEndIndex) + contentToAppend + currentMsg.content.substring(lastBlockEndIndex);
+                                    } else {
+                                        currentMsg.content += ' ' + escapeHtml(tool.content);
+                                    }
                                 }
+                                
+                                // 更新后端上下文信息
                                 const lastToolIndex = currentMsg.backend_content.length - 1;
                                 for (let i = lastToolIndex; i >= 0; i--) {
                                     if (currentMsg.backend_content[i].role === 'tool' && currentMsg.backend_content[i].tool_call_id === toolCallId) {
@@ -2154,31 +2261,42 @@ let vue_methods = {
                                     }
                                 }
                             } else {
-                                // ... (标准 Call/Result/Error 逻辑 - 保持原样)
+                                // === 标准 Call/Result/Error 逻辑 ===
                                 if (this.isThinkOpen) { currentMsg.content += '</div>\n\n'; this.isThinkOpen = false; }
+                                
                                 let className = (tool.type === 'error') ? 'highlight-block-error' : 'highlight-block';
-                                let uiTitle = "";
-                                if (tool.type === 'call') {
-                                    uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
-                                } else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream') {
-                                    const displayName = delta.async_tool_id || (tool.title !== 'tool_result_stream' ? tool.title : 'Tool');
-                                    uiTitle = `${displayName}${this.t('tool_result')}`;
-                                } else if (tool.type === 'error') {
-                                    uiTitle = tool.title || 'Error'; 
-                                }
+                                
+                                // 【修复点 3】：防止 type="call" 的事件重复生成已经在 tool_progress 中画过的 UI 框
+                                const blockId = tool.type === 'call' ? `tool-call-${toolCallId}` : `tool-result-${toolCallId}`;
+                                const isCallAlreadyRendered = (tool.type === 'call' && currentMsg.content.includes(`id="${blockId}"`));
 
-                                let html = `\n<div class="${className}">`;
-                                html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
-                                if (tool.content) { 
+                                // 只有当它没被渲染过时，我们才追加新的 HTML
+                                if (!isCallAlreadyRendered) {
+                                    let uiTitle = "";
                                     if (tool.type === 'call') {
-                                         html += escapeHtml(tool.content).replace(/\n/g, '<br>'); 
+                                        uiTitle = `${this.t('call')}${tool.title}${this.t('tool')}`;
+                                    } else if (tool.type === 'tool_result' || tool.type === 'tool_result_stream') {
+                                        const displayName = delta.async_tool_id || (tool.title !== 'tool_result_stream' ? tool.title : 'Tool');
+                                        uiTitle = `${displayName}${this.t('tool_result')}`;
+                                    } else if (tool.type === 'error') {
+                                        uiTitle = tool.title || 'Error'; 
                                     } else {
-                                        html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${escapeHtml(tool.content)}</pre>`;
+                                        uiTitle = tool.title || ''; 
                                     }
-                                }
-                                html += '</div>\n\n';
-                                currentMsg.content += html;
 
+                                    let html = `\n<div class="${className}" id="${blockId}">`;
+                                    html += `<div style="font-weight: bold; margin-bottom: 5px;">${uiTitle}</div>`;
+                                    if (tool.content) { 
+                                        if (tool.type === 'call') {
+                                            html += `<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${escapeHtml(tool.content)}</pre>`;
+                                        } else {
+                                            // 【修复点 4】：为结果生成的 <pre> 附加上专属的 ID，让流式拼接时能够精准瞄准它
+                                            html += `<pre id="pre-result-${toolCallId}" style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:inherit;background-color:var(--el-bg-color-page);color:var(--text-color);border-radius:12px;">${escapeHtml(tool.content)}</pre>`;
+                                        }
+                                    }
+                                    html += '</div>\n\n';
+                                    currentMsg.content += html;
+                                }
                                 if (tool.type === 'call') {
                                     let last = currentMsg.backend_content[currentMsg.backend_content.length - 1];
                                     if (last.role === 'assistant') {
@@ -2267,7 +2385,17 @@ let vue_methods = {
             }
             
             currentMsg.generationFinished = true;
-            
+                        
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    if (window.MathJax) {
+                        // 找到所有消息容器一次性渲染
+                        const els = document.querySelectorAll('.stream-content');
+                        window.MathJax.typesetPromise([...els]).catch(() => {});
+                    }
+                }, 100);
+            });
+
             if (this.ttsSettings.enabled) {
                 if (this.audioStartTime > this.audioCtx.currentTime) {
                     const remainingTime = (this.audioStartTime - this.audioCtx.currentTime) * 1000;
@@ -2455,62 +2583,73 @@ let vue_methods = {
     async handleInputPaste(event) {
       const items = (event.clipboardData || window.clipboardData).items;
       
+      // --- 🆕 新增配置: 超过多少字符转为文件 ---
+      const TEXT_TO_FILE_THRESHOLD = 2000; 
+
       const imageFiles = []; // 待上传的图片列表
       const docFiles = [];   // 待上传的普通文件列表
       let hasValidContent = false;
 
-      // 1. 遍历剪贴板项目
+      // 1. 遍历剪贴板中的“文件”项目 (图片或复制的文件)
       for (const item of items) {
         if (item.kind === 'file') {
           const file = item.getAsFile();
           if (!file) continue;
 
-          // 获取文件后缀（小写）
           const ext = (file.name.split('.').pop() || '').toLowerCase();
-          // 判断 MIME 类型是否为图片
           const isImageMime = item.type.startsWith('image/');
 
-          // --- 情况 A: 是图片 (MIME是图片 或 后缀在图片白名单中) ---
+          // --- existing logic for images ---
           if (isImageMime || ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
-            // 如果文件名是通用的 "image.png" (通常是截图)，或者是无后缀的，给它重命名
-            // 这样可以避免多次截图文件名冲突
             if (file.name === 'image.png' || !file.name.includes('.')) {
               const fileExtension = file.type.split('/')[1] || 'png';
               const namedFile = new File([file], `pasted_image_${Date.now()}.${fileExtension}`, { type: file.type });
               imageFiles.push(namedFile);
             } else {
-              // 如果是从文件夹复制的已有图片，保留原文件名
               imageFiles.push(file);
             }
             hasValidContent = true;
           } 
-          // --- 情况 B: 是普通文件 (后缀在文件白名单中) ---
+          // --- existing logic for docs ---
           else if (ALLOWED_EXTENSIONS.includes(ext)) {
-            // 普通文件直接添加，保留原名
             docFiles.push(file);
             hasValidContent = true;
           }
         }
       }
 
-      // 2. 如果找到了有效内容 (图片或文件)
+      // --- 🆕 2. 如果没有检测到实体文件，检查纯文本是否过长 ---
+      if (!hasValidContent) {
+          const pastedText = event.clipboardData.getData('text');
+          
+          if (pastedText && pastedText.length > TEXT_TO_FILE_THRESHOLD) {
+              // 生成一个临时的 txt 文件
+              // 使用 Date.now() 确保文件名唯一
+              const fileName = `paste_text_${Date.now()}.txt`;
+              const textFile = new File([pastedText], fileName, { type: 'text/plain' });
+
+              // 将其视为普通文档处理
+              docFiles.push(textFile);
+              hasValidContent = true;
+              
+              // 可选：提示用户
+              // this.$message.info(this.t('textToAttachmentHint') || '文本过长，已自动转换为附件发送');
+          }
+      }
+
+      // 3. 如果找到了有效内容 (图片、文件 或 刚刚生成的长文本文件)
       if (hasValidContent) {
-        // 3. 阻止默认粘贴行为 (防止文件名或乱码进入输入框)
+        // 阻止默认粘贴行为 (这对于防止长文本进入输入框至关重要)
         event.preventDefault();
 
-        // 4. 分别处理图片和文件
         if (imageFiles.length > 0) {
           this.addFiles(imageFiles, 'image');
         }
 
         if (docFiles.length > 0) {
+          // 这里会调用你现有的上传逻辑，后端会接收到一个标准的 .txt 文件
           this.addFiles(docFiles, 'file');
         }
-        
-        // 5. 交互优化：如果有文件进入，拉高输入框（可选）
-        // if (this.images.length > 0 || this.files.length > 0) {
-        //   this.isInputExpanded = true;
-        // }
       }
     },
     getRoleAvatar(name) {
@@ -3029,6 +3168,49 @@ let vue_methods = {
       this.autoSaveSettings();
       this.sendMessagesToExtension(); // 发送消息到插件
     },
+
+
+  async browseAllFiles() {
+    if (!this.isElectron) {
+      // 浏览器环境
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.multiple = true
+      // 合并接受的文件类型
+      input.accept = ALL_ALLOWED_EXTENSIONS.map(ext => `.${ext}`).join(',')
+      
+      input.onchange = (e) => {
+        const files = Array.from(e.target.files)
+        // 统一验证：只要在合并后的列表中即可
+        const validFiles = files.filter(file => {
+          const ext = file.name.split('.').pop()?.toLowerCase();
+          return ALL_ALLOWED_EXTENSIONS.includes(ext);
+        })
+        this.handleFiles(validFiles)
+      }
+      input.click()
+    } else {
+      // Electron 环境
+      // 假设你的 electronAPI.openFileDialog 支持多选并返回路径
+      const result = await window.electronAPI.openFileDialog(); 
+      if (!result.canceled) {
+        const files = await Promise.all(
+          result.filePaths
+            .filter(path => {
+              const ext = path.split('.').pop()?.toLowerCase() || '';
+              return ALL_ALLOWED_EXTENSIONS.includes(ext);
+            })
+            .map(async path => {
+              const buffer = await window.electronAPI.readFile(path);
+              const blob = new Blob([buffer]);
+              return new File([blob], path.split(/[\\/]/).pop());
+            })
+        );
+        this.handleFiles(files);
+      }
+    }
+  },
+
     async sendFiles() {
       this.showUploadDialog = true;
       // 设置文件上传专用处理
@@ -3046,6 +3228,7 @@ let vue_methods = {
         this.browseDocuments();
       }
     },
+    
     // 专门处理图片选择
     async browseImages() {
       if (!this.isElectron) {
@@ -3165,26 +3348,65 @@ let vue_methods = {
       const ext = (file.name.split('.').pop() || '').toLowerCase()
       return ALLOWED_IMAGE_EXTENSIONS.includes(ext) || IMAGE_MIME_WHITELIST.some(mime => file.type.includes(mime))
     },
+
+  // 拖拽释放处理
+  async handleInputDrop(event) {
+    this.isDragging = false;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) {
+      await this.handleFiles(files);
+    }
+  },
+
+  // 粘贴处理 (同时也支持截图粘贴)
+  handleInputPaste(event) {
+    const items = event.clipboardData.items;
+    const files = [];
+    let hasFiles = false;
+    
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        files.push(items[i].getAsFile());
+        hasFiles = true;
+      }
+    }
+    
+    if (hasFiles) {
+      // 有文件时阻止默认行为
+      event.preventDefault();
+      this.handleFiles(files);
+    }
+    // 没有文件时，让浏览器正常处理文本粘贴
+  },
+
+
     // 统一处理文件
     async handleFiles(files) {
-      const allowedExtensions = this.currentUploadType === 'image' ? ALLOWED_IMAGE_EXTENSIONS : ALLOWED_EXTENSIONS;
+      // 1. 合并所有允许的后缀，用于初步过滤
+      const allAllowed = [...ALLOWED_IMAGE_EXTENSIONS, ...ALLOWED_EXTENSIONS];
       
-      const validFiles = files.filter(file => {
+      // 2. 遍历处理每一个选中的文件
+      files.forEach(file => {
         try {
-          // 安全获取文件扩展名
           const filename = file.name || (file.path && file.path.split(/[\\/]/).pop()) || '';
           const ext = filename.split('.').pop()?.toLowerCase() || '';
-          return allowedExtensions.includes(ext);
+
+          // 检查是否在允许名单内
+          if (ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+            // 如果是图片，按图片逻辑添加
+            this.addFiles([file], 'image');
+          } else if (ALLOWED_EXTENSIONS.includes(ext)) {
+            // 如果是文档，按文件逻辑添加
+            this.addFiles([file], 'file');
+          } else {
+            // 不支持的类型
+            console.warn(`不支持的文件类型: ${ext}`);
+            // 可以选加：this.showErrorAlert('file'); 
+          }
         } catch (e) {
-          console.error('文件处理错误:', e);
-          return false;
+          console.error('文件分拣错误:', e);
         }
       });
-      if (validFiles.length > 0) {
-        this.addFiles(validFiles, this.currentUploadType);
-      } else {
-        this.showErrorAlert(this.currentUploadType);
-      }
     },
     // 统一处理文件
     async handleReadFiles(files) {
@@ -4842,6 +5064,7 @@ let vue_methods = {
       const build = (dims = 1024) => ({
         id: this.newMemory.id || uuid.v4(),
         name: this.newMemory.name,
+        infer: this.newMemory.infer,
         providerId: this.newMemory.providerId,
         model: this.newMemory.model,
         api_key: this.newMemory.api_key,
@@ -5735,6 +5958,7 @@ handleCreateSlackSeparator(val) {
       this.newMemory = {
         id: null,
         name: '',
+        infer:false,
         providerId: null,
         model: '',
         base_url: '',
@@ -5757,6 +5981,7 @@ handleCreateSlackSeparator(val) {
         this.newMemory = {
           id: null,
           name: src.name || '',
+          infer: src.infer || false,
           providerId: src.providerId || null,
           model: src.model || '',
           base_url: src.base_url || '',
@@ -5831,7 +6056,7 @@ handleCreateSlackSeparator(val) {
     checkMobile() {
       this.isMobile = window.innerWidth <= 768;
       this.isAssistantMode = window.innerWidth <= 350 && window.innerHeight <= 820;
-      this.isCapsuleMode = window.innerWidth <= 230 && window.innerHeight <= 100;
+      this.isCapsuleMode = window.innerWidth <= 220 && window.innerHeight <= 100;
       if (this.isMobile) {
         this.MoreButtonDict = this.smallMoreButtonDict;
       }
@@ -6775,6 +7000,14 @@ handleCreateSlackSeparator(val) {
             this.userInputBuffer = '';
           }
           
+          if (this.isPttMode || this.waitingForPttResult) {
+            console.log("PTT 识别完成，自动发送:", data.text);
+            this.sendMessage(); 
+            this.userInput = ''; // 发送后清空
+            this.waitingForPttResult = false; // 重置标记
+            return;
+          }
+
           // 根据交互方式处理
           if (this.asrSettings.interactionMethod == "auto") {
             if (this.ttsSettings.enabledInterruption) {
@@ -6927,6 +7160,18 @@ handleCreateSlackSeparator(val) {
         }
       }
       
+      // 销毁 VAD
+      if (this.vad) {
+        this.vad.pause(); // 某些库版本是 destroy() 或 pause()
+        this.vad = null;
+      }
+
+      // 【新增】停止手动获取的流，释放麦克风红点
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
+      }
+
       // 停止录音和VAD（两种模式都需要）
       this.stopRecording();
     },
@@ -6938,8 +7183,21 @@ handleCreateSlackSeparator(val) {
       if (this.asrSettings.engine === 'webSpeech') {
         min_probabilities = 0.7;
       }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true, // 核心：开启回声消除
+          noiseSuppression: true, // 建议开启：降噪
+          autoGainControl: true   // 建议开启：自动增益
+        }
+      });
+      
+      // 保存流引用，以便后续关闭或用于其他用途（如录音）
+      this.mediaStream = stream; 
+
       // 初始化VAD
       this.vad = await vad.MicVAD.new({
+        stream: stream,
         preSpeechPadFrames: 10,
         onSpeechStart: () => {
           this.ASRrunning = true;
@@ -7134,6 +7392,202 @@ handleCreateSlackSeparator(val) {
           }));
         };
     },
+  // 1. 按下：开始录音
+  async handlePttPress(event) {
+    // 【修复核心】手动阻止默认事件，解决 _withMods 报错
+    if (event && event.preventDefault) {
+      // 允许触摸滚动，但阻止长按弹出菜单等怪异行为
+      if (event.type !== 'touchstart') {
+        event.preventDefault();
+      }
+    }
+
+    if (this.isPttRecording || this.isProcessingPtt) return;
+    
+    this.isPttRecording = true;
+    this.audioChunks = []; // 重置数据桶
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.pttStream = stream;
+
+      let options = { mimeType: 'audio/webm' };
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/mp4' }; // Safari 兼容
+      }
+      
+      this.pttMediaRecorder = new MediaRecorder(stream, options);
+
+      this.pttMediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          this.audioChunks.push(e.data);
+        }
+      };
+
+      this.pttMediaRecorder.start();
+      
+      if (navigator.vibrate) navigator.vibrate(50);
+
+    } catch (error) {
+      console.error("PTT Start Error:", error);
+      showNotification(this.t('micPermissionDenied'), 'error');
+      this.isPttRecording = false;
+    }
+  },
+
+  // 2. 松开：停止录音 -> 转码 -> 发送
+  async handlePttRelease(event) {
+    // 【修复核心】手动阻止默认事件
+    if (event && event.preventDefault && event.type !== 'touchend') {
+       event.preventDefault();
+    }
+
+    if (!this.isPttRecording || !this.pttMediaRecorder) return;
+
+    this.isPttRecording = false;
+    this.isProcessingPtt = true;
+
+    // 停止录制
+    if(this.pttMediaRecorder.state !== 'inactive') {
+        this.pttMediaRecorder.stop();
+    }
+    
+    // 关闭麦克风红点
+    if (this.pttStream) {
+      this.pttStream.getTracks().forEach(track => track.stop());
+      this.pttStream = null;
+    }
+    
+    if (navigator.vibrate) navigator.vibrate(30);
+
+    // 等待录制彻底结束
+    await new Promise(resolve => {
+      this.pttMediaRecorder.onstop = () => resolve();
+    });
+
+    // 处理音频
+    await this.processAndSendPttAudio();
+    
+    this.isProcessingPtt = false;
+    this.pttMediaRecorder = null;
+  },
+
+  // 3. 处理音频逻辑
+  async processAndSendPttAudio() {
+    if (this.audioChunks.length === 0) return;
+
+    try {
+      // 合并录音片段
+      const mimeType = this.pttMediaRecorder ? this.pttMediaRecorder.mimeType : 'audio/webm';
+      const rawBlob = new Blob(this.audioChunks, { type: mimeType });
+
+      // ★ 核心转换：将 WebM/MP4 转为 16000Hz WAV
+      // 这是后端 ASR 通常能识别的最稳妥格式
+      const wavBlob = await this.convertBlobToWav(rawBlob, 16000);
+
+      // 发送
+      await this.sendPttToBackend(wavBlob);
+
+    } catch (error) {
+      console.error("PTT Process Error:", error);
+    }
+  },
+
+  // 4. 发送给后端 (复用 WebSocket)
+  async sendPttToBackend(wavBlob) {
+    // 确保连接
+    if (!this.asrWs || this.asrWs.readyState !== WebSocket.OPEN) {
+      try {
+        await this.initASRWebSocket();
+        await new Promise(r => setTimeout(r, 500));
+      } catch (e) {
+        showNotification("无法连接语音服务器", 'error');
+        return;
+      }
+    }
+
+    const reader = new FileReader();
+    reader.readAsDataURL(wavBlob);
+    reader.onloadend = () => {
+      const base64data = reader.result.split(',')[1];
+      const reqId = uuid.v4();
+
+      // 发送完整音频包
+      this.asrWs.send(JSON.stringify({
+        type: 'audio_complete', 
+        id: reqId,
+        audio: base64data,
+        format: 'wav',
+        sample_rate: 16000
+      }));
+      
+      // 标记我们在等待 PTT 结果
+      this.waitingForPttResult = true;
+    };
+  },
+
+  // 5. 音频格式转换工具 (必须包含)
+  async convertBlobToWav(blob, targetSampleRate = 16000) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    // 离线重采样
+    const offlineCtx = new OfflineAudioContext(1, audioBuffer.duration * targetSampleRate, targetSampleRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    
+    const renderedBuffer = await offlineCtx.startRendering();
+    
+    return this.bufferToWav(renderedBuffer);
+  },
+
+  // 6. Buffer 转 WAV 封装 (必须包含)
+  bufferToWav(abuffer) {
+    const numOfChan = abuffer.numberOfChannels;
+    const length = abuffer.length * numOfChan * 2 + 44;
+    const buffer = new ArrayBuffer(length);
+    const view = new DataView(buffer);
+    const channels = [];
+    let i, sample, offset = 0, pos = 0;
+
+    // 写入 WAV 头
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8); // file length - 8
+    setUint32(0x45564157); // "WAVE"
+    setUint32(0x20746d66); // "fmt " chunk
+    setUint32(16); // length = 16
+    setUint16(1); // PCM (uncompressed)
+    setUint16(numOfChan);
+    setUint32(abuffer.sampleRate);
+    setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+    setUint16(numOfChan * 2); // block-align
+    setUint16(16); // 16-bit
+
+    setUint32(0x61746164); // "data" - chunk
+    setUint32(length - pos - 4); // chunk length
+
+    for (i = 0; i < abuffer.numberOfChannels; i++)
+      channels.push(abuffer.getChannelData(i));
+
+    while (pos < abuffer.length) {
+      for (i = 0; i < numOfChan; i++) {
+        sample = Math.max(-1, Math.min(1, channels[i][pos]));
+        sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+        view.setInt16(44 + offset, sample, true);
+        offset += 2;
+      }
+      pos++;
+    }
+
+    function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data) { view.setUint32(pos, data, true); pos += 4; } // 注意这里修正了 pos+=4
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  },
+
 
     // WAV转换函数保持不变
     async audioToWav(audioData) {
@@ -7399,7 +7853,7 @@ handleCreateSlackSeparator(val) {
         chunk_expressions = (chunk.match(tagReg) || []).map(t => t.slice(1, -1)); 
         chunk_text = chunk.replace(tagReg, '').trim();
       }
-      console.log(`Processing TTS chunk ${index}:`, chunk_text ,"\nvoice:" ,voice);
+      console.log(`Processing TTS chunk ${index}:`, chunk_text ,"\nvoice:" ,voice,"\nchunk_expressions:", chunk_expressions);
       
       try {
         if (voice=='silence'){
@@ -7973,19 +8427,26 @@ handleCreateSlackSeparator(val) {
   },
   
   // 处理参考音频路径改变
-  handleRefAudioPathChange(value) {
+  handleRefAudioPathChange(value, option) {
     // 当选择新的参考音频时，更新对应的提示文本
     const selectedAudio = this.ttsSettings.gsvAudioOptions.find(
       audio => audio.path === value
     );
     
     if (selectedAudio && selectedAudio.text) {
-      this.ttsSettings.gsvPromptText = selectedAudio.text;
+      if (option == 'role') {
+        this.newTTSConfig.gsvPromptText = selectedAudio.text;
+      }
+      else if (option == 'model') {
+        this.ttsSettings.gsvPromptText = selectedAudio.text;
+      }
+      
     }
     
     // 自动保存设置
     this.autoSaveSettings();
   },
+
 
     // 删除音频选项
   async deleteAudioOption(path) {
@@ -8941,9 +9402,51 @@ handleCreateSlackSeparator(val) {
     this.autoSaveSettings();
   },
 
-  async changeSqlEnabled(){
-    if (this.sqlSettings.enabled){
-      const response = await fetch('/start_sql',{
+  async changeSqlEnabled() {
+    if (this.sqlSettings.enabled) {
+      
+      // ==========================================
+      // 1. 启动前置校验 (新增逻辑)
+      // ==========================================
+      const settings = this.sqlSettings;
+      let errorMsg = '';
+
+      if (settings.engine === 'sqlite') {
+        // SQLite 只需要校验 dbpath
+        if (!settings.dbpath?.trim()) {
+          errorMsg = this.t('pleaseConfigSqliteDbpath');
+        }
+      } else {
+        // 其他数据库校验 host, port, user, password, dbname
+        if (!settings.host?.trim()) {
+          errorMsg = this.t('pleaseConfigSqlHost');
+        } else if (settings.port === undefined || settings.port === null || settings.port === '') {
+          errorMsg = this.t('pleaseConfigSqlPort');
+        } else if (!settings.user?.trim()) {
+          errorMsg = this.t('pleaseConfigSqlUser');
+        } else if (!settings.password?.trim()) {
+          errorMsg = this.t('pleaseConfigSqlPassword');
+        } else if (!settings.dbname?.trim()) {
+          errorMsg = this.t('pleaseConfigSqlDbname');
+        }
+      }
+
+      // 校验失败：弹窗报错，重置开关并阻断执行
+      if (errorMsg) {
+        const errorTitle = this.t ? this.t('configIncomplete') : 'Configuration Incomplete';
+        showNotification(errorMsg, 'error', errorTitle);
+
+        this.$nextTick(() => {
+          this.sqlSettings.enabled = false;
+        });
+        
+        return; // ⚠️ 必须 return，防止继续执行下方的 fetch 请求
+      }
+
+      // ==========================================
+      // 2. 原有的启动逻辑 (校验通过后执行)
+      // ==========================================
+      const response = await fetch('/start_sql', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -8952,32 +9455,41 @@ handleCreateSlackSeparator(val) {
           data: this.sqlSettings
         })
       });
-      if (response.ok){
+      if (response.ok) {
         const data = await response.json();
         console.log(data);
         showNotification(this.t('success_start_sqlControl'));
-      }else {
+      } else {
         this.sqlSettings.enabled = false;
         console.error('启动sql失败');
         showNotification(this.t('error_start_sqlControl'), 'error');
       }
-    }else{
-      const response = await fetch('/stop_sql',{
+
+    } else {
+      
+      // ==========================================
+      // 3. 原有的停止逻辑 (用户关闭开关时执行)
+      // ==========================================
+      const response = await fetch('/stop_sql', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
         },
       });
-      if (response.ok){
+      if (response.ok) {
         const data = await response.json();
         console.log(data);
         showNotification(this.t('success_stop_sqlControl'));
-      }else {
+      } else {
         this.sqlSettings.enabled = true;
         console.error('停止sql失败');
         showNotification(this.t('error_stop_sqlControl'), 'error');
       }
     }
+    
+    // ==========================================
+    // 4. 操作成功后保存配置
+    // ==========================================
     this.autoSaveSettings();
   },
   
@@ -10589,6 +11101,7 @@ stopTTSActivities() {
   },
   toggleAssistantMode() {
     this.activeMenu = 'home';
+    this.isPttMode = false;
     console.log('切换助手模式，当前状态:', this.isAssistantMode);
 
     if (this.isAssistantMode && !this.isMac) {
@@ -10626,7 +11139,7 @@ stopTTSActivities() {
   // 修改：保留原有的截图逻辑，参数 hideMainWindow 决定是否隐藏
   async toggleScreenshot(hideMainWindow = true) {
     try {
-      // 1. 调用遮罩，并传入是否隐藏的参数
+      // 1. 调用遮罩
       const rect = await window.electronAPI.showScreenshotOverlay(hideMainWindow)
       
       if (!rect) return // 用户取消
@@ -10634,26 +11147,44 @@ stopTTSActivities() {
       // 2. 裁剪
       const buf = await window.electronAPI.cropDesktop({ rect })
 
-      // 3. 保存
+      // 3. 创建 Blob 和 File
       const blob = new Blob([buf], { type: 'image/png' })
       const file = new File([blob], `desktop_${Date.now()}.png`, { type: 'image/png' })
-      this.images.push({ file, name: file.name, path: '' })
+
+      // 4. ★ 关键修复：创建本地 URL 用于预览，并推入 images 数组
+      const localUrl = URL.createObjectURL(blob)
+      
+      // 推入 images 数组（假设 allItems 是计算属性包含 images）
+      this.images.push({ 
+        file, 
+        name: file.name, 
+        path: localUrl,  // ★ 使用 blob URL 而不是空字符串
+        type: 'image'    // ★ 明确标记类型，便于 allItems 处理
+      })
+
+      // ★ 如果 allItems 是独立数组，也需要同步推送
+      // this.allItems.push({
+      //   name: file.name,
+      //   path: localUrl,
+      //   type: 'image',
+      //   file: file
+      // })
+
     } catch (e) {
-      console.error(e)
+      console.error('截图失败:', e)
     } finally {
-      // 4. 清理并恢复窗口
+      // 5. 清理并恢复窗口
       await window.electronAPI.cancelScreenshotOverlay();
-      // 只有当之前隐藏了窗口，才需要在这里强制显示。
-      // 这里直接调用 show 是安全的，因为如果窗口本来是显示的，这个调用不会有副作用
       window.electronAPI.windowAction('show');
     }
   },
   async toggleCapsuleMode() {
     this.activeMenu = 'home';
+    this.isPttMode = false;
     if (this.isCapsuleMode && !this.isMac) {
       window.electronAPI.windowAction('maximize') // 恢复默认大小
     } else{
-      window.electronAPI.toggleWindowSize(220, 75);
+      window.electronAPI.toggleWindowSize(210, 80);
     }
     this.sidePanelOpen = false;
     this.isCapsuleMode = !this.isCapsuleMode;
@@ -10903,6 +11434,7 @@ stopTTSActivities() {
       // 3. 写入 newMemory 并保存
       Object.assign(this.newMemory, {
         name: json.name ?? '',
+        infer:false,
         providerId: null,
         model: '',
         base_url: '',
@@ -11523,8 +12055,8 @@ clearSegments() {
       this.sidePanelURL = '';
       return;
     }
-
-    /* 1. 先尝试 Node 模式 */
+    
+    /* 1. 尝试 Node 模式 */
     try {
       const r = await fetch(`/api/extensions/${extension.id}/start-node`, { method: 'POST' });
       const res = await r.json();
@@ -11535,24 +12067,39 @@ clearSegments() {
         this.sidePanelURL = `/api/extensions/${extension.id}/node/`;
         showNotification(`${this.t('loadExtension(node)')}: ${extension.name}`, 'success');
         return;
+      } else if (res.mode === 'error') {
+        // ❌ Node 服务启动失败！必须拦截并展示错误，不能往下走
+        showNotification(`插件服务启动失败: ${res.message}`, 'error');
+        console.error("【Node Extension 报错】:", res.message);
+        return; 
       }
-      // res.mode === 'static' 继续走下面兜底
+      
+      // 只有 res.mode === 'static'，才允许跳出 if，去走下面的静态路由兜底
     } catch (e) {
-      // 任何异常也继续兜底
+      // 网络断开或解析异常，也建议拦截
+      showNotification(`请求插件服务异常: ${e.message}`, 'error');
+      console.error(e);
+      return; 
     }
 
     /* 2. 回退静态路由 */
     this.currentExtension = extension;
     this.sidePanelURL = `/ext/${extension.id}/index.html`;
     showNotification(`${this.t('loadExtension(static)')}: ${extension.name}`, 'success');
+    this.extensionsSystemPromptsDict[extension.id] = extension.systemPrompt || ""; // 更新提示词
   },
   
   // 切换到默认视图
   resetToDefaultView() {
+    this.extensionsSystemPromptsDict = {}; // 清空提示词字典
+    this.currentExtension = null;
+    console.log('已切换到默认视图');
     this.loadExtension(null);
     this.showExtensionsDialog = false;
     this.expandChatArea();
     this.collapseSidePanel();
+    this.activeSideView = 'list'; // 确保回到列表
+    if (this.taskRefreshTimer) clearInterval(this.taskRefreshTimer); // 清除定时器
   },
   // 打开扩展选择对话框
   openExtensionsDialog() {
@@ -11561,6 +12108,7 @@ clearSegments() {
   
   // 切换扩展
   async switchExtension(extension) {
+    this.activeSideView = 'list'; // 确保回到列表
     this.sidePanelURL = '';
     this.showExtensionsDialog = false; // 关闭对话框
     this.currentExtension = extension;
@@ -12405,38 +12953,6 @@ async togglePlugin(plugin) {
     this.nodeInstalled = installed;
   },
 
-  /* 一键安装 */
-  async installNode() {
-    this.nodeInstalling = true;
-    this.nodeProgress = 0;
-    try {
-      // 1. 发起安装
-      const res = await fetch('/api/node/install', { method: 'POST' });
-      const { task_id } = await res.json();
-
-      // 2. 轮询进度
-      this.nodeTimer = setInterval(async () => {
-        const progRes = await fetch(`/api/node/progress/${task_id}`);
-        const { percent, status } = await progRes.json();
-        this.nodeProgress = Math.round(percent);
-
-        if (status === 'finished') {
-          clearInterval(this.nodeTimer);
-          this.nodeInstalling = false;
-          this.nodeInstalled = true;
-          this.$message.success(this.t('installSuccess'));
-        } else if (status === 'error') {
-          clearInterval(this.nodeTimer);
-          this.nodeInstalling = false;
-          this.$message.error(this.t('installFail'));
-        }
-      }, 1000);
-    } catch (e) {
-      this.nodeInstalling = false;
-      this.$message.error(this.t('installFail'));
-    }
-  },
-
     /* ===== uv 相关 ===== */
   async probeUv() {
     const res = await fetch('/api/uv/probe');
@@ -12444,69 +12960,6 @@ async togglePlugin(plugin) {
     this.uvInstalled = installed;
   },
 
-  async installUv() {
-    this.uvInstalling = true;
-    this.uvProgress = 0;
-    try {
-      const res = await fetch('/api/uv/install', { method: 'POST' });
-      const { task_id } = await res.json();
-
-      this.uvTimer = setInterval(async () => {
-        const progRes = await fetch(`/api/uv/progress/${task_id}`);
-        const { percent, status } = await progRes.json();
-        this.uvProgress = Math.round(percent);
-
-        if (status === 'finished') {
-          clearInterval(this.uvTimer);
-          this.uvInstalling = false;
-          this.uvInstalled = true;
-          this.$message.success(this.t('installUvSuccess'));
-        } else if (status === 'error') {
-          clearInterval(this.uvTimer);
-          this.uvInstalling = false;
-          this.$message.error(this.t('installUvFail'));
-        }
-      }, 1000);
-    } catch (e) {
-      this.uvInstalling = false;
-      this.$message.error(this.t('installUvFail'));
-    }
-  },
-  /* ===== git ===== */
-  async probeGit() {
-    const res = await fetch('/api/git/probe');
-    const { installed } = await res.json();
-    this.gitInstalled = installed;
-  },
-
-  async installGit() {
-    this.gitInstalling = true;
-    this.gitProgress = 0;
-    try {
-      const res = await fetch('/api/git/install', { method: 'POST' });
-      const { task_id } = await res.json();
-
-      this.gitTimer = setInterval(async () => {
-        const progRes = await fetch(`/api/git/progress/${task_id}`);
-        const { percent, status } = await progRes.json();
-        this.gitProgress = Math.round(percent);
-
-        if (status === 'finished') {
-          clearInterval(this.gitTimer);
-          this.gitInstalling = false;
-          this.gitInstalled = true;
-          this.$message.success(this.t('installGitSuccess'));
-        } else if (status === 'error') {
-          clearInterval(this.gitTimer);
-          this.gitInstalling = false;
-          this.$message.error(this.t('installGitFail'));
-        }
-      }, 1000);
-    } catch (e) {
-      this.gitInstalling = false;
-      this.$message.error(this.t('installGitFail'));
-    }
-  },
   async openLogDialog() {
     this.showLogDialog = true;
     await this.fetchLogs();
@@ -14884,5 +15337,318 @@ async handleRefreshSkills() {
       }
       return [];
     },
+
+    async probeDocker() {
+      try {
+        const res = await fetch('/api/docker/probe');
+        const data = await res.json();
+        this.dockerInstalled = data.installed;
+      } catch (error) {
+        console.error("Docker 探测失败:", error);
+        this.dockerInstalled = false;
+      }
+    },
+
+    // 打开任务中心
+    openTaskCenter() {
+        this.activeSideView = 'tasks';
+        this.sidePanelURL = ''; // 确保 iframe 关闭
+        this.currentExtension = null;
+        this.showExtensionsDialog = false; // 关闭对话框
+        this.expandSidePanel();
+        this.fetchTasks();
+        // 开启轮询
+        if (this.taskRefreshTimer) clearInterval(this.taskRefreshTimer);
+        this.taskRefreshTimer = setInterval(this.fetchTasks, 3000);
+    },
+
+    // 关闭任务中心（返回列表）
+    closeTaskCenter() {
+        this.activeSideView = 'list';
+        if (this.taskRefreshTimer) clearInterval(this.taskRefreshTimer);
+    },
+
+    // 获取任务列表
+    async fetchTasks() {
+        if (!this.hasWorkspacePath || !this.sidePanelOpen || this.activeSideView !== 'tasks') return;
+        
+        try {
+            const res = await fetch(`/v1/tasks/list`);
+            const data = await res.json();
+            if (data.tasks) {
+                this.taskList = data.tasks;
+            }
+        } catch (e) {
+            console.error("Failed to fetch tasks", e);
+        }
+    },
+
+    // 创建任务
+    async submitCreateTask() {
+        if (!this.newTaskForm.title || !this.newTaskForm.description) {
+            showNotification(this.t('fillRequired'), 'error');
+            return;
+        }
+
+        this.isCreatingTask = true;
+        try {
+            const res = await fetch(`/v1/tasks/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.newTaskForm)
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                showNotification(this.t('success'))
+                this.showCreateTaskDialog = false;
+                this.newTaskForm = { title: '', description: '', agent_type: 'default' };
+                this.fetchTasks();
+            } else {
+                showNotification(data.error, 'error');
+            }
+        } catch (e) {
+            showNotification(this.t('networkError') || '网络错误', 'error')
+        } finally {
+            this.isCreatingTask = false;
+        }
+    },
+
+    // 取消任务
+    async handleCancelTask(taskId) {
+        try {
+            await fetch(`/v1/tasks/cancel/${taskId}`, { method: 'POST' });
+            showNotification(this.t('cancelSuccess') || '取消任务成功');
+            this.fetchTasks();
+        } catch (e) { console.error(e); }
+    },
+
+    // 删除任务
+    async handleDeleteTask(taskId) {
+        try {
+            this.handleCancelTask(taskId);
+            const res = await fetch(`/v1/tasks/${taskId}`, { 
+                method: 'DELETE' 
+            });
+            
+            if (res.ok) {
+                showNotification(this.t('deleteSuccess') || '删除任务成功');
+                this.fetchTasks(); // 刷新列表
+            } else {
+                console.error("Delete failed with status:", res.status);
+            }
+        } catch (e) { 
+            console.error("Network error during delete:", e); 
+        }
+    },
+
+    // 跳转设置
+    jumpToCLIConfig() {
+        this.activeMenu = 'toolkit';
+        this.subMenu = 'CLI';
+    },
+
+    formatTaskTime(isoStr) {
+        if (!isoStr) return '-';
+        const date = new Date(isoStr);
+        return date.toLocaleString();
+    },
+
+    getTaskStatusType(status) {
+        const map = {
+            'pending': 'info',
+            'running': 'primary',
+            'completed': 'success',
+            'failed': 'danger',
+            'cancelled': 'warning'
+        };
+        return map[status] || 'info';
+    },
+  // 打开任务结果弹窗
+  openTaskResult(task) {
+    this.selectedTaskTitle = `${this.t('taskResult') || '任务结果'}: ${task.title}`;
+    this.selectedTaskResult = task.result || '';
+    this.showTaskResultDialog = true;
+  },
+    
+// 打开详情页
+openTaskDetailView(task) {
+    this.viewingTaskDetail = task;
+},
+
+// 关闭详情页回到列表
+closeTaskDetail() {
+    this.viewingTaskDetail = null;
+},
+
+// 修改 fetchTasks 方法，增加同步详情逻辑
+async fetchTasks() {
+    if (!this.hasWorkspacePath || !this.sidePanelOpen || this.activeSideView !== 'tasks') return;
+    
+    try {
+        const res = await fetch(`/v1/tasks/list`);
+        const data = await res.json();
+        if (data.tasks) {
+            this.taskList = data.tasks;
+            
+            // ⭐ 核心逻辑：如果当前正在看某个任务的详情，实时更新它
+            if (this.viewingTaskDetail) {
+                const updatedTask = data.tasks.find(t => t.task_id === this.viewingTaskDetail.task_id);
+                if (updatedTask) {
+                    this.viewingTaskDetail = updatedTask;
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch tasks", e);
+    }
+},
+
+// 重置任务中心状态（关闭时调用）
+closeTaskCenter() {
+    this.activeSideView = 'list';
+    this.viewingTaskDetail = null; // 清除详情状态
+    if (this.taskRefreshTimer) clearInterval(this.taskRefreshTimer);
+},
+
+  // 处理启动开关的点击事件
+  handleEnableToggle(newValue) {
+    // 只有在用户试图“开启”开关时 (newValue === true) 才进行校验
+    if (newValue === true) {
+      // 检查 cc_path 是否为空
+      if (!this.CLISettings.cc_path || this.CLISettings.cc_path.trim() === '') {
+        
+        // 1. 调用你提供的报错函数 
+        // 这里的提示语使用了你模板里现成的 t('pleaseSelectWorkspaceFirst')
+        const errorMsg = this.t ? this.t('pleaseSelectWorkspaceFirst') : '请先配置 Workspace 工作区路径';
+        showNotification(errorMsg, 'error', 'Error');
+
+        // 2. 强制把开关重置回关闭状态 (阻止启动)
+        // 使用 $nextTick 确保 Vue 能正确更新 DOM
+        this.$nextTick(() => {
+          this.CLISettings.enabled = false;
+        });
+
+        // 3. 拦截执行，直接 return，不触发后续的保存
+        return; 
+      }
+    }
+
+    // 如果校验通过（或者用户只是在关闭开关），则正常执行原来的保存逻辑
+    this.autoSaveSettings();
+  },
+
+  handleWebSearchToggle(newValue) {
+    if (newValue === true) {
+      const settings = this.webSearchSettings;
+      let errorMsg = '';
+
+      // --- 1. 校验搜索引擎配置 ---
+      switch (settings.engine) {
+        case 'searxng':
+          if (!settings.searxng_url?.trim()) errorMsg = this.t('pleaseConfigSearxngUrl');
+          break;
+        case 'tavily':
+          if (!settings.tavily_api_key?.trim()) errorMsg = this.t('pleaseConfigTavilyApiKey');
+          break;
+        case 'bing':
+          if (!settings.bing_api_key?.trim()) errorMsg = this.t('pleaseConfigBingApiKey');
+          else if (!settings.bing_search_url?.trim()) errorMsg = this.t('pleaseConfigBingSearchUrl');
+          break;
+        case 'google':
+          if (!settings.google_api_key?.trim()) errorMsg = this.t('pleaseConfigGoogleApiKey');
+          else if (!settings.google_cse_id?.trim()) errorMsg = this.t('pleaseConfigGoogleCseId');
+          break;
+        case 'brave':
+          if (!settings.brave_api_key?.trim()) errorMsg = this.t('pleaseConfigBraveApiKey');
+          break;
+        case 'exa':
+          if (!settings.exa_api_key?.trim()) errorMsg = this.t('pleaseConfigExaApiKey');
+          break;
+        case 'serper':
+          if (!settings.serper_api_key?.trim()) errorMsg = this.t('pleaseConfigSerperApiKey');
+          break;
+        case 'bochaai':
+          if (!settings.bochaai_api_key?.trim()) errorMsg = this.t('pleaseConfigBochaaiApiKey');
+          break;
+        // duckduckgo 无需强制配置，直接放行
+      }
+
+      // --- 2. 校验网页解析器配置 (前提是搜索引擎已经通过校验) ---
+      if (!errorMsg) {
+        switch (settings.crawler) {
+          case 'crawl4ai':
+            if (!settings.Crawl4Ai_url?.trim()) errorMsg = this.t('pleaseConfigCrawl4aiUrl');
+            break;
+          case 'firecrawl':
+            if (!settings.firecrawl_url?.trim()) errorMsg = this.t('pleaseConfigFirecrawlUrl');
+            // 如果你觉得 Firecrawl 的 API Key 也必须强制填写，可以解除下面这行的注释：
+            // else if (!settings.firecrawl_api_key?.trim()) errorMsg = this.t('pleaseConfigFirecrawlApiKey');
+            break;
+          
+          // 注意：jina API Key 是可选的，所以这里不写 case 'jina' 的报错逻辑，直接放行
+          // simpleRequest 和 mdnew 也没有必填项，直接放行
+        }
+      }
+
+      // --- 3. 拦截与报错 ---
+      if (errorMsg) {
+        // 报错提醒，标题也国际化
+        const errorTitle = this.t ? this.t('configIncomplete') : 'Config Incomplete';
+        showNotification(errorMsg, 'error', errorTitle);
+
+        // 强制重置开关为关闭状态
+        this.$nextTick(() => {
+          this.webSearchSettings.enabled = false;
+        });
+
+        // 阻断执行，不触发保存
+        return;
+      }
+    }
+
+    // 校验全部通过，或者用户是主动关闭开关，则正常执行保存
+    this.autoSaveSettings();
+  },
+
+  // 代码解释器启动开关的拦截处理
+  handleInterpreterToggle(newValue) {
+    if (newValue === true) {
+      const settings = this.codeSettings;
+      let errorMsg = '';
+
+      // 根据选择的引擎校验必填项
+      switch (settings.engine) {
+        case 'e2b':
+          if (!settings.e2b_api_key?.trim()) {
+            errorMsg = this.t('pleaseConfigE2bApiKey');
+          }
+          break;
+        case 'sandbox':
+          if (!settings.sandbox_url?.trim()) {
+            errorMsg = this.t('pleaseConfigSandboxUrl');
+          }
+          break;
+      }
+
+      // 如果有报错信息，进行拦截
+      if (errorMsg) {
+        // 报错提醒 (复用刚才加的 configIncomplete)
+        const errorTitle = this.t ? this.t('configIncomplete') : 'Config Incomplete';
+        showNotification(errorMsg, 'error', errorTitle);
+
+        // 强制重置开关为关闭状态
+        this.$nextTick(() => {
+          this.codeSettings.enabled = false;
+        });
+
+        // 阻断执行，不触发保存
+        return;
+      }
+    }
+
+    // 校验通过或关闭开关，正常执行保存
+    this.autoSaveSettings();
+  },
 
 }

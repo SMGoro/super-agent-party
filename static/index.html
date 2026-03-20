@@ -349,20 +349,6 @@ function updateElement(el, rawMarkdown, formatFn) {
       </div>
 
       <div class="window-controls">
-        <div v-show="!isAssistantMode&&!isMobile&&settings?.model!==''" class="model-info" @click="showModelDialog = true" >
-          <el-tooltip :content="t('clickToSwitchModel')">
-            <el-alert type="primary" :closable="false" style="max-height: 32px;">
-              <span>{{t("model") +": "+settings.model}}</span>  
-            </el-alert>
-          </el-tooltip>
-        </div>
-        <div v-show="!isAssistantMode&&!isMobile" class="model-info" @click="openExtensionsDialog" >
-          <el-tooltip :content="t('clickToSwitchExtensions')">
-            <el-alert type="primary" :closable="false" style="max-height: 32px;">
-              <span>{{t("extension") +": "+currentViewName}}</span>  
-            </el-alert>
-          </el-tooltip>
-        </div>
         <el-button 
           v-if="updateAvailable&&!isAssistantMode&&!isMobile"
           @click="handleUpdateAction" 
@@ -385,7 +371,7 @@ function updateElement(el, rawMarkdown, formatFn) {
       <!-- 添加移动端菜单按钮 -->
       <el-button 
       class="top-bar-btn"
-       v-if="!isAssistantMode&&isMobile" 
+       v-if="isMobile" 
        @click="isCollapse = sidebarVisible;sidebarVisible = !sidebarVisible"
        text
        :title="isCollapse ? t('expandAside') : t('collapseAside')">
@@ -546,7 +532,7 @@ function updateElement(el, rawMarkdown, formatFn) {
     <el-dialog
       v-model="showLogDialog"
       :title="t('serverLogs') || 'Backend Logs'"
-      width="70%"
+      width="80%"
       top="5vh"
       class="log-dialog"
       :append-to-body="true"
@@ -567,7 +553,7 @@ function updateElement(el, rawMarkdown, formatFn) {
       <el-dialog
         v-model="showModelDialog"
         :title="t('mainModel')"
-        width="600px">
+        width="80%">
         <div class="knowledge-dialog-content">
           <!-- 服务器列表 -->
           <div
@@ -608,7 +594,7 @@ function updateElement(el, rawMarkdown, formatFn) {
       <el-dialog
         :title="t('switchExtension')"
         v-model="showExtensionsDialog"
-        width="60%"
+        width="80%"
         :close-on-click-modal="false">
         <div class="extensions-list" :style="{ 'overflow-x': 'hidden'}">
           <!-- 默认视图选项 -->
@@ -622,6 +608,15 @@ function updateElement(el, rawMarkdown, formatFn) {
             </div>
           </el-card>
           
+          <el-card 
+            class="extension-card task-center-card"
+            @click="openTaskCenter()">
+            <div class="extension-info">
+              <h3>{{ t('taskCenter') }}</h3>
+              <p>{{ t('taskCenterDescription') }}</p>
+            </div>
+          </el-card>
+
           <!-- 分隔线 -->
           <div class="extensions-divider" v-if="extensions.length > 0">
             <span>
@@ -822,7 +817,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
                       </el-tooltip>
                       <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms,    '+ t('elapsedTime')+': '+(message?.elapsedTime ?? 0) + 's'}}
+                          {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms'}}
                       </span>
                     </div>
 
@@ -835,440 +830,462 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                 </div>
               </div>
-              
-              <div class="button-group">
+                  <div class="button-group" v-if="isCapsuleMode">
 
-                <el-tooltip :content="ASRrunning?t('listening'):isTyping?t('typing'):TTSrunning?t('speaking'):t('idle')" placement="top">
-                  <el-button
-                    v-if="isCapsuleMode"
-                    class="icon-btn status-btn"
-                    :type="ASRrunning||TTSrunning||isTyping ?  'primary':'default' "
-                    circle>
-                    <i v-if="ASRrunning" class="fa-solid fa-ear-listen"></i>
-                    <i v-else-if="isTyping" class="fa-solid fa-feather-pointed"></i>
-                    <i v-else-if="TTSrunning" class="fa-solid fa-head-side-cough"></i>
-                    <i v-else class="fa-solid fa-heart"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('clearChat')" placement="top">
-                  <el-button
-                    v-if="!isCapsuleMode"
-                    @click="clearMessages"
-                    class="icon-btn clear-btn"
-                    type="danger"
-                    circle>
-                    <i class="fa-solid fa-trash"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('mainModel')" placement="top">
-                  <el-button
-                    v-if="!isCapsuleMode"
-                    plain
-                    circle
-                    class="icon-btn model-btn"
-                    @click="showModelDialog = true"
-                  >
-                    <template #icon>
-                      <img
-                        :src="getVendorLogo(selectedVendor?.vendor || 'unknown')"
-                        class="model-vendor-logo"
-                        draggable="false"
-                      />
-                    </template>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('chatHistory')" placement="top">
-                  <el-button
-                    v-if="!isCapsuleMode"
-                    @click="showHistoryDialog = true"
-                    class="icon-btn history-btn"
-                    :type="conversations.length === 0 ? 'default' : 'primary'"
-                    circle>
-                    <i class="fa-solid fa-clock-rotate-left"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('extension')" placement="top">
-                  <el-button
-                    v-if="!isMobile"
-                    @click="openExtensionsDialog"
-                    class="icon-btn history-btn"
-                    :type="!sidePanelURL ? 'default' : 'primary'"
-                    circle>
-                    <i class="fa-solid fa-puzzle-piece"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="allBriefly ? t('allNoBriefly'):t('allBriefly')" placement="top">
-                  <el-button
-                    @click="handleAllBriefly"
-                    class="icon-btn history-btn"
-                    v-if="MoreButtonDict.find(b => b.name === 'brieflyButton')?.enabled&&!isCapsuleMode"
-                    :type="allBriefly ? 'primary' : 'default'"
-                    circle>
-                    <i class="fa-solid fa-asterisk"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="isInputExpanded ? t('collapseInput') : t('expandInput')" placement="top">
-                    <el-button 
-                        @click="toggleInputExpand"
-                        class="icon-btn expand-btn"
-                        v-if="MoreButtonDict.find(b => b.name === 'expandButton')?.enabled&&!isCapsuleMode"
-                        :type="isInputExpanded ? 'primary' : 'default'"
+                    <el-tooltip :content="ASRrunning?t('listening'):isTyping?t('typing'):TTSrunning?t('speaking'):t('idle')" placement="top">
+                      <el-button
+                        v-if="isCapsuleMode"
+                        class="icon-btn status-btn"
+                        :type="ASRrunning||TTSrunning||isTyping ?  'primary':'default' "
                         circle>
-                        <i :class="isInputExpanded ? 'fa-solid fa-down-left-and-up-right-to-center' : 'fa-solid fa-up-right-and-down-left-from-center'"></i>
-                    </el-button>
-                </el-tooltip>
+                        <i v-if="ASRrunning" class="fa-solid fa-ear-listen"></i>
+                        <i v-else-if="isTyping" class="fa-solid fa-feather-pointed"></i>
+                        <i v-else-if="TTSrunning" class="fa-solid fa-head-side-cough"></i>
+                        <i v-else class="fa-solid fa-heart"></i>
+                      </el-button>
+                    </el-tooltip>
 
-                <el-tooltip :content="t('uploadFile')" placement="top">
-                  <el-button
-                    @click="sendFiles"
-                    class="icon-btn file-btn"
-                    :type="hasFiles ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'fileButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-paperclip"></i>
-                  </el-button>
-                </el-tooltip>
+                    <el-tooltip :content="t('desktopVisionButton')" placement="top">
+                      <el-button
+                        @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
+                        class="icon-btn vision-btn"
+                        :type="visionSettings.desktopVision ? 'primary' : 'default'"
+                        v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode)"
+                        circle>
+                        <i class="fa-solid fa-eye"></i>
+                      </el-button>
+                    </el-tooltip>
 
-                <el-tooltip :content="t('uploadImage')" placement="top">
-                  <el-button
-                    @click="sendImages"
-                    class="icon-btn image-btn"
-                    :type="hasImages ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'imageButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-image"></i>
-                  </el-button>
-                </el-tooltip>
+                    <el-tooltip :content="t('screenshot')" placement="top">
+                      <el-button
+                        @click="toggleScreenshot(true)"
+                        class="icon-btn vision-btn"
+                        type="default"
+                        v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode)"
+                        circle>
+                        <i class="fa-solid fa-scissors"></i>
+                      </el-button>
+                    </el-tooltip>
 
-                <el-tooltip :content="t('deepThinking')" placement="top">
-                  <el-button
-                    @click="reasonerSettings.enabled = !reasonerSettings.enabled; autoSaveSettings()"
-                    class="icon-btn deep-think-btn"
-                    :type="reasonerSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'reasonerButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-atom"></i>
-                  </el-button>
-                </el-tooltip>
+                    <el-tooltip :content="t('asr')" placement="top">
+                      <el-button
+                        @click="toggleASR"
+                        class="icon-btn asr-btn"
+                        :type="asrSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'asrButton')?.enabled||isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-microphone"></i>
+                      </el-button>
+                    </el-tooltip>
 
-                <el-tooltip :content="t('deepResearch')" placement="top">
-                  <el-button
-                    @click="toolsSettings.deepsearch.enabled = !toolsSettings.deepsearch.enabled; autoSaveSettings()"
-                    class="icon-btn deep-search-btn"
-                    :type="toolsSettings.deepsearch.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'deepSearchButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-flask"></i>
-                  </el-button>
-                </el-tooltip>
+                    <el-tooltip :content="t('tts')" placement="top">
+                      <el-button
+                        @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
+                        class="icon-btn asr-btn"
+                        :type="ttsSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'ttsButton')?.enabled||isCapsuleMode"
+                        circle>
+                        <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
+                        <i v-else class="fa-solid fa-volume-xmark"></i>
+                      </el-button>
+                    </el-tooltip>
 
-                <el-tooltip :content="t('vision')" placement="top">
-                  <el-button
-                    @click="visionSettings.enabled = !visionSettings.enabled; autoSaveSettings()"
-                    class="icon-btn vision-btn"
-                    :type="visionSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'visionButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-camera"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('desktopVisionButton')" placement="top">
-                  <el-button
-                    @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
-                    class="icon-btn vision-btn"
-                    :type="visionSettings.desktopVision ? 'primary' : 'default'"
-                    v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode)"
-                    circle>
-                    <i class="fa-solid fa-eye"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('screenshot')" placement="top">
-                  <el-button
-                    @click="toggleScreenshot(true)"
-                    class="icon-btn vision-btn"
-                    type="default"
-                    v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode)"
-                    circle>
-                    <i class="fa-solid fa-scissors"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('imgGen')" placement="top">
-                  <el-button
-                    @click="text2imgSettings.enabled = !text2imgSettings.enabled; autoSaveSettings()"
-                    class="icon-btn text2img-btn"
-                    :type="text2imgSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'text2imgButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-pencil"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('asr')" placement="top">
-                  <el-button
-                    @click="toggleASR"
-                    class="icon-btn asr-btn"
-                    :type="asrSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'asrButton')?.enabled||isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-microphone"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('tts')" placement="top">
-                  <el-button
-                    @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
-                    class="icon-btn asr-btn"
-                    :type="ttsSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'ttsButton')?.enabled||isCapsuleMode"
-                    circle>
-                    <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
-                    <i v-else class="fa-solid fa-volume-xmark"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('knowledgeBase')" placement="top">
-                  <el-button
-                    @click="showKnowledgeDialog = true"
-                    class="icon-btn knowledge-base-btn"
-                    :type="hasEnabledKnowledgeBases ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'knowledgeBaseButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-book"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('webSearch')" placement="top">
-                  <el-button
-                    @click="webSearchSettings.enabled = !webSearchSettings.enabled; autoSaveSettings()"
-                    class="icon-btn web-search-btn"
-                    :type="webSearchSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'webSearchButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-globe"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('memory')" placement="top">
-                  <el-button
-                    @click="showMemoryDialog = true"
-                    class="icon-btn web-search-btn"
-                    :type="memorySettings.is_memory ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'memoryButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-brain"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('a2ui')" placement="top">
-                  <el-button
-                    @click="toolsSettings.a2ui.enabled = !toolsSettings.a2ui.enabled; autoSaveSettings()"
-                    class="icon-btn ui-btn"
-                    :type="toolsSettings.a2ui.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'uiButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-icons"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('interpreter')" placement="top">
-                  <el-button
-                    @click="codeSettings.enabled = !codeSettings.enabled; autoSaveSettings()"
-                    class="icon-btn web-search-btn"
-                    :type="codeSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'codeButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-code"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('CLItool')" placement="top">
-                  <el-button
-                    :disabled="!isElectron"
-                    @click="CLISettings.enabled = !CLISettings.enabled; autoSaveSettings()"
-                    class="icon-btn web-search-btn"
-                    :type="CLISettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'CLIButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-terminal"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('sticker')" placement="top">
-                  <el-button
-                    @click="showStickerPacksDialog = true"
-                    class="icon-btn sticker-btn"
-                    :type="hasEnabledStickerPacks ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'stickerButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-face-smile"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('homeAssistant')" placement="top">
-                  <el-button
-                    @click="HASettings.enabled = !HASettings.enabled; changeHAEnabled();"
-                    class="icon-btn homeAssistant-btn"
-                    :type="HASettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'haButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-house"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('browserControl')" placement="top">
-                  <el-button
-                    @click="chromeMCPSettings.enabled = !chromeMCPSettings.enabled; changeChromeMCPEnabled();"
-                    class="icon-btn browserControl-btn"
-                    :type="chromeMCPSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'chromeButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-compass"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('sqlControl')" placement="top">
-                  <el-button
-                    @click="sqlSettings.enabled = !sqlSettings.enabled; changeSqlEnabled();"
-                    class="icon-btn sqlControl-btn"
-                    :type="sqlSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'sqlButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-database"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('agentSnapshot')" placement="top">
-                  <el-button
-                    @click="showAgentDialog = true"
-                    class="icon-btn agent-btn"
-                    :type="hasAgentChanges ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'agentButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-robot"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('llmTools')" placement="top">
-                  <el-button
-                    @click="showLLMToolsDialog = true"
-                    class="icon-btn llm-tool-btn"
-                    :type="hasEnabledLLMTools ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'llmButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-cube"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('mcpServers')" placement="top">
-                  <el-button
-                    @click="showMCPServerDialog = true"
-                    class="icon-btn mcp-btn"
-                    :type="hasEnabledMCPServers ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'mcpButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-server"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('a2aServers')" placement="top">
-                  <el-button
-                    @click="this.showA2AServerDialog = true"
-                    class="icon-btn a2a-btn"
-                    :type="hasEnabledA2AServers ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'a2aButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-network-wired"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('customHttpTool')" placement="top">
-                  <el-button
-                    @click="this.showHttpToolDialog = true"
-                    class="icon-btn http-btn"
-                    :type="hasEnabledHttpTools ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'httpButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-wifi"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('ComfyUI')" placement="top">
-                  <el-button
-                    @click="this.showComfyUIDialog = true"
-                    class="icon-btn comfyui-btn"
-                    :type="hasEnabledComfyUI ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'comfyuiButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-palette"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('tablePet')" placement="top">
-                  <el-button
-                    @click="startVRM"
-                    class="icon-btn vrm-btn"
-                    :type="'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'vrmButton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i :class='isVRMStarting? "fa-solid fa-spinner fa-spin" : "fa-solid fa-user-ninja"'></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="t('enableAutoBehavior')" placement="top">
-                  <el-button
-                    @click="behaviorSettings.enabled=!behaviorSettings.enabled; autoSaveSettings();"
-                    class="icon-btn behavior-btn"
-                    :type="behaviorSettings.enabled ? 'primary' : 'default'"
-                    v-if="MoreButtonDict.find(b => b.name === 'behaviorBotton')?.enabled&&!isCapsuleMode"
-                    circle>
-                    <i class="fa-solid fa-person-running"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <!-- 1. 群聊模式开关 -->
-                <el-tooltip :content="t('groupChatSettings')" placement="top">
-                  <el-button 
-                    v-if="MoreButtonDict.find(b => b.name === 'groupChatBotton')?.enabled && !isCapsuleMode"
-                    @click="showGroupSettingsDialog = true"
-                    class="icon-btn group-chat-btn"
-                    :type="isGroupMode ? 'primary' : 'default'"
-                    circle>
-                    <i class="fa-solid fa-users"></i>
-                  </el-button>
-                </el-tooltip>
-
-                <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
-                  <el-button
-                    v-if="!isCapsuleMode"
-                    @click="isSending ? stopGenerate() : sendMessage()"
-                    :type="isSending ? 'danger' : 'primary'"
-                    class="icon-btn send-btn"
-                    circle>
-                    <i :class="isSending ? 'fa-solid fa-stop' : 'fa-solid fa-paper-plane'" aria-hidden="true"></i>
-                  </el-button>
-                </el-tooltip>
-                <!--展开收起按钮-->
-                <el-tooltip :content="t('moreButton')" placement="top">
-                  <el-button v-if="!isCapsuleMode" @click="showMoreButtonDialog = true" class="icon-btn collapse-btn" circle>
-                    <i class="fa-solid fa-ellipsis"></i>
-                  </el-button>
-                </el-tooltip>
-              </div>
+                  </div>
               <div class="input-container" v-if="!isCapsuleMode">
                 
                 <!-- ✨✨✨ 新增：统一的外层包裹器 ✨✨✨ -->
                 <!-- tabindex="-1" 是为了让 focus-within 生效更稳定 -->
                 <div class="unified-input-wrapper">
                   
+                  <div class="button-group">
+
+                    <el-tooltip :content="ASRrunning?t('listening'):isTyping?t('typing'):TTSrunning?t('speaking'):t('idle')" placement="top">
+                      <el-button
+                        v-if="isCapsuleMode"
+                        class="icon-btn status-btn"
+                        :type="ASRrunning||TTSrunning||isTyping ?  'primary':'default' "
+                        circle>
+                        <i v-if="ASRrunning" class="fa-solid fa-ear-listen"></i>
+                        <i v-else-if="isTyping" class="fa-solid fa-feather-pointed"></i>
+                        <i v-else-if="TTSrunning" class="fa-solid fa-head-side-cough"></i>
+                        <i v-else class="fa-solid fa-heart"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('newChat')" placement="top">
+                      <el-button
+                        v-if="!isCapsuleMode"
+                        @click="clearMessages"
+                        class="icon-btn clear-btn"
+                        type="primary"
+                        circle>
+                        <i class="fa-solid fa-comment-medical"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('chatHistory')" placement="top">
+                      <el-button
+                        v-if="!isCapsuleMode"
+                        @click="showHistoryDialog = true"
+                        class="icon-btn history-btn"
+                        :type="conversations.length === 0 ? 'default' : 'primary'"
+                        circle>
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="allBriefly ? t('allNoBriefly'):t('allBriefly')" placement="top">
+                      <el-button
+                        @click="handleAllBriefly"
+                        class="icon-btn history-btn"
+                        v-if="MoreButtonDict.find(b => b.name === 'brieflyButton')?.enabled&&!isCapsuleMode"
+                        :type="allBriefly ? 'primary' : 'default'"
+                        circle>
+                        <i class="fa-solid fa-asterisk"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="isInputExpanded ? t('collapseInput') : t('expandInput')" placement="top">
+                        <el-button 
+                            @click="toggleInputExpand"
+                            class="icon-btn expand-btn"
+                            v-if="MoreButtonDict.find(b => b.name === 'expandButton')?.enabled&&!isCapsuleMode"
+                            :type="isInputExpanded ? 'primary' : 'default'"
+                            circle>
+                            <i :class="isInputExpanded ? 'fa-solid fa-down-left-and-up-right-to-center' : 'fa-solid fa-up-right-and-down-left-from-center'"></i>
+                        </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('uploadFileorImage')" placement="top">
+                      <el-button
+                        @click="browseAllFiles" 
+                        class="icon-btn file-btn"
+                        :type="(hasFiles || hasImages) ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'fileButton')?.enabled && !isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-paperclip"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('deepThinking')" placement="top">
+                      <el-button
+                        @click="reasonerSettings.enabled = !reasonerSettings.enabled; autoSaveSettings()"
+                        class="icon-btn deep-think-btn"
+                        :type="reasonerSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'reasonerButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-atom"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('deepResearch')" placement="top">
+                      <el-button
+                        @click="toolsSettings.deepsearch.enabled = !toolsSettings.deepsearch.enabled; autoSaveSettings()"
+                        class="icon-btn deep-search-btn"
+                        :type="toolsSettings.deepsearch.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'deepSearchButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-flask"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('vision')" placement="top">
+                      <el-button
+                        @click="visionSettings.enabled = !visionSettings.enabled; autoSaveSettings()"
+                        class="icon-btn vision-btn"
+                        :type="visionSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'visionButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-camera"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('desktopVisionButton')" placement="top">
+                      <el-button
+                        @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
+                        class="icon-btn vision-btn"
+                        :type="visionSettings.desktopVision ? 'primary' : 'default'"
+                        v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'desktopVisionButton')?.enabled||isCapsuleMode)"
+                        circle>
+                        <i class="fa-solid fa-eye"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('screenshot')" placement="top">
+                      <el-button
+                        @click="toggleScreenshot(true)"
+                        class="icon-btn vision-btn"
+                        type="default"
+                        v-if="isElectron&&(MoreButtonDict.find(b => b.name === 'screenshotButton')?.enabled||isCapsuleMode)"
+                        circle>
+                        <i class="fa-solid fa-scissors"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('imgGen')" placement="top">
+                      <el-button
+                        @click="text2imgSettings.enabled = !text2imgSettings.enabled; autoSaveSettings()"
+                        class="icon-btn text2img-btn"
+                        :type="text2imgSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'text2imgButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-pencil"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('asr')" placement="top">
+                      <el-button
+                        @click="toggleASR"
+                        class="icon-btn asr-btn"
+                        :type="asrSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'asrButton')?.enabled||isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-microphone"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('tts')" placement="top">
+                      <el-button
+                        @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
+                        class="icon-btn asr-btn"
+                        :type="ttsSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'ttsButton')?.enabled||isCapsuleMode"
+                        circle>
+                        <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
+                        <i v-else class="fa-solid fa-volume-xmark"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('knowledgeBase')" placement="top">
+                      <el-button
+                        @click="showKnowledgeDialog = true"
+                        class="icon-btn knowledge-base-btn"
+                        :type="hasEnabledKnowledgeBases ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'knowledgeBaseButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-book"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('webSearch')" placement="top">
+                      <el-button
+                        @click="webSearchSettings.enabled = !webSearchSettings.enabled; autoSaveSettings()"
+                        class="icon-btn web-search-btn"
+                        :type="webSearchSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'webSearchButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-globe"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('memory')" placement="top">
+                      <el-button
+                        @click="showMemoryDialog = true"
+                        class="icon-btn web-search-btn"
+                        :type="memorySettings.is_memory ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'memoryButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-brain"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('a2ui')" placement="top">
+                      <el-button
+                        @click="toolsSettings.a2ui.enabled = !toolsSettings.a2ui.enabled; autoSaveSettings()"
+                        class="icon-btn ui-btn"
+                        :type="toolsSettings.a2ui.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'uiButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-icons"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('interpreter')" placement="top">
+                      <el-button
+                        @click="codeSettings.enabled = !codeSettings.enabled; autoSaveSettings()"
+                        class="icon-btn web-search-btn"
+                        :type="codeSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'codeButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-code"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('CLItool')" placement="top">
+                      <el-button
+                        :disabled="!isElectron"
+                        @click="CLISettings.enabled = !CLISettings.enabled; autoSaveSettings()"
+                        class="icon-btn web-search-btn"
+                        :type="CLISettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'CLIButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-computer"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('sticker')" placement="top">
+                      <el-button
+                        @click="showStickerPacksDialog = true"
+                        class="icon-btn sticker-btn"
+                        :type="hasEnabledStickerPacks ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'stickerButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-face-smile"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('homeAssistant')" placement="top">
+                      <el-button
+                        @click="HASettings.enabled = !HASettings.enabled; changeHAEnabled();"
+                        class="icon-btn homeAssistant-btn"
+                        :type="HASettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'haButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-house"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('browserControl')" placement="top">
+                      <el-button
+                        @click="chromeMCPSettings.enabled = !chromeMCPSettings.enabled; changeChromeMCPEnabled();"
+                        class="icon-btn browserControl-btn"
+                        :type="chromeMCPSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'chromeButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-compass"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('sqlControl')" placement="top">
+                      <el-button
+                        @click="sqlSettings.enabled = !sqlSettings.enabled; changeSqlEnabled();"
+                        class="icon-btn sqlControl-btn"
+                        :type="sqlSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'sqlButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-database"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('agentSnapshot')" placement="top">
+                      <el-button
+                        @click="showAgentDialog = true"
+                        class="icon-btn agent-btn"
+                        :type="hasAgentChanges ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'agentButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-robot"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('llmTools')" placement="top">
+                      <el-button
+                        @click="showLLMToolsDialog = true"
+                        class="icon-btn llm-tool-btn"
+                        :type="hasEnabledLLMTools ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'llmButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-cube"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('mcpServers')" placement="top">
+                      <el-button
+                        @click="showMCPServerDialog = true"
+                        class="icon-btn mcp-btn"
+                        :type="hasEnabledMCPServers ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'mcpButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-server"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('a2aServers')" placement="top">
+                      <el-button
+                        @click="this.showA2AServerDialog = true"
+                        class="icon-btn a2a-btn"
+                        :type="hasEnabledA2AServers ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'a2aButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-network-wired"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('customHttpTool')" placement="top">
+                      <el-button
+                        @click="this.showHttpToolDialog = true"
+                        class="icon-btn http-btn"
+                        :type="hasEnabledHttpTools ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'httpButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-wifi"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('ComfyUI')" placement="top">
+                      <el-button
+                        @click="this.showComfyUIDialog = true"
+                        class="icon-btn comfyui-btn"
+                        :type="hasEnabledComfyUI ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'comfyuiButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-palette"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('tablePet')" placement="top">
+                      <el-button
+                        @click="startVRM"
+                        class="icon-btn vrm-btn"
+                        :type="'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'vrmButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i :class='isVRMStarting? "fa-solid fa-spinner fa-spin" : "fa-solid fa-user-ninja"'></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('enableAutoBehavior')" placement="top">
+                      <el-button
+                        @click="behaviorSettings.enabled=!behaviorSettings.enabled; autoSaveSettings();"
+                        class="icon-btn behavior-btn"
+                        :type="behaviorSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'behaviorBotton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-person-running"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <!-- 1. 群聊模式开关 -->
+                    <el-tooltip :content="t('groupChatSettings')" placement="top">
+                      <el-button 
+                        v-if="MoreButtonDict.find(b => b.name === 'groupChatBotton')?.enabled && !isCapsuleMode"
+                        @click="showGroupSettingsDialog = true"
+                        class="icon-btn group-chat-btn"
+                        :type="isGroupMode ? 'primary' : 'default'"
+                        circle>
+                        <i class="fa-solid fa-users"></i>
+                      </el-button>
+                    </el-tooltip>
+                    <!--展开收起按钮-->
+                    <el-tooltip :content="t('moreButton')" placement="top">
+                      <el-button v-if="!isCapsuleMode" @click="showMoreButtonDialog = true" class="icon-btn collapse-btn" type="default" circle>
+                        <i class="fa-solid fa-ellipsis"></i>
+                      </el-button>
+                    </el-tooltip>
+
+
+                    <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top" class="send-btn-container">
+                      <el-button
+                        v-if="!isCapsuleMode"
+                        @click="isSending ? stopGenerate() : sendMessage()"
+                        :type="isSending ? 'danger' : 'primary'"
+                        class="icon-btn send-btn"
+                        circle>
+                        <i :class="isSending ? 'fa-solid fa-stop' : 'fa-solid fa-paper-plane'" aria-hidden="true"></i>
+                      </el-button>
+                    </el-tooltip>
+                  </div>
+
                   <!-- 1. 附件预览区域 -->
                   <div class="attachment-preview-list" v-show="allItems.length > 0">
                     <div v-for="(item, index) in allItems" :key="index" class="attachment-item">
@@ -1304,19 +1321,160 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
 
-                  <!-- 2. 输入框 -->
-                  <!-- 注意：这里的 class 是 input-box-transparent -->
-                  <el-input
-                    v-model="userInput"
-                    type="textarea"
-                    :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
-                    :placeholder="t('inputMessage')"
-                    resize="none"
-                    @keydown="isInputting=true;handleKeyDown($event)" 
-                    @keyup="isInputting=false"
-                    @paste.native="handleInputPaste"
-                    class="input-box-transparent">
-                  </el-input>
+                  <!-- 1. 外层套一个 wrapper，绑定拖拽事件 -->
+                  <div 
+                    class="input-container-wrapper"
+                    :class="{ 'is-dragging': isDragging }"
+                    @dragover.prevent="isDragging = true"
+                    @dragleave.prevent="isDragging = false"
+                    @drop.prevent="handleInputDrop"
+                  >
+                    <!-- 模式切换：使用 v-show 切换键盘输入与按住说话 -->
+                    <!-- 键盘输入区 -->
+                    <el-input
+                      v-show="!isPttMode"
+                      v-model="userInput"
+                      type="textarea"
+                      :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
+                      :placeholder="t('inputMessage')"
+                      resize="none"
+                      @keydown="isInputting=true;handleKeyDown($event)" 
+                      @keyup="isInputting=false"
+                      @paste.native="handleInputPaste"
+                      class="input-box-transparent">
+                    </el-input>
+
+                    <!-- 按住说话区 (无缝融合版) -->
+                      <div v-show="isPttMode" class="ptt-seamless-wrapper">
+                        <div 
+                          class="ptt-seamless-area" 
+                          :class="{ 'is-recording': isPttRecording }"
+                          @touchstart="handlePttPress($event)"
+                          @touchend="handlePttRelease($event)"
+                          @touchcancel="handlePttRelease($event)"
+                          @mousedown="handlePttPress($event)"
+                          @mouseup="handlePttRelease($event)"
+                          @mouseleave="handlePttRelease($event)"
+                          @contextmenu.prevent  
+                        >
+                          <!-- 录音时的波纹动画图标 (可选) -->
+                          <div v-if="isPttRecording" class="recording-wave">
+                            <span></span><span></span><span></span><span></span><span></span>
+                          </div>
+                          
+                          <!-- 文字提示 (国际化) -->
+                          <span class="ptt-text">
+                            {{ isPttRecording ? t('releaseToSend') : (isProcessingPtt ? t('converting') : t('holdToTalk')) }}
+                          </span>
+                        </div>
+                      </div>
+              
+                    <div class="input-status-bar">
+                      
+                      <!-- ✨ 2. 语音/键盘切换按钮：始终显示（或者你可以加 v-if="isMobile" 只让手机显示） -->
+                      <div class="voice-toggle-btn" @click="isPttMode = !isPttMode" v-if="isMobile">
+                        <i :class="isPttMode ? 'fa-solid fa-keyboard' : 'fa-solid fa-microphone'"></i>
+                      </div>
+
+                      <!-- 模型指示器 -->
+                      <el-tooltip :content="t('clickToSwitchModel')" placement="top" :show-after="500">
+                        <div class="status-pill" @click="showModelDialog = true">
+                          <i class="fa-solid fa-microchip"></i>
+                          <span class="pill-text">{{ settings?.model !== '' ? settings.model : t('noModelSelected') }}</span>
+                        </div>
+                      </el-tooltip>
+
+                      <!-- ✨ 3. 将原有的桌面端状态胶囊包裹在一个 template 中，并在这里加 !isMobile 限制 -->
+                      <template  v-if="!isAssistantMode && !isMobile">
+                          
+                          <!-- 扩展指示器 -->
+                          <el-tooltip :content="t('clickToSwitchExtensions')" placement="top" :show-after="500">
+                            <div class="status-pill" v-if="currentViewName" @click="openExtensionsDialog">
+                              <i class="fa-solid fa-puzzle-piece"></i>
+                              <span class="pill-text">{{ currentViewName }}</span>
+                            </div>
+                          </el-tooltip>
+
+                          <!-- 3. 工作区目录指示器 (仅 CLI 启用时显示) -->
+                          <el-tooltip :content="t('workspace')" placement="top" :show-after="500">
+                            <div class="status-pill" v-if="CLISettings.enabled" @click="browseDirectory">
+                              <i class="fa-solid fa-folder-open"></i>
+                              <span class="pill-text">{{ CLISettings.cc_path ? CLISettings.cc_path.split(/[/\\]/).filter(Boolean).pop() : t('pleaseSelectWorkspaceFirst') }}</span>
+                            </div>
+                          </el-tooltip>
+
+                          <!-- 4. CLI 权限模式指示器 (仅 CLI 启用时显示) -->
+                          <el-dropdown 
+                            v-if="CLISettings.enabled" 
+                            placement="top" 
+                            trigger="click"
+                            class="status-pill-dropdown"
+                          >
+                            <!-- ⚠️ 关键修复：让 status-pill 直接作为下拉组件的触发器 -->
+                            <div class="status-pill">
+                              <el-tooltip :content="t('permissionMode')" placement="top" :show-after="500">
+                                <!-- 将内容包裹在一个 span 中，使得 tooltip 正常工作 -->
+                                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                                  <i class="fa-solid fa-shield-halved"></i>
+                                  <span class="pill-text">
+                                    {{ 
+                                      CLISettings.engine === 'local' ? localEnvSettings.permissionMode :
+                                      CLISettings.engine === 'ds' ? dsSettings.permissionMode :
+                                      CLISettings.engine === 'cc' ? ccSettings.permissionMode :
+                                      CLISettings.engine === 'qc' ? qcSettings.permissionMode : 'unknown'
+                                    }}
+                                  </span>
+                                </span>
+                              </el-tooltip>
+                            </div>
+                            
+                            <template #dropdown>
+                              <el-dropdown-menu>
+                                <!-- 本地环境 (Local) 选项 -->
+                                <template v-if="CLISettings.engine === 'local'">
+                                  <el-dropdown-item @click="localEnvSettings.permissionMode='plan'; autoSaveSettings()">{{ t('planMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="localEnvSettings.permissionMode='default'; autoSaveSettings()">{{ t('defaultPermissionMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="localEnvSettings.permissionMode='auto-approve'; autoSaveSettings()">{{ t('acceptEdits') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="localEnvSettings.permissionMode='yolo'; autoSaveSettings()">{{ t('danger')+t('bypassPermissions') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="localEnvSettings.permissionMode='cowork'; autoSaveSettings()">{{ t('danger')+t('coworkPermissionMode') }}</el-dropdown-item>
+                                </template>
+                                <!-- Docker Sandbox (DS) 选项 -->
+                                <template v-else-if="CLISettings.engine === 'ds'">
+                                  <el-dropdown-item @click="dsSettings.permissionMode='plan'; autoSaveSettings()">{{ t('planMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="dsSettings.permissionMode='default'; autoSaveSettings()">{{ t('defaultPermissionMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="dsSettings.permissionMode='auto-approve'; autoSaveSettings()">{{ t('acceptEdits') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="dsSettings.permissionMode='yolo'; autoSaveSettings()">{{ t('bypassPermissions') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="dsSettings.permissionMode='cowork'; autoSaveSettings()">{{ t('coworkPermissionMode') }}</el-dropdown-item>
+                                </template>
+                                <!-- Claude Code (CC) 选项 -->
+                                <template v-else-if="CLISettings.engine === 'cc'">
+                                  <el-dropdown-item @click="ccSettings.permissionMode='plan'; autoSaveSettings()">{{ t('planMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="ccSettings.permissionMode='default'; autoSaveSettings()">{{ t('defaultPermissionMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="ccSettings.permissionMode='acceptEdits'; autoSaveSettings()">{{ t('acceptEdits') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="ccSettings.permissionMode='bypassPermissions'; autoSaveSettings()">{{ t('danger')+t('bypassPermissions') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="ccSettings.permissionMode='cowork'; autoSaveSettings()">{{ t('danger')+t('coworkPermissionMode') }}</el-dropdown-item>
+                                </template>
+                                <!-- Qwen Code (QC) 选项 -->
+                                <template v-else-if="CLISettings.engine === 'qc'">
+                                  <el-dropdown-item @click="qcSettings.permissionMode='plan'; autoSaveSettings()">{{ t('planMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="qcSettings.permissionMode='default'; autoSaveSettings()">{{ t('defaultPermissionMode') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="qcSettings.permissionMode='auto-edit'; autoSaveSettings()">{{ t('acceptEdits') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="qcSettings.permissionMode='yolo'; autoSaveSettings()">{{ t('danger')+t('bypassPermissions') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="qcSettings.permissionMode='cowork'; autoSaveSettings()">{{ t('danger')+t('coworkPermissionMode') }}</el-dropdown-item>
+                                </template>
+                              </el-dropdown-menu>
+                            </template>
+                          </el-dropdown>
+                      </template>
+
+                    </div>
+
+                    <!-- 拖拽时的遮罩提示（可选，提升体验） -->
+                    <div v-if="isDragging" class="drop-overlay">
+                      <el-icon><Upload /></el-icon>
+                      <span>{{ t('dropToUpload') }}</span>
+                    </div>
+                  </div>
                   
                 </div> <!-- 结束 unified-input-wrapper -->
               </div>
@@ -1365,78 +1523,226 @@ function updateElement(el, rawMarkdown, formatFn) {
                 ref="sidePanelRef"
                 :class="{ collapsed: !sidePanelOpen }" 
                 v-show="sidePanelOpen">
+              
               <div class="side-panel-scroll" ref="messagesPanel" :style="{ overflow: 'hidden' }">
+                
+                <!-- 1. 任务中心视图 -->
+                <div v-if="activeSideView === 'tasks'" class="task-center-container">
+                    
+                    <!-- A. 详情视图 (点击卡片后显示) -->
+                    <div v-if="viewingTaskDetail" class="task-detail-view" style="height: 100%; display: flex; flex-direction: column;">
+                        <div class="task-center-header" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid var(--el-border-color-lighter);">
+                            <el-button link @click="closeTaskDetail">
+                                <i class="fa-solid fa-chevron-left"></i> {{ t('back') }}
+                            </el-button>
+                            <span class="header-title" style="flex: 1; text-align: center; font-weight: bold;">{{ t('taskTimeline') || '任务动态' }}</span>
+                            <div style="width: 40px;"></div>
+                        </div>
+                        
+                        <div class="task-detail-content" style="padding: 15px; overflow-y: auto; flex: 1;">
+                            <!-- 详情页顶部的任务摘要卡片 -->
+                            <div class="task-info-summary" style="padding: 0; margin-bottom: 15px;">
+                                <el-card shadow="never" :body-style="{ padding: '12px' }" style="border-style: dashed; background: var(--el-bg-color-page);">
+                                    <!-- 头部：标题和状态 -->
+                                    <div class="task-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <span style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; color: var(--el-text-color-primary);">
+                                            {{ viewingTaskDetail.title }}
+                                        </span>
+                                        <el-tag size="small" :type="getTaskStatusType(viewingTaskDetail.status)">
+                                            {{ viewingTaskDetail.status }}
+                                        </el-tag>
+                                    </div>
+
+                                    <!-- 描述：保持多行省略 -->
+                                    <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 10px; line-height: 1.4;">
+                                        {{ viewingTaskDetail.description }}
+                                    </div>
+
+                                    <!-- 进度条：仅在运行时显示 -->
+                                    <div class="task-progress-bar" v-if="viewingTaskDetail.status === 'running'" style="margin-bottom: 10px;">
+                                        <el-progress :percentage="viewingTaskDetail.progress" :stroke-width="4" :show-text="false" status="success"></el-progress>
+                                    </div>
+
+                                    <!-- 底部信息：时间 -->
+                                    <div class="task-card-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 11px;">
+                                        <span style="color: var(--el-text-color-placeholder);">
+                                            <i class="fa-regular fa-clock"></i> {{ formatTaskTime(viewingTaskDetail.created_at) }}
+                                        </span>
+                                        <span style="color: var(--el-text-color-placeholder);">ID: {{ viewingTaskDetail.task_id }}</span>
+                                    </div>
+                                </el-card>
+                            </div>
+
+                            <el-divider content-position="left">{{ t('executionHistory') || '执行记录' }}</el-divider>
+
+                            <div class="timeline-wrapper">
+                                <el-empty v-if="!viewingTaskDetail.context || !viewingTaskDetail.context.history || viewingTaskDetail.context.history.length === 0" :description="t('noHistoryYet') || '暂无执行动态'"></el-empty>
+                                
+                                <el-timeline v-else>
+                                    <el-timeline-item
+                                        v-for="(log, index) in viewingTaskDetail.context.history"
+                                        :key="index"
+                                        :type="log.includes('❌') ? 'danger' : (log.includes('✅') ? 'success' : 'primary')"
+                                        size="large"
+                                    >
+                                        <div class="history-log-item markdown-body" style="font-size: 13px; line-height: 1.6; background: var(--el-bg-color-page); padding: 8px 12px; border-radius: 6px;">
+                                            <div v-html="formatMessage(log)"></div>
+                                        </div>
+                                    </el-timeline-item>
+                                    
+                                    <el-timeline-item v-if="viewingTaskDetail.status === 'running'" color="#409EFF">
+                                        <template #dot>
+                                            <i class="fa-solid fa-spinner fa-spin"></i>
+                                        </template>
+                                        <div style="color: var(--el-color-primary); font-size: 13px; font-style: italic;">
+                                            {{ t('taskExecuting') || '任务执行中...' }} ({{ viewingTaskDetail.progress }}%)
+                                        </div>
+                                    </el-timeline-item>
+                                </el-timeline>
+                            </div>
+
+                            <div v-if="viewingTaskDetail.result" style="margin-top: 20px; padding-bottom: 30px;">
+                                <el-button type="primary" style="width: 100%" @click="openTaskResult(viewingTaskDetail)">
+                                    <i class="fa-solid fa-square-poll-vertical"></i> {{ t('viewFinalResult') || '查看最终产出' }}
+                                </el-button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- B. 列表视图 (默认显示) -->
+                    <div v-else class="task-list-view" style="height: 100%; display: flex; flex-direction: column;">
+                        <div class="task-center-header" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid var(--el-border-color-lighter);">
+                            <el-button link @click="closeTaskCenter">
+                                <i class="fa-solid fa-chevron-left"></i> {{ t('back') }}
+                            </el-button>
+                            <span class="header-title" style="flex: 1; text-align: center; font-weight: bold;">{{ t('taskCenter') }}</span>
+                            <div style="width: 40px;"></div>
+                        </div>
+
+                        <div class="task-content-wrapper" style="flex: 1; overflow-y: auto;">
+                            <!-- 状态 A: 未配置工作区 -->
+                            <div v-if="!hasWorkspacePath" class="task-empty-state" style="padding: 40px 20px; text-align: center;">
+                                <el-empty :description="t('noWorkspaceConfigured')">
+                                    <template #image>
+                                        <i class="fa-solid fa-folder-minus" style="font-size: 48px; color: var(--el-text-color-secondary);"></i>
+                                    </template>
+                                    <p style="color: var(--el-text-color-secondary); font-size: 14px;">{{ t('taskCenterNeedsCLI') }}</p>
+                                    <el-button type="primary" @click="jumpToCLIConfig">
+                                        {{ t('goToCLIConfig') }}
+                                    </el-button>
+                                </el-empty>
+                            </div>
+
+                            <!-- 状态 B: 任务列表 -->
+                            <div v-else class="task-list-wrapper" style="padding: 15px;">
+                                <div class="task-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <span style="font-weight: bold; font-size: 14px;">{{ t('taskList') }} ({{ taskList.length }})</span>
+                                    <el-button type="primary" size="small" circle @click="showCreateTaskDialog = true">
+                                        <i class="fa-solid fa-plus"></i>
+                                    </el-button>
+                                </div>
+
+                                <el-empty v-if="taskList.length === 0" :description="t('noTasks')">
+                                    <p style="color: var(--el-text-color-secondary); font-size: 14px;">{{ t('noTasksNotice') }}</p>
+                                    <el-button type="primary" @click="jumpToCLIConfig">
+                                        {{ t('goToCLIConfig') }}
+                                    </el-button>
+                                </el-empty>
+
+                                <div v-for="task in taskList" :key="task.task_id" class="task-card-item" style="margin-bottom: 12px; cursor: pointer;" @click="openTaskDetailView(task)">
+                                    <el-card shadow="hover" :body-style="{ padding: '12px' }">
+                                        <div class="task-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                            <span style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">{{ task.title }}</span>
+                                            <el-tag size="small" :type="getTaskStatusType(task.status)">{{ task.status }}</el-tag>
+                                        </div>
+
+                                        <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ task.description }}</div>
+
+                                        <div class="task-progress-bar" v-if="task.status === 'running'" style="margin-bottom: 10px;">
+                                            <el-progress :percentage="task.progress" :stroke-width="4" :show-text="false" status="success"></el-progress>
+                                        </div>
+
+                                        <div class="task-card-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px;">
+                                            <span style="color: var(--el-text-color-placeholder);"><i class="fa-regular fa-clock"></i> {{ formatTaskTime(task.created_at) }}</span>
+                                            <div class="task-actions" @click.stop>
+                                                <el-button v-if="['pending', 'running'].includes(task.status)" type="warning" link size="small" @click.stop="handleCancelTask(task.task_id)">
+                                                    <i class="fa-solid fa-stop"></i>
+                                                </el-button>
+                                                <el-button type="danger" link size="small" @click.stop="handleDeleteTask(task.task_id)">
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </el-card>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 扩展 Iframe 视图 -->
                 <iframe class="side-panel-iframe" 
-                        v-if="sidePanelURL" 
+                        v-else-if="sidePanelURL" 
                         :src="sidePanelURL" 
                         frameborder="0" 
                         allowfullscreen 
                         style="width: 100%; height: 100%;">
                 </iframe>
+
+                <!-- 3. 加载中状态 -->
                 <div v-else-if="currentExtension" class="loading-container">
                   <div class="loading-content">
                     <i class="fa-solid fa-spinner fa-spin loading-icon"></i>
                     <p class="loading-text">{{t('waitForLoadingExt')}}</p>
                   </div>
                 </div>
-                <div v-else class="extensions-list" style="margin: 10px;height: 100%;">
-                  <!-- 默认视图选项 -->
+
+                <!-- 4. 扩展列表视图 -->
+                <div v-else class="extensions-list" style="margin: 10px; height: 100%;">
                   <el-card 
                     class="extension-card default-view-card"
-                    :class="{ active: currentExtension === null }"
+                    :class="{ active: currentExtension === null && activeSideView === 'list' }"
                     @click="resetToDefaultView()">
                     <div class="extension-info">
                       <h3>{{ t('defaultView') }}</h3>
                       <p>{{ t('defaultViewDescription') }}</p>
                     </div>
                   </el-card>
+
+                  <el-card 
+                    class="extension-card task-center-card"
+                    @click="openTaskCenter()">
+                    <div class="extension-info">
+                      <h3>{{ t('taskCenter') }}</h3>
+                      <p>{{ t('taskCenterDescription') }}</p>
+                    </div>
+                  </el-card>
                   
-                  <!-- 分隔线 -->
                   <div class="extensions-divider" v-if="extensions.length > 0">
                     <span>
                       {{ t('availableExtensions') }}
-                      <el-link
-                        type="primary"
-                        :underline="false"
-                        href="#" 
-                        @click.stop.prevent="switchToExtensionPage" 
-                      >
-                        <el-icon class="mr-1">
-                          <i class="fa-solid fa-puzzle-piece"></i>
-                        </el-icon>{{ t('goToExtensionPage') }}
+                      <el-link type="primary" :underline="false" href="#" @click.stop.prevent="switchToExtensionPage">
+                        <el-icon class="mr-1"><i class="fa-solid fa-puzzle-piece"></i></el-icon>{{ t('goToExtensionPage') }}
                       </el-link>
                     </span>
                   </div>
-                  <!-- 扩展列表 -->
+
                   <el-empty v-if="extensions.length === 0" :description="t('noExtensionsFound')" ></el-empty>
-                    <el-card
+                  <el-card
                       v-for="ext in extensions"
                       :key="ext.id"
                       class="extension-card"
                       :class="{ active: currentExtension && currentExtension.id === ext.id }"
                       @click="switchExtension(ext)">
                       
-                      <!-- 右上角图标 -->
                       <div class="btn-top-right">
                         <el-tooltip :content="t('openExtensionInBrowser')" placement="top">
-                          <!-- 浏览器打开按钮 -->
-                          <el-button
-                            type="default"
-                            circle
-                            size="small"
-                            @click.stop="openExtension(ext)">
+                          <el-button type="default" circle size="small" @click.stop="openExtension(ext)">
                             <i class="fa-solid fa-external-link"></i>
                           </el-button>
                         </el-tooltip>
                         <el-tooltip :content="t('openExtensionInWindow')" placement="top">
-                          <!-- 独立窗口打开按钮（仅在Electron环境下显示） -->
-                          <el-button
-                            v-if="isElectron"
-                            type="primary"
-                            circle
-                            size="small"
-                            @click.stop="openExtensionInWindow(ext)"
-                            style="margin-left: 8px;">
+                          <el-button v-if="isElectron" type="primary" circle size="small" @click.stop="openExtensionInWindow(ext)" style="margin-left: 8px;">
                             <i class="fa-solid fa-window-restore"></i>
                           </el-button>
                         </el-tooltip>
@@ -1450,16 +1756,62 @@ function updateElement(el, rawMarkdown, formatFn) {
                           <span>{{ ext.author }}</span>
                         </div>
                       </div>
-                    </el-card>
+                  </el-card>
                 </div>
               </div>
             </div>
+
+            <!-- 任务结果 Dialog -->
+            <el-dialog
+              v-model="showTaskResultDialog"
+              :title="selectedTaskTitle"
+              width="80%"
+              class="task-result-dialog"
+              append-to-body
+              destroy-on-close
+            >
+              <div class="task-result-content markdown-body">
+                <div v-html="formatMessage(selectedTaskResult)"></div>
+              </div>
+              <template #footer>
+                <el-button @click="showTaskResultDialog = false">{{ t('close') }}</el-button>
+              </template>
+            </el-dialog>
+
+            <!-- 创建任务 Dialog -->
+            <el-dialog
+              v-model="showCreateTaskDialog"
+              :title="t('createNewTask')"
+              width="80%"
+              destroy-on-close
+              append-to-body
+            >
+              <el-form :model="newTaskForm" label-position="top">
+                <el-form-item :label="t('taskTitle')">
+                  <el-input v-model="newTaskForm.title" :placeholder="t('taskTitlePlaceholder')"></el-input>
+                </el-form-item>
+                <el-form-item :label="t('taskDescription')">
+                  <el-input 
+                    v-model="newTaskForm.description" 
+                    type="textarea" 
+                    :rows="6"
+                    :placeholder="t('taskDescPlaceholder')"
+                  ></el-input>
+                </el-form-item>
+              </el-form>
+              <template #footer>
+                <span class="dialog-footer">
+                  <el-button @click="showCreateTaskDialog = false">{{ t('cancel') }}</el-button>
+                  <el-button type="primary" :loading="isCreatingTask" @click="submitCreateTask">{{ t('createAndRun') }}</el-button>
+                </span>
+              </template>
+            </el-dialog>
           </div>
           <!-- 群聊设置弹窗 -->
           <el-dialog
             v-model="showGroupSettingsDialog"
             :title="t('groupChatSettings')"
-            width="500px">
+            width="80%">
             <div class="knowledge-dialog-content">
               
               <!-- 1. 开启/关闭群聊模式 -->
@@ -1518,61 +1870,10 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
             </div>
           </el-dialog>
-          <el-dialog
-            v-model="showEditDialog"
-            :title="editType === 'system' ? t('editSystemPrompt') : t('editMessage')"
-            width="600px">
-            <el-form-item v-if="editType === 'system'" :label="t('selectSystemPrompt')" class="form-item-align" label-position="left">
-              <el-select 
-                v-model="selectSystemPromptId" 
-                :placeholder="t('selectSystemPromptPlaceholder')"
-                class="full-width-input"
-                @change="changeSystemPrompt"
-                >
-                <el-option
-                  v-for="prompt in SystemPromptsList"
-                  :key="prompt.id"
-                  :label="prompt.name"
-                  :value="prompt.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-input
-              v-model="editContent"
-              type="textarea"
-              :rows="18"
-              :placeholder="t('enterContent')"
-            ></el-input>
-            <template #footer>
-              <el-button @click="showEditDialog = false">{{ t('cancel') }}</el-button>
-              <el-button @click="switchToSystemPrompts" v-if="editType === 'system'">{{ t('addSystemPrompt') }}</el-button>
-              <el-button type="primary" @click="saveEdit">{{ editType === 'user' ? t('modifyAndSend'):t('save') }}</el-button>
-            </template>
-          </el-dialog>
-            <!-- 文件上传对话框 -->
-            <el-dialog
-              v-model="showUploadDialog"
-              :title="currentUploadType==='file' ? t('uploadFile') : t('uploadImage')"
-              width="600px"
-              :before-close="() => showUploadDialog = false">
-
-              <div class="upload-container">
-                <!-- 可点击的拖拽区域 -->
-                <div
-                  class="drop-zone"
-                  @dragover.prevent
-                  @drop.prevent="handleDrop"
-                  @click="browseFiles"
-                >
-                  <el-icon :size="50"><upload /></el-icon>
-                  <p>{{ t('clickOrDrop') }}</p>
-                </div>
-              </div>
-            </el-dialog>
             <el-dialog
               v-model="showKnowledgeDialog"
               :title="t('knowledgeBaseSelection')"
-              width="600px">
+              width="80%">
               <div class="knowledge-dialog-content">
                 <div v-for="kb in knowledgeBases" :key="kb.id" class="knowledge-item">
                   <el-switch v-model="kb.enabled" @change="autoSaveSettings"></el-switch>
@@ -1591,7 +1892,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showMemoryDialog"
             :title="t('memory')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <el-form-item :label="t('memoryEnable')" class="form-item-align" label-position="left">
                 <el-switch
@@ -1624,21 +1925,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                   />
                 </el-select>
               </el-form-item>
-              <el-form-item v-if="ttsSettings.newtts.length > 0 " :label="t('availableVoice')"></el-form-item>
-              <div class="knowledge-dialog-content">
-                <div v-for="(config, name) in ttsSettings.newtts" :key="name" class="knowledge-item">
-                  <el-switch v-model="config.enabled" @change="autoSaveSettings"></el-switch>
-                  <div class="knowledge-info">
-                    <div class="knowledge-name">{{ name }}</div>
-                  </div>
-                </div>
-              </div>
             </div>
           </el-dialog>
           <el-dialog
             v-model="showAgentDialog"
             :title="t('agentSettings')"
-            width="600px">
+            width="80%">
             <div class="agent-dialog-content">
               <!-- 主智能体选择 -->
               <div class="agent-section">
@@ -1686,7 +1978,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showMCPServerDialog"
             :title="t('mcpServersManagement')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <!-- 服务器列表 -->
               <div v-for="(server, name) in mcpServers" :key="name" class="knowledge-item">
@@ -1711,7 +2003,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showA2AServerDialog"
             :title="t('a2aServersManagement')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <div v-for="(server, url) in a2aServers" :key="url" class="knowledge-item">
                 <el-switch v-model="server.enabled" @change="autoSaveSettings"></el-switch>
@@ -1730,7 +2022,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showLLMToolsDialog"
             :title="t('llmToolsManagement')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <div v-for="(tool, index) in llmTools" :key="index" class="knowledge-item">
                 <el-switch v-model="tool.enabled" @change="autoSaveSettings"></el-switch>
@@ -1756,7 +2048,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showComfyUIDialog"
             :title="t('ComfyUIManagement')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <div v-for="(tool, index) in workflows" :key="index" class="knowledge-item">
                 <el-switch v-model="tool.enabled" @change="autoSaveSettings"></el-switch>
@@ -1782,7 +2074,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showStickerPacksDialog"
             :title="t('StickerPackManagement')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <div v-for="(pack, index) in stickerPacks" :key="index" class="knowledge-item">
                 <el-switch v-model="pack.enabled" @change="autoSaveSettings"></el-switch>
@@ -1807,7 +2099,7 @@ function updateElement(el, rawMarkdown, formatFn) {
           <el-dialog
             v-model="showMoreButtonDialog"
             :title="t('showMoreButton')"
-            width="600px">
+            width="80%">
             <div class="knowledge-dialog-content">
               <div v-for="(config, index) in MoreButtonDict" :key="index" class="knowledge-item">
                 <el-switch v-model="config.enabled" @change="autoSaveSettings"></el-switch>
@@ -1819,10 +2111,42 @@ function updateElement(el, rawMarkdown, formatFn) {
           </el-dialog>
         </div>
 
+          <el-dialog
+            v-model="showEditDialog"
+            :title="editType === 'system' ? t('editSystemPrompt') : t('editMessage')"
+            width="80%">
+            <el-form-item v-if="editType === 'system'" :label="t('selectSystemPrompt')" class="form-item-align" label-position="left">
+              <el-select 
+                v-model="selectSystemPromptId" 
+                :placeholder="t('selectSystemPromptPlaceholder')"
+                class="full-width-input"
+                @change="changeSystemPrompt"
+                >
+                <el-option
+                  v-for="prompt in SystemPromptsList"
+                  :key="prompt.id"
+                  :label="prompt.name"
+                  :value="prompt.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-input
+              v-model="editContent"
+              type="textarea"
+              :rows="18"
+              :placeholder="t('enterContent')"
+            ></el-input>
+            <template #footer>
+              <el-button @click="showEditDialog = false">{{ t('cancel') }}</el-button>
+              <el-button @click="switchToSystemPrompts" v-if="editType === 'system'">{{ t('addSystemPrompt') }}</el-button>
+              <el-button type="primary" @click="saveEdit">{{ editType === 'user' ? t('modifyAndSend'):t('save') }}</el-button>
+            </template>
+          </el-dialog>
+
         <el-dialog
           v-model="showHistoryDialog"
           :title="t('chatHistory')"
-          width="600px">
+          width="80%">
           <div class="knowledge-dialog-content">
             <!-- 搜索框与操作按钮行 -->
             <div class="search-action-row">
@@ -2363,6 +2687,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 </el-option>
                               </el-select>
                             </el-form-item>
+                            <el-form-item :label="t('enableInfer')" class="form-item-align" label-position="left">
+                              <el-switch 
+                                v-model="newMemory.infer" 
+                                @change="autoSaveSettings"
+                              ></el-switch>
+                            </el-form-item>
                             <el-alert type="info" :closable="false" class="mb-2">
                               <template #default>
                                 <div class="alert-content">
@@ -2670,7 +3000,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <el-dialog
                       v-model="showPromptDialog"
                       :title="t('editSystemPrompt')"
-                      width="60%"
+                      width="80%"
                     >
                       <el-form label-position="top">
                         <el-form-item :label="t('promptName')" required>
@@ -3249,7 +3579,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-form-item :label="t('promptAudio')" class="form-item-align">
                           <el-select
                             v-model="newTTSConfig.gsvRefAudioPath"
-                            @change="handleRefAudioPathChange"
+                            @change="handleRefAudioPathChange(newTTSConfig.gsvRefAudioPath,'role')"
                             class="full-width-input"
                           >
                             <el-option :key="null" :value="null" :label="t('noRefAudio')"></el-option>
@@ -3554,7 +3884,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
                           <el-select
                             v-model="newTTSConfig.gsvRefAudioPath"
-                            @change="handleRefAudioPathChange"
+                            @change="handleRefAudioPathChange(newTTSConfig.gsvRefAudioPath,'role')"
                             class="full-width-input"
                           >
                             <el-option
@@ -3813,7 +4143,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showVrmModelDialog"
                     :title="t('uploadVrmModel')"
-                    width="600px"
+                    width="80%"
                   >
                     <div class="upload-container">
                       <div
@@ -3859,7 +4189,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showVrmaMotionDialog"
                     :title="t('uploadVrmaMotion')"
-                    width="600px"
+                    width="80%"
                   >
                     <div class="upload-container">
                       <div
@@ -3994,7 +4324,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <div class="kb-meta">
                         <!-- 描述信息概览 -->
                         <div class="kb-meta-item">
-                          <span style="font-size: 12px; color: #909399; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                          <span style="font-size: 12px; color: #909399; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                             {{ getBehaviorSummary(b) }}
                           </span>
                         </div>
@@ -4201,7 +4531,7 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
               <!-- 桌面视觉 -->
               <div v-show="subMenu === 'vision'" class="page">
-                <el-form :model="memorySettings" class="settings-form"  label-position="top">
+                <el-form v-if="isElectron" :model="visionSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
                       <div class="header-left">
@@ -4233,6 +4563,10 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
                 </el-form>
+                <!-- Web端提示 -->
+                <div v-else >
+                  <el-empty :description="t('webNotSupported')" />
+                </div>
               </div>
             </div>
           </div>
@@ -4242,7 +4576,7 @@ function updateElement(el, rawMarkdown, formatFn) {
         <el-dialog
           v-model="showGsvRefAudioPathDialog"
           :title="t('uploadGsvRefAudio')"
-          width="600px"
+          width="80%"
         >
           <div class="upload-container">
             <div
@@ -4483,7 +4817,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   v-model="showAddDialog"
                   id="show-Add-Dialog"
                   :title="t('addNewProvider')"
-                  width="90%"
+                  width="80%"
                   @closed="newProviderTemp = { vendor: '', url: '' }"
                 >
                   <!-- 供应商选择区域 -->
@@ -4658,7 +4992,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-model="settings.temperature"
                           :min="0"
                           :max="1"
-                          :step="0.1"
+                          :step="0.01"
                           show-input
                           @input="autoSaveSettings"
                         />
@@ -4668,7 +5002,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-model="settings.top_p"
                           :min="0"
                           :max="1"
-                          :step="0.1"
+                          :step="0.01"
                           show-input
                           @input="autoSaveSettings"
                         />
@@ -4688,7 +5022,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           v-model="settings.max_rounds"
                           :min="0"
                           :max="1000"
-                          :step="2"
+                          :step="1"
                           show-input
                           @input="autoSaveSettings"
                         />
@@ -5807,7 +6141,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <el-form-item :label="t('promptAudio')" class="form-item-align">
                         <el-select
                           v-model="ttsSettings.gsvRefAudioPath"
-                          @change="handleRefAudioPathChange"
+                          @change="handleRefAudioPathChange(ttsSettings.gsvRefAudioPath,'model')"
                           class="full-width-input"
                         >
                           <el-option :key="null" :value="null" :label="t('noRefAudio')"></el-option>
@@ -6445,7 +6779,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <el-form-item :label="t('gsvPromptAudio')" class="form-item-align">
                         <el-select
                           v-model="ttsSettings.gsvRefAudioPath"
-                          @change="handleRefAudioPathChange"
+                          @change="handleRefAudioPathChange(ttsSettings.gsvRefAudioPath,'model')"
                           class="full-width-input"
                         >
                           <el-option
@@ -7164,7 +7498,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           {{ t('interpreter') }}
                         </span>
                       </div>
-                      <el-switch v-model="codeSettings.enabled" @click.stop @change="autoSaveSettings"/>
+                      <el-switch v-model="codeSettings.enabled" @click.stop @change="handleInterpreterToggle"/>
                     </div>
                     <div class="tool-content">
                       <el-form-item :label="t('codeEngine')" class="form-item-align">
@@ -7256,12 +7590,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <div class="header-left">
                           <span>
                             <el-icon>
-                              <i class="fa-solid fa-terminal"></i>
+                              <i class="fa-solid fa-computer"></i>
                             </el-icon>
                             {{ t('CLItool') }}
                           </span>
                         </div>
-                        <el-switch v-model="CLISettings.enabled" @click.stop @change="autoSaveSettings"/>
+                        <el-switch v-model="CLISettings.enabled" @click.stop @change="handleEnableToggle"/>
                       </div>
                       <div class="tool-content">
                         <el-form-item :label="t('CLIEngine')" class="form-item-align">
@@ -7276,7 +7610,20 @@ function updateElement(el, rawMarkdown, formatFn) {
                             <el-option label="Qwen Code" value="qc" ></el-option>
                           </el-select>
                         </el-form-item>
+
+                        <!-- 工作空间选择 -->
+                        <el-form-item required :label="t('workspace')" class="form-item-align">
+                          <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
+                            <template #append>
+                              <el-button @click="browseDirectory">
+                                <i class="fa-solid fa-folder"></i>
+                              </el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+
                       </div>
+
                     </div>
 
                     <!-- 本地环境配置 -->
@@ -7290,24 +7637,15 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </div>
                       </div>
                       <div class="tool-content">
-                        <!-- 工作空间选择 -->
-                        <el-form-item required :label="t('workspace')" class="form-item-align">
-                          <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
-                            <template #append>
-                              <el-button @click="browseDirectory">
-                                <i class="fa-solid fa-folder"></i>
-                              </el-button>
-                            </template>
-                          </el-input>
-                        </el-form-item>
 
                         <!-- 权限模式选择 -->
                         <el-form-item :label="t('permissionMode')" class="form-item-align">
                           <el-select v-model="localEnvSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
                             <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
                             <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
-                            <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                            <el-option :label="t('danger')+t('bypassPermissions')" value="yolo" ></el-option>
+                            <el-option :label="t('danger')+t('coworkPermissionMode')" value="cowork" ></el-option>
                           </el-select>
                         </el-form-item>
                       </div>
@@ -7345,24 +7683,15 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </div>
                       </div>
                       <div class="tool-content">
-                        <!-- 工作空间选择 -->
-                        <el-form-item required :label="t('workspace')" class="form-item-align">
-                          <el-input v-model="CLISettings.cc_path" @input="autoSaveSettings" class="full-width-input">
-                            <template #append>
-                              <el-button @click="browseDirectory">
-                                <i class="fa-solid fa-folder"></i>
-                              </el-button>
-                            </template>
-                          </el-input>
-                        </el-form-item>
 
                         <!-- 权限模式选择 -->
                         <el-form-item :label="t('permissionMode')" class="form-item-align">
                           <el-select v-model="dsSettings.permissionMode" @change="autoSaveSettings" class="full-width-input">
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
                             <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
                             <el-option :label="t('acceptEdits')" value="auto-approve" ></el-option>
                             <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                            <el-option :label="t('coworkPermissionMode')" value="cowork" ></el-option>
                           </el-select>
                         </el-form-item>
                       </div>
@@ -7384,7 +7713,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <div class="header-left">
                           <span>
                             <el-icon>
-                              <i class="fa-solid fa-terminal"></i>
+                              <i class="fa-solid fa-computer"></i>
                             </el-icon>
                             Claude Code
                             <el-link
@@ -7401,29 +7730,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </div>
                       </div>
                       <div class="tool-content">
-                        <el-form-item required :label="t('workspace')" class="form-item-align">
-                          <el-input
-                            v-model="CLISettings.cc_path"
-                            @input="autoSaveSettings"
-                            class="full-width-input"
-                          >
-                            <template #append>
-                              <el-button @click="browseDirectory">
-                                  <i class="fa-solid fa-folder"></i>
-                              </el-button>
-                            </template>
-                          </el-input>
-                        </el-form-item>
                         <el-form-item :label="t('permissionMode')" class="form-item-align">
                           <el-select
                             v-model="ccSettings.permissionMode"
                             @change="autoSaveSettings"
                             class="full-width-input"
                           >
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
                             <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
                             <el-option :label="t('acceptEdits')" value="acceptEdits" ></el-option>
-                            <el-option :label="t('bypassPermissions')" value="bypassPermissions" ></el-option>
-                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                            <el-option :label="t('danger')+t('bypassPermissions')" value="bypassPermissions" ></el-option>
+                            <el-option :label="t('danger')+t('coworkPermissionMode')" value="cowork" ></el-option>
                           </el-select>
                         </el-form-item>
                         <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
@@ -7476,7 +7793,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <div class="header-left">
                           <span>
                             <el-icon>
-                              <i class="fa-solid fa-terminal"></i>
+                              <i class="fa-solid fa-computer"></i>
                             </el-icon>
                             Qwen Code
                             <el-link
@@ -7493,29 +7810,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </div>
                       </div>
                       <div class="tool-content">
-                        <el-form-item required :label="t('workspace')" class="form-item-align">
-                          <el-input
-                            v-model="CLISettings.cc_path"
-                            @input="autoSaveSettings"
-                            class="full-width-input"
-                          >
-                            <template #append>
-                              <el-button @click="browseDirectory">
-                                  <i class="fa-solid fa-folder"></i>
-                              </el-button>
-                            </template>
-                          </el-input>
-                        </el-form-item>
                         <el-form-item :label="t('permissionMode')" class="form-item-align">
                           <el-select
                             v-model="qcSettings.permissionMode"
                             @change="autoSaveSettings"
                             class="full-width-input"
                           >
+                            <el-option :label="t('planMode')" value="plan" ></el-option>
                             <el-option :label="t('defaultPermissionMode')" value="default" ></el-option>
                             <el-option :label="t('acceptEdits')" value="auto-edit" ></el-option>
-                            <el-option :label="t('bypassPermissions')" value="yolo" ></el-option>
-                            <el-option :label="t('planMode')" value="plan" ></el-option>
+                            <el-option :label="t('danger')+t('bypassPermissions')" value="yolo" ></el-option>
+                            <el-option :label="t('danger')+t('coworkPermissionMode')" value="cowork" ></el-option>
                           </el-select>
                         </el-form-item>
                         <el-form-item required :label="t('enabledCCconfig')" class="form-item-align" label-position="left">
@@ -7563,6 +7868,29 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </template>
                       </el-alert>
                     </div>
+                    <!-- docker 卡片：已安装 & 未安装 双状态 -->
+                    <el-card shadow="hover" class="sherpa-card" v-show="CLISettings.engine === 'ds'">
+                      <!-- 头部：标题 + 状态标签 -->
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><strong>Docker</strong></span>
+
+                        <div class="d-flex gap-2">
+                          <el-button
+                            v-if="!dockerInstalled"
+                            type="primary"
+                            :loading="dockerInstalling"
+                            @click="openRepository('https://www.docker.com/get-started')"
+                          >
+                            <i class="fa-solid fa-download"></i>
+                            {{ t('installDocker') }}
+                          </el-button>
+                          <el-tag v-else type="success" effect="dark" size="large">  
+                            <i class="fa-solid fa-circle-check"></i>
+                            {{ t('installed') }}
+                          </el-tag>
+                        </div>
+                      </div>
+                    </el-card>
                   </el-form> 
                 </el-tab-pane>
                 <el-tab-pane :label="t('agentSkills')" name="skills">
@@ -7591,6 +7919,15 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <div class="plugin-header">
                     <h3>{{ t('agentSkills') }}</h3>
                     <div class="plugin-button-group">
+                      <el-select
+                        style="width: 200px;"
+                        v-model="CLISettings.visibilityScope"
+                        @change="autoSaveSettings"
+                      >
+                        <el-option :label="t('globalSkill')" value="global" ></el-option>
+                        <el-option :label="t('workspaceSkill')" value="workspace" ></el-option>
+                        <el-option :label="t('noneSkill')" value="none" ></el-option>
+                      </el-select>
                       <el-button 
                         @click="showAddSkillDialog = true" 
                         type="primary">
@@ -7682,7 +8019,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </template>
                 </el-dialog>
                 <!-- === 新增: 添加 Skill 对话框 === -->
-                <el-dialog v-model="showAddSkillDialog" :title="t('addSkill')" width="650px">
+                <el-dialog v-model="showAddSkillDialog" :title="t('addSkill')" width="80%">
                   <el-tabs v-model="addSkillTab">
                     
                     <!-- GitHub 安装 -->
@@ -7766,7 +8103,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                           {{ t('webSearch') }}
                         </span>
                       </div>
-                      <el-switch v-model="webSearchSettings.enabled" @click.stop @change="autoSaveSettings"/>
+                      <el-switch v-model="webSearchSettings.enabled" @click.stop @change="handleWebSearchToggle"/>
                     </div>
                     <div class="tool-content">
                       <el-form-item :label="t('searchEngine')" class="form-item-align">
@@ -7792,6 +8129,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                           @change="autoSaveSettings"
                           class="full-width-input"
                         >
+                          <el-option :label="t('simpleRequest')" value="simpleRequest" ></el-option>
+                          <el-option label="markdown.new" value="mdnew" ></el-option>
                           <el-option label="Jina" value="jina" ></el-option>
                           <el-option label="Crawl4AI" value="crawl4ai" ></el-option>
                           <el-option label="Firecrawl" value="firecrawl"></el-option>
@@ -8371,6 +8710,42 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-form-item>
                     </div>
                   </div>
+                  <div class="tool-item" v-show="webSearchSettings.crawler === 'simpleRequest'">
+                    <div class="tool-header">
+                      <div class="header-left">
+                        <span>
+                          <el-icon>
+                            <i class="fa-solid fa-globe"></i>
+                          </el-icon>
+                          {{t('simpleRequest')}}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="tool-item" v-show="webSearchSettings.crawler === 'mdnew'">
+                    <div class="tool-header">
+                      <div class="header-left">
+                        <span>
+                          <el-icon>
+                            <i class="fa-solid fa-globe"></i>
+                          </el-icon>
+                          markdown.new
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            href="https://markdown.new/"
+                            target="_blank"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-globe"></i>
+                            </el-icon>{{ t('officialWebsite') }}
+                          </el-link>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                 </el-form>
               </div>
               <!-- 知识库界面 -->
@@ -8850,7 +9225,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 <el-dialog
                   v-model="showStickerDialog"
                   :title="t('createStickerPack')"
-                  width="60%">
+                  width="80%">
                   <el-form label-position="top">
                     <el-form-item :label="t('packName')" required>
                       <el-input v-model="newStickerPack.name" />
@@ -8872,7 +9247,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </el-form-item>
 
                     <!-- 预览弹窗 -->
-                    <el-dialog v-model="dialogVisible">
+                    <el-dialog v-model="dialogVisible" width="80%">
                       <img :src="imageUrl" style="width: 100%" alt="Preview">
                     </el-dialog>
 
@@ -9051,7 +9426,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 <el-dialog
                   v-model="showWorkflowUploadDialog"
                   :title="t('uploadWorkflowJson')"
-                  width="600px"
+                  width="80%"
                 >
                   <div class="upload-container">
                     <div
@@ -9201,7 +9576,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 </div>
             
                 <!-- 添加A2A服务器对话框 -->
-                <el-dialog v-model="showAddA2ADialog" :title="t('addA2AServer')" width="500px" label-position="top">
+                <el-dialog v-model="showAddA2ADialog" :title="t('addA2AServer')" width="80%" label-position="top">
                   <el-form label-position="top">
                     <el-form-item :label="t('A2AUrl')" required>
                       <el-input v-model="newA2AUrl" placeholder="http://127.0.0.1:5000"></el-input>
@@ -9326,7 +9701,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showAddMCPDialog"
                     :title="isEditMode ? t('editMCP') : t('addNewMCP')"
-                    width="650px"
+                    width="80%"
                     :close-on-click-modal="false"
                     :close-on-press-escape="false"
                     class="mcp-dialog"
@@ -9492,7 +9867,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showMCPConfirm"
                     :title="t('confirmDeleteTitle')"
-                    width="400px"
+                    width="80%"
                     @closed="deletingMCPName = null">
                     <div class="confirm-content">
                       <p>{{ t('confirmDeleteMCP', { name: deletingMCPName }) }}</p>
@@ -9532,7 +9907,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 </div>
 
                 <!-- 添加/编辑LLM工具对话框 -->
-                <el-dialog v-model="showLLMForm" :title="editingLLM ? t('editLLMTool') : t('addLLMTool')" width="600px">
+                <el-dialog v-model="showLLMForm" :title="editingLLM ? t('editLLMTool') : t('addLLMTool')" width="80%">
                   <el-form label-position="top">
                     <el-form-item :label="t('toolName')" required>
                       <el-input v-model="newLLMTool.name" :placeholder="t('toolNamePlaceholder')"/>
@@ -9625,7 +10000,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                 </div>
 
                 <!-- 添加/编辑自定义HTTP工具对话框 -->
-                <el-dialog v-model="showCustomHttpToolForm" :title="editingCustomHttpTool ? t('editCustomHttpTool') : t('addCustomHttpTool')" width="600px">
+                <el-dialog v-model="showCustomHttpToolForm" :title="editingCustomHttpTool ? t('editCustomHttpTool') : t('addCustomHttpTool')" width="80%">
                   <el-form label-position="top">
                     <el-form-item :label="t('toolName')" required>
                       <el-input v-model="newCustomHttpTool.name" :placeholder="t('HTTPNamePlaceholder')"></el-input>
@@ -9852,7 +10227,7 @@ function updateElement(el, rawMarkdown, formatFn) {
         <el-dialog
           :title="t('restartConfirm')"
           v-model="showRestartDialog"
-          width="600px">
+          width="80%">
           <span>{{ t('restartConfirmText') }}</span>
           <template #footer>
             <span class="dialog-footer">
@@ -9994,7 +10369,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   v-model="previewVisible"
                   :title="t('preview')"
                   class="image-preview-dialog"
-                  width="600px">
+                  width="80%">
                   <div class="preview-container">
                     <img 
                       :src="previewImageUrl" 
@@ -10053,7 +10428,7 @@ function updateElement(el, rawMarkdown, formatFn) {
         <!-- logo页面 -->
         <div v-show="activeMenu === 'logo'" class="page logo-container">
           <div class="license-notice">
-            <h1>Super Agent Party v0.3.8</h1>
+            <h1>Super Agent Party v0.3.9</h1>
             <h3>开源协议声明 / Open Source License</h3>
             <div class="notice-section">
               <p>❗ 注意！本项目是基于AGPL协议开源的，请遵守AGPL协议，以避免不必要的法律问题！</p>
@@ -12037,7 +12412,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showVrmModelDialog"
                     :title="t('uploadVrmModel')"
-                    width="600px"
+                    width="80%"
                   >
                     <div class="upload-container">
                       <div
@@ -12083,7 +12458,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showVrmaMotionDialog"
                     :title="t('uploadVrmaMotion')"
-                    width="600px"
+                    width="80%"
                   >
                     <div class="upload-container">
                       <div
@@ -12129,7 +12504,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   <el-dialog
                     v-model="showGaussSceneDialog"
                     :title="t('uploadGaussScene')"
-                    width="600px"
+                    width="80%"
                   >
                     <div class="upload-container">
                       <div
@@ -12464,7 +12839,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <el-dialog 
                       :title="t('uploadFile')" 
                       v-model="showFileDialog" 
-                      width="600px"
+                      width="80%"
                     >
                       <div class="upload-container">
                         <!-- 可点击的拖拽区域 -->
@@ -12569,16 +12944,58 @@ function updateElement(el, rawMarkdown, formatFn) {
                                   @change="autoSaveSettings"
                                 />
                               </el-form-item> 
-                                <el-form-item :label="t('danmakuWakeWord')">
-                                  <el-input
-                                    v-model="liveConfig.wakeWord"
-                                    :placeholder="t('botWakeWordPlaceholder')"
-                                    class="full-width-input"
-                                    @change="autoSaveSettings"
-                                    type="textarea" 
-                                    :rows="3"
-                                  />
-                                </el-form-item>
+                              <el-form-item :label="t('danmakuWakeWord')">
+                                <el-input
+                                  v-model="liveConfig.wakeWord"
+                                  :placeholder="t('botWakeWordPlaceholder')"
+                                  class="full-width-input"
+                                  @change="autoSaveSettings"
+                                  type="textarea" 
+                                  :rows="3"
+                                />
+                              </el-form-item>
+
+                              <el-alert
+                                type="info"
+                                :closable="false"
+                                class="mb-2"
+                              >
+                                {{ t('vrmAPIInstructions') }}
+                              </el-alert>
+                              <!-- API端点 -->
+                              <el-form-item :label="t('apiEndpoint')" class="form-item-align" label-position="top">
+                                <el-input
+                                  :value="partyURL+'/vrm.html'"
+                                  readonly
+                                  class="full-width-input"
+                                >
+                                  <template #append>
+                                    <el-button
+                                      @click="copyVrmEndpoint"
+                                      class="copy-btn"
+                                    >
+                                    <i class="fa-solid fa-copy"></i>
+                                    </el-button>
+                                  </template>
+                                </el-input>
+                              </el-form-item>
+                              <!-- API端点 -->
+                              <el-form-item :label="t('360apiEndpoint')" class="form-item-align" label-position="top">
+                                <el-input
+                                  :value="partyURL+'/vrm.html?mode=render'"
+                                  readonly
+                                  class="full-width-input"
+                                >
+                                  <template #append>
+                                    <el-button
+                                      @click="copyVrmEndpoint"
+                                      class="copy-btn"
+                                    >
+                                    <i class="fa-solid fa-copy"></i>
+                                    </el-button>
+                                  </template>
+                                </el-input>
+                              </el-form-item>
                             </div>
                           </div>
                         </el-form>
@@ -12999,52 +13416,77 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="suite-content">
               <!-- 开发工具页面 -->
               <div v-show="subMenu === 'develop'" class="page agents-container">
-                <!-- Node.js 卡片：已安装 & 未安装 双状态 -->
-                <el-card shadow="hover" class="sherpa-card">
-                  <!-- 头部：标题 + 状态标签 -->
-                  <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><strong>Node.js</strong></span>
+                <el-form  class="settings-form"> 
+                  <!-- Node.js 卡片：已安装 & 未安装 双状态 -->
+                  <el-card shadow="hover" class="sherpa-card">
+                    <!-- 头部：标题 + 状态标签 -->
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <span><strong>Node.js</strong></span>
 
-                    <div class="d-flex gap-2">
-                      <el-button
-                        v-if="!nodeInstalled"
-                        type="primary"
-                        :loading="nodeInstalling"
-                        @click="openRepository('https://nodejs.org/en/download')"
-                      >
-                        <i class="fa-solid fa-download"></i>
-                        {{ t('installNode') }}
-                      </el-button>
-                      <el-tag v-else type="success" effect="dark" size="large">  
-                        <i class="fa-solid fa-circle-check"></i>
-                        {{ t('installed') }}
-                      </el-tag>
+                      <div class="d-flex gap-2">
+                        <el-button
+                          v-if="!nodeInstalled"
+                          type="primary"
+                          :loading="nodeInstalling"
+                          @click="openRepository('https://nodejs.org/en/download')"
+                        >
+                          <i class="fa-solid fa-download"></i>
+                          {{ t('installNode') }}
+                        </el-button>
+                        <el-tag v-else type="success" effect="dark" size="large">  
+                          <i class="fa-solid fa-circle-check"></i>
+                          {{ t('installed') }}
+                        </el-tag>
+                      </div>
                     </div>
-                  </div>
-                </el-card>
-                <!-- uv 卡片：已安装 & 未安装 双状态 -->
-                <el-card shadow="hover" class="sherpa-card">
-                  <!-- 头部：标题 + 状态标签 -->
-                  <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><strong>UV</strong></span>
+                  </el-card>
+                  <!-- uv 卡片：已安装 & 未安装 双状态 -->
+                  <el-card shadow="hover" class="sherpa-card">
+                    <!-- 头部：标题 + 状态标签 -->
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <span><strong>UV</strong></span>
 
-                    <div class="d-flex gap-2">
-                      <el-button
-                        v-if="!uvInstalled"
-                        type="primary"
-                        :loading="uvInstalling"
-                        @click="openRepository('https://docs.astral.sh/uv/getting-started/installation/')"
-                      >
-                        <i class="fa-solid fa-download"></i>
-                        {{ t('installUv') }}
-                      </el-button>
-                      <el-tag v-else type="success" effect="dark" size="large">
-                        <i class="fa-solid fa-circle-check"></i>
-                        {{ t('installed') }}
-                      </el-tag>
+                      <div class="d-flex gap-2">
+                        <el-button
+                          v-if="!uvInstalled"
+                          type="primary"
+                          :loading="uvInstalling"
+                          @click="openRepository('https://docs.astral.sh/uv/getting-started/installation/')"
+                        >
+                          <i class="fa-solid fa-download"></i>
+                          {{ t('installUv') }}
+                        </el-button>
+                        <el-tag v-else type="success" effect="dark" size="large">
+                          <i class="fa-solid fa-circle-check"></i>
+                          {{ t('installed') }}
+                        </el-tag>
+                      </div>
                     </div>
-                  </div>
-                </el-card>
+                  </el-card>
+                  <!-- docker 卡片：已安装 & 未安装 双状态 -->
+                  <el-card shadow="hover" class="sherpa-card">
+                    <!-- 头部：标题 + 状态标签 -->
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <span><strong>Docker</strong></span>
+
+                      <div class="d-flex gap-2">
+                        <el-button
+                          v-if="!dockerInstalled"
+                          type="primary"
+                          :loading="dockerInstalling"
+                          @click="openRepository('https://www.docker.com/get-started')"
+                        >
+                          <i class="fa-solid fa-download"></i>
+                          {{ t('installDocker') }}
+                        </el-button>
+                        <el-tag v-else type="success" effect="dark" size="large">  
+                          <i class="fa-solid fa-circle-check"></i>
+                          {{ t('installed') }}
+                        </el-tag>
+                      </div>
+                    </div>
+                  </el-card>
+                </el-form> 
               </div>
               <!-- 智能体页面 -->
               <div v-show="subMenu === 'agents'" class="page agents-container">
@@ -13094,7 +13536,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </div>
                 </div>
                 <!-- 智能体编辑对话框 -->
-                <el-dialog v-model="showAgentForm" :title="editingAgent ? t('editAgent') : t('addAgent')" width="600px">
+                <el-dialog v-model="showAgentForm" :title="editingAgent ? t('editAgent') : t('addAgent')" width="80%">
                   <el-form label-position="top">
                     <el-form-item :label="t('agentName')" required>
                       <el-input v-model="newAgent.name" :placeholder="t('agentNamePlaceholder')"/>
@@ -13549,6 +13991,23 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-input>
                       </el-form-item>
                       <!-- API端点 -->
+                      <el-form-item :label="t('360apiEndpoint')" class="form-item-align" label-position="top">
+                        <el-input
+                          :value="partyURL+'/vrm.html?mode=render'"
+                          readonly
+                          class="full-width-input"
+                        >
+                          <template #append>
+                            <el-button
+                              @click="copyVrmEndpoint"
+                              class="copy-btn"
+                            >
+                            <i class="fa-solid fa-copy"></i>
+                            </el-button>
+                          </template>
+                        </el-input>
+                      </el-form-item>
+                      <!-- API端点 -->
                       <el-form-item :label="t('vmcpReceive')" class="form-item-align" label-position="top">
                         <el-input
                           value="http://127.0.0.1:39539"
@@ -13878,10 +14337,14 @@ function updateElement(el, rawMarkdown, formatFn) {
             :class="{ 'sidebar-collapsed': !showBrowserChat }"
           >
             <!-- 聊天区域复用 -->
-            <div class="chat-area" style="min-width: 450px;flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; width: 100%;">
+            <div class="chat-area" style="min-width: 450px; flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; width: 100%; background: transparent;">
                 
                 <!-- 消息列表 (flex: 1) -->
-              <div class="messages-container" ref="browserMessagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
+                <div class="messages-container" 
+                  ref="browserMessagesContainer" 
+                  v-if="!isCapsuleMode" 
+                  @click.capture="handleMessageLinkClick"
+                  style="background-color: transparent !important; box-shadow: none !important; border: none !important;">
                 <!-- 添加 is-group-mode 类 -->
                 <div v-for="(message, index) in messages" :key="index" class="message" :class="[message.role, { 'is-group-mode': isGroupMode }]">
                   
@@ -14006,113 +14469,123 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
 
                 <!-- 底部工具栏与输入框 -->
-                <div style="border-top: 1px solid var(--el-border-color); padding: 10px; background: var(--el-bg-color);">
-                    <!-- 按钮组 -->
-                    <div class="button-group" style="margin-bottom: 5px; display: flex; flex-wrap: wrap; gap: 4px;">
-                        
-                        <!-- 常用功能按钮复用 -->
-                        <el-tooltip :content="t('clearChat')" placement="top">
-                          <el-button
-                            v-if="!isCapsuleMode"
-                            @click="clearMessages"
-                            class="icon-btn clear-btn"
-                            type="danger"
-                            circle>
-                            <i class="fa-solid fa-trash"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('chatHistory')" placement="top">
-                          <el-button
-                            v-if="!isCapsuleMode"
-                            @click="showHistoryDialog = true"
-                            class="icon-btn history-btn"
-                            :type="conversations.length === 0 ? 'default' : 'primary'"
-                            circle>
-                            <i class="fa-solid fa-clock-rotate-left"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('desktopVisionButton')" placement="top">
-                          <el-button
-                            @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
-                            class="icon-btn vision-btn"
-                            :type="visionSettings.desktopVision ? 'primary' : 'default'"
-                            :disabled="!isElectron"
-                            circle>
-                            <i class="fa-solid fa-eye"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('screenshot')" placement="top">
-                          <el-button
-                            @click="toggleScreenshot(false)"
-                            class="icon-btn vision-btn"
-                            type="default"
-                            circle>
-                            <i class="fa-solid fa-scissors"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('asr')" placement="top">
-                          <el-button
-                            @click="toggleASR"
-                            class="icon-btn asr-btn"
-                            :type="asrSettings.enabled ? 'primary' : 'default'"
-                            circle>
-                            <i class="fa-solid fa-microphone"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('tts')" placement="top">
-                          <el-button
-                            @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
-                            class="icon-btn asr-btn"
-                            :type="ttsSettings.enabled ? 'primary' : 'default'"
-                            circle>
-                            <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
-                            <i v-else class="fa-solid fa-volume-xmark"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('browserControl')" placement="top">
-                          <el-button
-                            @click="chromeMCPSettings.enabled = !chromeMCPSettings.enabled; changeChromeMCPEnabled();"
-                            class="icon-btn browserControl-btn"
-                            :type="chromeMCPSettings.enabled ? 'primary' : 'default'"
-                            circle>
-                            <i class="fa-solid fa-compass"></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="t('tablePet')" placement="top">
-                          <el-button
-                            @click="startVRM"
-                            class="icon-btn vrm-btn"
-                            :type="'default'"
-                            circle>
-                            <i :class='isVRMStarting? "fa-solid fa-spinner fa-spin" : "fa-solid fa-user-ninja"'></i>
-                          </el-button>
-                        </el-tooltip>
-
-                        <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
-                          <el-button
-                            @click="isSending ? stopGenerate() : sendMessage()"
-                            :type="isSending ? 'danger' : 'primary'"
-                            class="icon-btn send-btn"
-                            circle>
-                            <i :class="isSending ? 'fa-solid fa-stop' : 'fa-solid fa-paper-plane'" aria-hidden="true"></i>
-                          </el-button>
-                        </el-tooltip>
-                    </div>
-
+                <div style="padding: 0; background: transparent;">
                     <!-- 输入框区域 -->
                     <div class="input-container" v-if="!isCapsuleMode">
                       
                       <!-- ✨✨✨ 新增：统一的外层包裹器 ✨✨✨ -->
                       <!-- tabindex="-1" 是为了让 focus-within 生效更稳定 -->
                       <div class="unified-input-wrapper">
-                        
+                        <!-- 按钮组 -->
+                        <div class="button-group">
+                            
+                            <!-- 常用功能按钮复用 -->
+                            <el-tooltip :content="t('newChat')" placement="top">
+                              <el-button
+                                v-if="!isCapsuleMode"
+                                @click="clearMessages"
+                                class="icon-btn clear-btn"
+                                type="primary"
+                                circle>
+                                <i class="fa-solid fa-comment-medical"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('chatHistory')" placement="top">
+                              <el-button
+                                v-if="!isCapsuleMode"
+                                @click="showHistoryDialog = true"
+                                class="icon-btn history-btn"
+                                :type="conversations.length === 0 ? 'default' : 'primary'"
+                                circle>
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('uploadFileorImage')" placement="top">
+                              <el-button
+                                @click="browseAllFiles" 
+                                class="icon-btn file-btn"
+                                :type="(hasFiles || hasImages) ? 'primary' : 'default'"
+                                v-if="MoreButtonDict.find(b => b.name === 'fileButton')?.enabled && !isCapsuleMode"
+                                circle>
+                                <i class="fa-solid fa-paperclip"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('desktopVisionButton')" placement="top">
+                              <el-button
+                                @click="visionSettings.desktopVision = !visionSettings.desktopVision; autoSaveSettings()"
+                                class="icon-btn vision-btn"
+                                :type="visionSettings.desktopVision ? 'primary' : 'default'"
+                                :disabled="!isElectron"
+                                circle>
+                                <i class="fa-solid fa-eye"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('screenshot')" placement="top">
+                              <el-button
+                                @click="toggleScreenshot(false)"
+                                class="icon-btn vision-btn"
+                                type="default"
+                                circle>
+                                <i class="fa-solid fa-scissors"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('asr')" placement="top">
+                              <el-button
+                                @click="toggleASR"
+                                class="icon-btn asr-btn"
+                                :type="asrSettings.enabled ? 'primary' : 'default'"
+                                circle>
+                                <i class="fa-solid fa-microphone"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('tts')" placement="top">
+                              <el-button
+                                @click="ttsSettings.enabled=!ttsSettings.enabled;changeTTSstatus();"
+                                class="icon-btn asr-btn"
+                                :type="ttsSettings.enabled ? 'primary' : 'default'"
+                                circle>
+                                <i v-if="ttsSettings.enabled" class="fa-solid fa-volume-high"></i>
+                                <i v-else class="fa-solid fa-volume-xmark"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('browserControl')" placement="top">
+                              <el-button
+                                @click="chromeMCPSettings.enabled = !chromeMCPSettings.enabled; changeChromeMCPEnabled();"
+                                class="icon-btn browserControl-btn"
+                                :type="chromeMCPSettings.enabled ? 'primary' : 'default'"
+                                circle>
+                                <i class="fa-solid fa-compass"></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="t('tablePet')" placement="top">
+                              <el-button
+                                @click="startVRM"
+                                class="icon-btn vrm-btn"
+                                :type="'default'"
+                                v-if="MoreButtonDict.find(b => b.name === 'vrmButton')?.enabled&&!isCapsuleMode"
+                                circle>
+                                <i :class='isVRMStarting? "fa-solid fa-spinner fa-spin" : "fa-solid fa-user-ninja"'></i>
+                              </el-button>
+                            </el-tooltip>
+
+                            <el-tooltip :content="isSending ? t('stopGenerating') : t('sendMessage')" placement="top">
+                              <el-button
+                                @click="isSending ? stopGenerate() : sendMessage()"
+                                :type="isSending ? 'danger' : 'primary'"
+                                class="icon-btn send-btn"
+                                circle>
+                                <i :class="isSending ? 'fa-solid fa-stop' : 'fa-solid fa-paper-plane'" aria-hidden="true"></i>
+                              </el-button>
+                            </el-tooltip>
+                        </div>
                         <!-- 1. 附件预览区域 -->
                         <div class="attachment-preview-list" v-show="allItems.length > 0">
                           <div v-for="(item, index) in allItems" :key="index" class="attachment-item">
@@ -14148,19 +14621,44 @@ function updateElement(el, rawMarkdown, formatFn) {
                           </div>
                         </div>
 
-                        <!-- 2. 输入框 -->
-                        <!-- 注意：这里的 class 是 input-box-transparent -->
-                        <el-input
-                          v-model="userInput"
-                          type="textarea"
-                          :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
-                          :placeholder="t('inputMessage')"
-                          resize="none"
-                          @keydown="isInputting=true;handleKeyDown($event)" 
-                          @keyup="isInputting=false"
-                          @paste.native="handleInputPaste"
-                          class="input-box-transparent">
-                        </el-input>
+                        <!-- 1. 外层套一个 wrapper，绑定拖拽事件 -->
+                        <div 
+                          class="input-container-wrapper"
+                          :class="{ 'is-dragging': isDragging }"
+                          @dragover.prevent="isDragging = true"
+                          @dragleave.prevent="isDragging = false"
+                          @drop.prevent="handleInputDrop"
+                        >
+                          <el-input
+                            v-model="userInput"
+                            type="textarea"
+                            :rows="isMobile?(isInputExpanded ? 8 : 3):(isInputExpanded ? 16 : 4)"
+                            :placeholder="t('inputMessage')"
+                            resize="none"
+                            @keydown="isInputting=true;handleKeyDown($event)" 
+                            @keyup="isInputting=false"
+                            @paste.native="handleInputPaste"
+                            class="input-box-transparent">
+                          </el-input>
+                          
+                          <div class="input-status-bar" v-if="!isAssistantMode && !isMobile">
+                            
+                            <!-- 模型指示器 -->
+                            <el-tooltip :content="t('clickToSwitchModel')" placement="top" :show-after="500">
+                              <div class="status-pill" @click="showModelDialog = true">
+                                <i class="fa-solid fa-microchip"></i>
+                                <span class="pill-text">{{ settings?.model !== '' ? settings.model : t('noModelSelected') }}</span>
+                              </div>
+                            </el-tooltip>
+
+                          </div>
+
+                          <!-- 拖拽时的遮罩提示（可选，提升体验） -->
+                          <div v-if="isDragging" class="drop-overlay">
+                            <el-icon><Upload /></el-icon>
+                            <span>{{ t('dropToUpload') }}</span>
+                          </div>
+                        </div>
                         
                       </div> <!-- 结束 unified-input-wrapper -->
                     </div>

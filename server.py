@@ -2,12 +2,13 @@
 # ==========================================
 # 第一步：在加载任何沉重库之前，先搞定端口
 # ==========================================
+import signal
 import sys
 import os
 import argparse
 import socket
 import errno
-
+os.environ["MEM0_TELEMETRY"] = "False"
 parser = argparse.ArgumentParser(description="Run the ASGI application server.")
 parser.add_argument("--host", default="127.0.0.1")
 parser.add_argument("--port", type=int, default=3456)
@@ -350,7 +351,7 @@ import aiofiles
 import argparse
 from py.dify_openai_async import DifyOpenAIAsync
 
-from py.get_setting import EXT_DIR, convert_to_opus_simple, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
+from py.get_setting import EXT_DIR, IS_DOCKER, SKILLS_DIR, _copy_default_skills, convert_to_opus_simple, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR
 from py.llm_tool import get_image_base64,get_image_media_type
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
@@ -433,7 +434,7 @@ def _get_target_message(message, role):
             target_message = message[-1]
         else:
             # 如果最后一个消息不是assistant，创建一个新的
-            new_assistant_msg = {'role': 'assistant', 'content': ''}
+            new_assistant_msg = {'role': 'assistant', 'content': '','reasoning_content': ''}
             message.append(new_assistant_msg)
             target_message = new_assistant_msg
     elif role == 'system':
@@ -481,8 +482,11 @@ def content_new(message, role, content):
 
 configure_host_port(args.host, args.port)
 
+from py.node_runner import node_mgr
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _copy_default_skills()
     # 1. 准备所有独立的初始化任务
     from py.get_setting import init_db, init_covs_db
     from tzlocal import get_localzone
@@ -686,6 +690,18 @@ async def lifespan(app: FastAPI):
         # 直接广播空配置
         asyncio.create_task(broadcast_settings_update(settings or {}))
     yield
+    # 所有任务结束后，清理
+    # --- 关闭时运行的代码 (Shutdown) ---
+    print("System shutting down, cleaning up Node processes...")
+    # 遍历所有已启动的扩展并关闭它们
+    ext_ids = list(node_mgr.exts.keys())
+    for ext_id in ext_ids:
+        try:
+            print(f"Stopping extension: {ext_id}")
+            await node_mgr.stop(ext_id)
+        except Exception as e:
+            print(f"Error stopping {ext_id}: {e}")
+    print("All Node processes terminated.")
 
 # WebSocket端点增加连接管理
 active_connections = []
@@ -828,6 +844,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         jina_crawler_async,
         Crawl4Ai_search_async, 
         firecrawl_search_async,
+        simple_fetch_async,
+        markdown_new_async,
     )
     from py.know_base import query_knowledge_base
     from py.agent_tool import agent_tool_call
@@ -856,6 +874,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         docker_sandbox_async,
         list_files_tool,
         read_file_tool,
+        read_file_range_tool, 
+        tail_file_tool,     
         search_files_tool,
         edit_file_tool,
         edit_file_patch_tool, 
@@ -871,6 +891,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
         list_files_tool_local,     # 本地文件列表
         read_file_tool_local,      # 本地文件读取
+        read_file_range_tool_local, # <--- 新增导入
+        tail_file_tool_local,       # <--- 新增导入
         search_files_tool_local,   # 本地文件搜索
         edit_file_tool_local,      # 本地文件写入
         edit_file_patch_tool_local,# 本地精确替换
@@ -900,6 +922,13 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
     )
     from py.random_topic import get_random_topics,get_categories
 
+    from py.task_tools import (
+        create_subtask,
+        query_task_progress,
+        cancel_subtask,
+        finish_task
+    )
+
     # ==================== 2. 定义工具映射表 ====================
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
@@ -909,6 +938,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "jina_crawler_async": jina_crawler_async,
         "Crawl4Ai_search_async": Crawl4Ai_search_async,
         "firecrawl_search_async": firecrawl_search_async,
+        "simple_fetch_async":simple_fetch_async,
+        "markdown_new_async":markdown_new_async,
         "agent_tool_call": agent_tool_call,
         "a2a_tool_call": a2a_tool_call,
         "custom_llm_tool": custom_llm_tool,
@@ -959,6 +990,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "docker_sandbox_async": docker_sandbox_async,
         "list_files_tool": list_files_tool,
         "read_file_tool": read_file_tool,
+        "read_file_range_tool": read_file_range_tool, # <--- 映射新工具
+        "tail_file_tool": tail_file_tool,             # <--- 映射新工具
         "search_files_tool": search_files_tool,
         "edit_file_tool": edit_file_tool,
         "edit_file_patch_tool": edit_file_patch_tool,
@@ -972,6 +1005,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
         "list_files_tool_local": list_files_tool_local,         # 本地文件列表
         "read_file_tool_local": read_file_tool_local,           # 本地文件读取
+        "read_file_range_tool_local": read_file_range_tool_local, # <--- 映射新工具
+        "tail_file_tool_local": tail_file_tool_local,             # <--- 映射新工具
         "search_files_tool_local": search_files_tool_local,     # 本地文件搜索
         "edit_file_tool_local": edit_file_tool_local,           # 本地文件写入
         "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
@@ -979,11 +1014,17 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
         "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
+
+        # 任务中心工具（新增）
+        "create_subtask": create_subtask,
+        "query_task_progress": query_task_progress,
+        "cancel_subtask": cancel_subtask,
+        "finish_task":finish_task,
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
     # 定义受控的敏感工具列表
-    # 这些工具在执行前需要检查权限配置 (.party/config.json 或 全局设置)
+    # 这些工具在执行前需要检查权限配置 (.agent/config.json 或 全局设置)
     SENSITIVE_TOOLS = [
         "docker_sandbox_async",
         "edit_file_tool",
@@ -1017,7 +1058,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         is_allowed = False
 
         # --- 规则 A: 全局 YOLO 模式 (Bypass Permissions) ---
-        if permission_mode == "yolo":
+        if permission_mode == "yolo" or permission_mode == "cowork":
             is_allowed = True
             
         # --- 规则 B: 自动批准模式 (Accept Edits) ---
@@ -1032,7 +1073,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         # 默认全部拦截
         
         # --- 规则 D: 项目级白名单覆盖 (Project Config Override) ---
-        # 如果以上规则未通过，检查 .party/config.json
+        # 如果以上规则未通过，检查 .agent/config.json
         # 如果用户之前点击过 "Allow Always"，这里会返回 True
         if not is_allowed and cwd:
             if is_tool_allowed_by_project_config(cwd, tool_name):
@@ -1113,6 +1154,60 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
             else:
                 return str(result)
                 
+    # ==================== 5. 任务中心工具特殊处理 ====================
+    if tool_name in ["create_subtask", "query_task_progress", "cancel_subtask","finish_task"]:
+        cli_settings = settings.get("CLISettings", {})
+        cwd = cli_settings.get("cc_path")
+        
+        if tool_name == "create_subtask":
+            # 读取共识文件（如果存在）
+            from pathlib import Path
+            import aiofiles
+            
+            consensus_content = None
+            consensus_file = Path(cwd) / ".agent" / "consensus.md"
+            if consensus_file.exists():
+                async with aiofiles.open(consensus_file, 'r', encoding='utf-8') as f:
+                    consensus_content = await f.read()
+            
+            result = await create_subtask(
+                title=tool_params.get("title"),
+                description=tool_params.get("description"),
+                agent_type=tool_params.get("agent_type", "default"),
+                workspace_dir=cwd,
+                settings=settings, 
+                consensus_content=consensus_content
+            )
+            return result
+        
+        elif tool_name == "query_task_progress":
+            result = await query_task_progress(
+                workspace_dir=cwd,
+                task_id=tool_params.get("task_id"),         
+                parent_task_id=tool_params.get("parent_task_id"),
+                status=tool_params.get("status"),
+                verbose=tool_params.get("verbose", False)  
+            )
+            return result
+        
+        elif tool_name == "cancel_subtask":
+            result = await create_subtask(
+                title=tool_params.get("title"),
+                description=tool_params.get("description"),
+                agent_type=tool_params.get("agent_type", "default"),
+                workspace_dir=cwd,
+                settings=settings,
+                consensus_content=consensus_content,
+                parent_task_id=tool_params.get("parent_task_id")
+            )
+        elif tool_name == "finish_task":
+            result = await finish_task(
+                workspace_dir=cwd,
+                task_id=tool_params.get("task_id"),
+                result=tool_params.get("result"),
+            )
+            return result
+
     if tool_name not in _TOOL_HOOKS:
         for server_name, mcp_client in mcp_client_list.items():
             if tool_name in mcp_client._conn.tools:
@@ -1136,13 +1231,14 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
         return f"Error calling tool {tool_name}: {e}"
+
 class ChatRequest(BaseModel):
     messages: List[Dict]
     model: str = None
     tools: dict = None
     stream: bool = False
-    temperature: Optional[float] = None   # 可空
-    max_tokens: Optional[int] = None      # 可空
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     top_p: float = 1
     fileLinks: List[str] = None
     enable_thinking: bool = False
@@ -1151,6 +1247,9 @@ class ChatRequest(BaseModel):
     asyncToolsID: List[str] = None
     reasoning_effort: str = None
     is_app_bot: bool = False
+    is_sub_agent: bool = False
+    enable_tools : List[str] = None
+    disable_tools: List[str] = None
 
 async def message_without_images(messages: List[Dict]) -> List[Dict]:
     if messages:
@@ -1234,7 +1333,7 @@ async def images_add_in_messages(request_messages: List[Dict], images: List[Dict
 
 async def read_todos_local(cwd: str) -> list:
     """读取本地待办事项（跨平台）"""
-    todo_file = Path(cwd) / ".party" / "ai_todos.json"
+    todo_file = Path(cwd) / ".agent" / "ai_todos.json"
     if not todo_file.exists():
         return []
     
@@ -1248,6 +1347,23 @@ async def read_todos_local(cwd: str) -> list:
         print(f"Error reading todos: {e}")
         return []
 
+async def read_agents_md(cwd: str) -> str:  # 返回str而不是list
+    """读取本地AGENTS.md文件内容"""
+    agents_md_path = Path(cwd) / ".agent" / "AGENTS.md"
+    
+    if not agents_md_path.exists():
+        return ""
+    
+    try:
+        async with aiofiles.open(agents_md_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+            return content
+    except FileNotFoundError:
+        # 文件在检查后又被删除的情况
+        return ""
+    except Exception as e:
+        print(f"Error reading AGENTS.md: {e}")
+        return ""
 
 def get_system_context() -> str:
     """
@@ -1279,11 +1395,39 @@ def get_system_context() -> str:
 3. 执行 bash_tool_local 时，命令必须符合当前系统的语法规范
 4. 路径分隔符：Windows 使用反斜杠(\\)，Unix 使用正斜杠(/)
 5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
+6. 请尽量使用相对路径，避免使用绝对路径，以免在跨平台时出现问题
 """
 
 
-async def get_project_skills_summary(cwd: str) -> str:
-    skills_root = Path(cwd) / ".party" / "skills"
+async def get_project_skills_summary(cwd: str, visibility_scope: str = "workspace") -> str:
+    """
+    根据可见范围返回项目技能摘要
+    
+    Args:
+        cwd: 当前工作目录
+        visibility_scope: 可见范围，可选值: "global", "workspace", "none"
+    
+    Returns:
+        技能摘要字符串
+    """
+    # 如果可见范围设置为 "none"，直接返回空字符串
+    if visibility_scope == "none":
+        return ""
+    
+    # 根据可见范围选择不同的技能目录
+    if visibility_scope == "workspace":
+        # 工作区技能：从项目目录的 .agent/skills 查找
+        skills_root = Path(cwd) / ".agent" / "skills"
+        scope_name = "工作区"
+    elif visibility_scope == "global":
+        # 全局技能：从常量 SKILLS_DIR 查找
+        skills_root = Path(SKILLS_DIR)
+        scope_name = "全局"
+    else:
+        # 未知范围，返回空
+        return ""
+    
+    # 检查技能目录是否存在
     if not skills_root.exists() or not skills_root.is_dir():
         return ""
 
@@ -1303,23 +1447,32 @@ async def get_project_skills_summary(cwd: str) -> str:
                     content = doc_file_path.read_text(encoding='utf-8')
                     if content.startswith("---"):
                         parts = content.split("---", 2)
-                        if len(parts) >= 3: yaml_meta = parts[1].strip()
-                except: pass
+                        if len(parts) >= 3: 
+                            yaml_meta = parts[1].strip()
+                except Exception:
+                    pass
 
             skill_info = f"- **{skill_id}**"
             if yaml_meta:
-                # 提示词中只展示精简的 YAML 元数据
                 skill_info += f":\n```yaml\n{yaml_meta}\n```"
             else:
                 skill_info += " (可用)"
             found_skills_blocks.append(skill_info)
 
-    if not found_skills_blocks: return ""
+    if not found_skills_blocks:
+        return ""
 
-    summary = "\n\n🛠️ **当前项目专属技能 (Agent Skills)**：\n"
-    summary += "检测到本项目特有的 Agent 技能定义。在执行相关任务前，请务必使用读取skill的工具查看技能的完整实现细节和规范：\n\n"
+    # 根据可见范围返回不同的摘要信息
+    summary = f"\n\n🛠️ **{scope_name}技能 ({scope_name} Skills)**：\n"
+    
+    if visibility_scope == "workspace":
+        summary += "检测到本项目特有的 Agent 技能定义。这些技能仅在本工作区内可见：\n\n"
+    elif visibility_scope == "global":
+        summary += "检测到全局 Agent 技能定义。这些技能在所有项目中都可用：\n\n"
+    
     summary += "\n".join(found_skills_blocks)
     summary += "\n\n*提示：你可以通过读取skill的工具获取该技能文件夹的文件树和完整说明文档。*"
+    
     return summary
 
 async def tools_change_messages(request: ChatRequest, settings: dict):
@@ -1331,6 +1484,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
     cli_settings = settings.get("CLISettings", {})
     cwd = cli_settings.get("cc_path")
+    visibilityScope = cli_settings.get("visibilityScope", "workspace")
     # 修复：local 环境应该从 localEnvSettings 读取权限模式
     engine = cli_settings.get("engine", "")
     
@@ -1343,42 +1497,94 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     
     if cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and engine in ["ds", "local"]:
         
-        # ====== 新增：本地环境系统提示 ======
         if engine == "local":
             # 在本地环境下，首先注入系统环境信息
             system_context = get_system_context()
             content_append(request.messages, 'system', system_context)
-        # =====================================
-        
+        elif engine == "ds":
+            # 在 Docker 环境下，注入系统环境信息
+            system_context = """【环境信息】操作系统：Linux | Shell：bash
+
+⚠️ 重要提示：
+1. 当前为 Docker 环境，请使用 Linux 命令和工具链
+2. 执行 docker_sandbox_async 时，命令必须符合 Linux 的语法规范
+3. 路径分隔符：Unix 使用正斜杠(/)
+4. 请尽量使用相对路径，避免使用绝对路径，以免在跨平台时出现问题
+
+### ✅ **已安装的主要开发工具**
+
+#### **编程语言和运行时**
+1. **Python**
+   - Python
+   - pip
+   - uv
+
+2. **Node.js**
+   - Node.js
+   - npm
+   - npx
+
+3. **Go**
+   - Go
+
+4. **Perl**
+   - Perl
+
+#### **版本控制和协作工具**
+1. **Git**
+   - git
+   - GitHub CLI (gh)
+
+#### **包管理和构建工具**
+1. **Python 包管理**
+   - pip / pip3
+   - uv
+
+2. **Node.js 包管理**
+   - npm / npx
+
+3. **系统包管理**
+   - apt-get / dpkg
+
+#### **文本处理和命令行工具**
+1. **文本处理**
+   - jq
+   - awk / sed / grep
+   - cat / less / more / head / tail
+
+2. **文件操作**
+   - tar / unzip
+   - rsync
+   - 所有基本 Unix 命令（ls, cp, mv, rm, mkdir, chmod 等）
+
+3. **系统工具**
+   - bash shell
+   - make
+   - which / whereis
+
+#### **网络工具**
+1. **HTTP 客户端**
+   - curl
+
+2. **安全工具**
+   - openssl
+   - gpg
+
+#### **系统监控**
+1. **进程和资源监控**
+   - top / ps
+   - free / df / du
+   
+"""
+            content_append(request.messages, 'system', system_context)
+
         todos = []
         
         try:
-            if engine == "ds":
-                # Docker 环境（已有代码保持不变）
-                abs_path = str(Path(cwd).resolve())
-                path_hash = hashlib.md5(abs_path.encode()).hexdigest()[:12]
-                container_name = f"sandbox-{path_hash}"
-                
-                proc = await asyncio.create_subprocess_exec(
-                    "docker", "exec", container_name, 
-                    "cat", "/workspace/.party/ai_todos.json",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await proc.communicate()
-                
-                if proc.returncode == 0 and stdout:
-                    try:
-                        todos = json.loads(stdout.decode('utf-8'))
-                    except json.JSONDecodeError:
-                        todos = []
-                        
-            else:  # local 环境
-                todos = await read_todos_local(cwd)
+            todos = await read_todos_local(cwd)
             
             # 处理待办事项（原有逻辑）
             if isinstance(todos, list) and len(todos) > 0:
-                # ... 原有待办事项格式化代码保持不变 ...
                 priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
                 status_icons = {
                     "pending": "⏳", 
@@ -1396,7 +1602,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
                     )
                 )
                 
-                todo_lines = ["\n\n当你完成一个事项后，请记得使用todo_write_tool更新项目待办事项，所有事项结束后，可以删除本事项文件\n\n📋 **当前项目待办事项**（.party/ai_todos.json）：\n"]
+                todo_lines = ["\n\n当你完成一个事项后，请记得使用todo_write_tool更新项目待办事项，所有事项结束后，可以删除本事项文件\n\n📋 **当前项目待办事项**（.agent/ai_todos.json）：\n"]
                 pending_count = 0
                 
                 for todo in todos_sorted:
@@ -1424,21 +1630,35 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             pass
 
         try:
+            agents_md = await read_agents_md(cwd)
+            if agents_md:
+                content_append(request.messages, 'system', " **重要事项**（.agent/AGENTS.md）：\n\n"+agents_md+"\n\n")
+        except Exception as e:
+            print(f"[Agent Loader] 跳过AGENTS.md加载: {e}")
+            pass
+
+        try:
             # 无论是在 docker 还是 local，逻辑路径通常是一致的（通过挂载）
             # 如果是 Docker 环境且 backend 无法直接访问 cwd，则需通过 docker exec ls 扫描，
             # 但通常项目路径是共享的。
-            skills_message = await get_project_skills_summary(cwd)
+            skills_message = await get_project_skills_summary(cwd, visibilityScope)
             if skills_message:
                 content_append(request.messages, 'system', skills_message)
         except Exception as e:
             print(f"[Skill Loader] 扫描技能失败: {e}")
-
+        permission_message = ""
         # 权限模式提示（原有逻辑，但修复了变量名）
         if permissionMode != "plan":
-            permission_message = "你当前处于执行阶段，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
+            permission_message = "你当前处于执行模式，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
             content_append(request.messages, 'system', permission_message)
+        elif permissionMode == "cowork":
+            if not request.is_sub_agent:
+                permission_message += "你当前处于协作模式，对于需要**调用工具**完成的**任何事情**，你都倾向于将任何任务改写成一个或者多个简单子任务，**交给create_subtask工具执行**，这些子智能体将在后台异步执行这些任务，当你创建任务后，**请不要查询这些任务的结果**，因为它们可能还在执行中，请当用户询问时再查询任务进度即可!当你需要调用工具时，尽可能的使用子任务来执行，这样可以避免直接调用工具阻塞对话！"
+                content_append(request.messages, 'system', permission_message)
+            else:
+                pass
         else:
-            permission_message = "你当前处于计划阶段，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
+            permission_message = "你当前处于计划模式，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
             content_append(request.messages, 'system', permission_message)
 
     if settings["HASettings"]["enabled"]:
@@ -1481,7 +1701,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         # 不是 memory/ 开头的（如普通模型名或用户自定义名），直接返回
         return raw_model
 
-    if settings["isGroupMode"]:
+    if settings["isGroupMode"] and not request.is_app_bot and not request.is_sub_agent:
         selectedGroupAgents = settings['selectedGroupAgents']
         if selectedGroupAgents:
             userName = "user"
@@ -1497,28 +1717,31 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
     newttsList = []
     Narrator_label = "Narrator"
-    if settings['ttsSettings']['newtts'] and settings['ttsSettings']['enabled'] and settings['memorySettings']['is_memory'] and not request.is_app_bot:
-        # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
-        for key in settings['ttsSettings']['newtts']:
-            if settings['ttsSettings']['newtts'][key]['enabled']:
-                newttsList.append(key)
-        if newttsList:
-            finalttsList = ["<silence>"]
-            # 用 name 去匹配音色列表（假设音色配置用的也是 name）
-            if selectedMemoryName in newttsList:
-                finalttsList.append("<"+selectedMemoryName+">")
-            if "Narrator" in newttsList:
-                finalttsList.append("<Narrator>")
-                Narrator_label = "Narrator"
-            if "旁白" in newttsList:
-                finalttsList.append("<旁白>")
-                Narrator_label = "旁白"
+    if settings['ttsSettings']['enabled']  and not request.is_sub_agent:
+        if settings['ttsSettings']['newtts'] and settings['memorySettings']['is_memory']  and not request.is_app_bot:
+            # 遍历settings['ttsSettings']['newtts']，获取所有包含enabled: true的key
+            for key in settings['ttsSettings']['newtts']:
+                if settings['ttsSettings']['newtts'][key]['enabled']:
+                    newttsList.append(key)
+            if newttsList:
+                finalttsList = ["<silence>"]
+                # 用 name 去匹配音色列表（假设音色配置用的也是 name）
+                if selectedMemoryName in newttsList:
+                    finalttsList.append("<"+selectedMemoryName+">")
+                if "Narrator" in newttsList:
+                    finalttsList.append("<Narrator>")
+                    Narrator_label = "Narrator"
+                if "旁白" in newttsList:
+                    finalttsList.append("<旁白>")
+                    Narrator_label = "旁白"
 
-            finalttsList = json.dumps(finalttsList, ensure_ascii=False, indent=4)
-            print("可用音色：",finalttsList)
-            
-            # 修复：示例中的角色名也用 selectedMemoryName
-            newtts_messages = f"""
+                finalttsList = json.dumps(finalttsList, ensure_ascii=False, indent=4)
+                print("可用音色：",finalttsList)
+                
+                # 修复：示例中的角色名也用 selectedMemoryName
+                newtts_messages = f"""
+你生成的内容都会被TTS模型转换成语音。
+
 你可以使用以下音色：
 
 {finalttsList}
@@ -1537,14 +1760,24 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
 如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！
 
+<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！
+
 注意！你最好只使用你正在扮演的角色音色和旁白音色，不要使用其他角色音色，除非你明确知道你在做什么！\n\n"""
-            content_prepend(request.messages, 'system', newtts_messages)
-    if settings['vision']['desktopVision'] and not request.is_app_bot:
+                
+                content_prepend(request.messages, 'system', newtts_messages)
+        else:
+            tts_messages = f"""你生成的内容都会被TTS模型转换成语音。<silence></silence>表示静音，被<silence></silence>标签括起来的部分不会进入语音合成。\n\n
+
+如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！
+
+<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！"""
+            content_prepend(request.messages, 'system', tts_messages)
+    if settings['vision']['desktopVision'] and not request.is_app_bot  and not request.is_sub_agent:
         desktop_message = "\n\n用户与你对话时，如果发了图片给你，有可能是给你发当前的桌面截图。\n\n"
         content_append(request.messages, 'system', desktop_message)
     if settings['tools']['time']['enabled'] and settings['tools']['time']['triggerMode'] == 'beforeThinking':
-        time_message = f"消息发送时间：{local_timezone}  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n\n"
-        content_prepend(request.messages, 'user', time_message)
+        time_message = f"\n\n最后一条消息发送时间：{local_timezone}  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n\n"
+        content_prepend(request.messages, 'system', time_message)
     if settings['tools']['inference']['enabled']:
         inference_message = "回答用户前请先思考推理，再回答问题，你的思考推理的过程必须放在<think>与</think>之间。\n\n"
         content_prepend(request.messages, 'user', f"{inference_message}\n\n用户：")
@@ -1563,10 +1796,10 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     if settings['text2imgSettings']['enabled']:
         text2img_messages = "\n\n当你使用画图工具后，必须将图片的URL放在markdown的图片标签中，例如：\n\n<silence>![图片名](图片URL)</silence>\n\n，图片markdown必须另起并且独占一行！请主动发给用户，工具返回的结果，用户看不到！<silence>和</silence>是控制TTS的静音标签，表示这个图片部分不会进入语音合成\n\n你必须在回复中正确使用 <silence> 标签来包裹图片的 Markdown 语法\n\n注意！！！<silence>和</silence>与图片的 Markdown 语法之间不能有空格和回车，会导致解析失败！\n\n"
         content_append(request.messages, 'system', text2img_messages)
-    if settings['VRMConfig']['enabledExpressions'] and not request.is_app_bot:
+    if settings['VRMConfig']['enabledExpressions'] and not request.is_app_bot and not request.is_sub_agent:
         Expression_messages = "\n\n你可以使用以下表情：<happy> <angry> <sad> <neutral> <surprised> <relaxed>\n\n你可以在句子开头插入表情符号以驱动人物的当前表情，注意！你需要将表情符号放到句子的开头（如果有音色标签，就放到音色标签之后即可），才能在说这句话的时候同步做表情，例如：<angry>我真的生气了。<surprised>哇！<happy>我好开心。\n\n一定要把表情符号跟要做表情的句子放在同一行，如果表情符号和要做表情的句子中间有换行符，表情也将不会生效，例如：\n\n<happy>\n我好开心。\n\n此时，表情符号将不会生效。"
         content_append(request.messages, 'system', Expression_messages)
-    if settings['VRMConfig']['enabledMotions'] and not request.is_app_bot:
+    if settings['VRMConfig']['enabledMotions'] and not request.is_app_bot and not request.is_sub_agent:
         # 1. 合并动作列表
         motions = settings['VRMConfig']['defaultMotions'] + settings['VRMConfig']['userMotions']
         # 2. 给每个动作加上 <>
@@ -1583,7 +1816,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
         )
 
         content_append(request.messages, 'system', Motion_messages)
-    if settings['tools']['a2ui']['enabled'] and not request.is_app_bot:
+    if settings['tools']['a2ui']['enabled'] and not request.is_app_bot and not request.is_sub_agent:
         A2UI_messages = """
 除了使用自然语言回答用户问题外，你还拥有一个特殊能力：**渲染 A2UI 界面**。
 
@@ -1906,12 +2139,115 @@ def get_drs_stage_system_message(DRS_STAGE,user_prompt,full_content):
 """    
     return search_prompt
 
-async def generate_stream_response(client,reasoner_client, request: ChatRequest, settings: dict,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search,async_tools_id):
+async def generate_stream_response(client, reasoner_client, request: ChatRequest, settings: dict, 
+                                   fastapi_base_url, enable_thinking, enable_deep_research, 
+                                   enable_web_search, async_tools_id):
     from mem0 import Memory
-    global mcp_client_list,HA_client,ChromeMCP_client,sql_client
-    DRS_STAGE = 1 # 1: 明确用户需求阶段 2: 工具调用阶段 3: 生成结果阶段
+    global mcp_client_list, HA_client, ChromeMCP_client, sql_client
+    
+    DRS_STAGE = 1
     if len(request.messages) > 2:
         DRS_STAGE = 2
+        
+    max_rounds = settings.get("max_rounds", 0)
+
+    if max_rounds > 0 and request.messages:
+        def get_role(msg):
+            return msg.get("role") if isinstance(msg, dict) else msg.role
+        
+        def has_tool_calls(msg):
+            """检查assistant消息是否包含工具调用"""
+            if get_role(msg) != "assistant":
+                return False
+            if isinstance(msg, dict):
+                return bool(msg.get("tool_calls"))
+            return bool(getattr(msg, "tool_calls", None))
+        
+        def get_tool_call_id(msg):
+            """获取tool消息的tool_call_id"""
+            if isinstance(msg, dict):
+                return msg.get("tool_call_id")
+            return getattr(msg, "tool_call_id", None)
+
+        system_messages = []
+        chat_messages = request.messages
+
+        # 1. 分离system消息
+        if get_role(chat_messages[0]) == "system":
+            system_messages = [chat_messages[0]]
+            chat_messages = chat_messages[1:]
+
+        # 2. 从后向前截断，确保工具调用链完整
+        retain_count = max_rounds * 2 + 1  # user-assistant 对，+1 给可能的pending user
+        
+        if len(chat_messages) > retain_count:
+            # 从 retain_count 位置开始，向前扫描确保边界合法
+            start_idx = len(chat_messages) - retain_count
+            
+            # 边界检查1: 不能以 tool 或 assistant(with tool_calls) 开始
+            # 如果 start_idx 指向的是需要前文支撑的消息，继续前移
+            while start_idx > 0:
+                current_msg = chat_messages[start_idx]
+                current_role = get_role(current_msg)
+                
+                # 情况A: 不能以 tool 开始（tool必须有前置的assistant tool_calls）
+                if current_role == "tool":
+                    start_idx -= 1
+                    continue
+                    
+                # 情况B: 不能以带tool_calls的assistant开始（必须有前置user）
+                if has_tool_calls(current_msg):
+                    start_idx -= 1
+                    continue
+                    
+                # 情况C: 不能以普通assistant开始（必须有前置user）
+                if current_role == "assistant":
+                    start_idx -= 1
+                    continue
+                    
+                # 现在 start_idx 指向的是 user，检查是否完整
+                break
+            
+            # 边界检查2: 确保工具调用链完整（tool必须有对应的assistant）
+            # 向前扫描，收集所有需要保留的tool响应
+            i = start_idx
+            while i < len(chat_messages):
+                msg = chat_messages[i]
+                if has_tool_calls(msg):
+                    # 这个assistant调用了工具，确保后面有对应的tool响应
+                    assistant_tool_ids = set()
+                    if isinstance(msg, dict):
+                        for tc in msg.get("tool_calls", []):
+                            assistant_tool_ids.add(tc.get("id") if isinstance(tc, dict) else tc.id)
+                    else:
+                        for tc in getattr(msg, "tool_calls", []):
+                            assistant_tool_ids.add(getattr(tc, "id", None))
+                    
+                    # 检查后续消息中是否有对应的tool响应
+                    j = i + 1
+                    found_tools = set()
+                    while j < len(chat_messages) and get_role(chat_messages[j]) == "tool":
+                        found_tools.add(get_tool_call_id(chat_messages[j]))
+                        j += 1
+                    
+                    # 如果tool响应不全，需要把start_idx前移包含完整的链
+                    # 简化处理：如果截断导致工具链断裂，保留整个链
+                    missing_tools = assistant_tool_ids - found_tools
+                    if missing_tools and i > start_idx:
+                        # 这个assistant的tool响应被截断了，需要前移start_idx
+                        # 实际上这种情况不应该发生，因为我们是从前向后截断
+                        pass
+                        
+                i += 1
+            
+            chat_messages = chat_messages[start_idx:]
+            
+            # 最终保险：确保以user开始
+            while chat_messages and get_role(chat_messages[0]) != "user":
+                chat_messages = chat_messages[1:]
+
+        request.messages = system_messages + chat_messages
+
     images = await images_in_messages(request.messages,fastapi_base_url)
     request.messages = await message_without_images(request.messages)
     from py.load_files import get_files_content,file_tool,image_tool
@@ -1935,8 +2271,10 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
         serper_tool,
         bochaai_tool,
         jina_crawler_tool, 
+        simple_fetch_tool,
         Crawl4Ai_tool,
         firecrawl_tool,
+        markdown_new_tool,
     )
     from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
     from py.agent_tool import get_agent_tool
@@ -1957,9 +2295,17 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
     from py.cli_tool import claude_code_tool,qwen_code_tool,get_tools_for_mode,get_local_tools_for_mode
     from py.cdp_tool import all_cdp_tools
     from py.random_topic import random_topics_tools
+
+    from py.task_tools import (
+        create_subtask_tool,
+        query_tasks_tool,
+        cancel_subtask_tool,
+        finish_task_tool,
+    )
+
     m0 = None
     memoryId = None
-    if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
+    if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
         memoryId = settings["memorySettings"]["selectedMemory"]
         cur_memory = None
         for memory in settings["memories"]:
@@ -2133,6 +2479,102 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         },
                     }
                     tools.append(comfyui_tool)
+        # ==================== 获取权限模式 ====================
+        cli_settings = settings.get("CLISettings", {})
+        engine = cli_settings.get("engine", "")
+        
+        # 根据环境类型获取权限模式
+        if engine == "local":
+            env_settings = settings.get("localEnvSettings", {})
+        elif engine == "ds":
+            env_settings = settings.get("dsSettings", {})
+        elif engine == "cc":
+            env_settings = settings.get("ccSettings", {})
+        elif engine == "qc":
+            env_settings = settings.get("qcSettings", {})
+        else:
+            env_settings = {}
+        
+        permission_mode = env_settings.get("permissionMode", "default")
+        if permission_mode == "cowork" and settings['CLISettings']['enabled'] and not request.is_sub_agent:
+            tools.append(create_subtask_tool)
+            tools.append(query_tasks_tool)
+            tools.append(cancel_subtask_tool)
+
+        if request.is_sub_agent:
+            tools.append(finish_task_tool)
+        # 如果是子智能体调用，或者指定了工具过滤规则
+        if request.is_sub_agent or request.enable_tools or request.disable_tools:
+            original_tool_count = len(tools)
+            
+            # 1. Enable Tools 过滤（白名单模式）
+            if request.enable_tools and len(request.enable_tools) > 0:
+                # 只保留白名单中的工具
+                filtered_tools = []
+                enable_set = set(request.enable_tools)
+                
+                for tool in tools:
+                    tool_name = tool.get("function", {}).get("name", "")
+                    if tool_name in enable_set:
+                        filtered_tools.append(tool)
+                
+                tools = filtered_tools
+                print(f"[Tool Filter] Enable mode: {original_tool_count} -> {len(tools)} tools (enabled: {request.enable_tools})")
+            
+            # 2. Disable Tools 过滤（黑名单模式）
+            elif request.disable_tools and len(request.disable_tools) > 0:
+                # 移除黑名单中的工具
+                disable_set = set(request.disable_tools)
+                filtered_tools = []
+                
+                for tool in tools:
+                    tool_name = tool.get("function", {}).get("name", "")
+                    if tool_name not in disable_set:
+                        filtered_tools.append(tool)
+                
+                tools = filtered_tools
+                print(f"[Tool Filter] Disable mode: {original_tool_count} -> {len(tools)} tools (disabled: {request.disable_tools})")
+            
+            # 3. 子智能体默认策略（如果没有指定 enable/disable）
+            elif request.is_sub_agent:
+                # 子智能体默认只保留安全的工具，移除高风险操作
+                SUBAGENT_BLOCKED_TOOLS = [
+                    # 阻止子智能体执行系统命令
+                    "claude_code_async",
+                    "qwen_code_async",
+                    
+                    # 阻止子智能体管理进程/端口
+                    "manage_processes_tool",
+                    "docker_manage_ports_tool",
+                    "local_net_tool",
+                    
+                    # 阻止子智能体创建子任务（防止递归）
+                    "create_subtask",
+                    
+                    # 阻止高风险的浏览器操作
+                    "new_page",
+                    "close_page",
+                    "evaluate_script",
+                    
+                    # 阻止子智能体使用 Agent 调用（防止复杂的嵌套）
+                    "agent_tool_call",
+                    "todo_write_tool",
+                ]
+                
+                filtered_tools = []
+                blocked_count = 0
+                
+                for tool in tools:
+                    tool_name = tool.get("function", {}).get("name", "")
+                    if tool_name not in SUBAGENT_BLOCKED_TOOLS:
+                        filtered_tools.append(tool)
+                    else:
+                        blocked_count += 1
+                
+                tools = filtered_tools
+                print(f"[SubAgent Safety] Blocked {blocked_count} dangerous tools: {original_tool_count} -> {len(tools)} tools")
+    
+
         print(tools)
         source_prompt = ""
         if request.fileLinks:
@@ -2144,8 +2586,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
             # 修复字符串拼接错误
             content_append(request.messages, 'system', fileLinks_message)
             source_prompt += fileLinks_message
-        user_prompt = request.messages[-1]['content']
-        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
+        user_prompt = request.messages[-1].get('content') or ""
+        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
             if settings["memorySettings"]["userName"]:
                 print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
                 content_append(request.messages, 'system', "与你交流的用户名为：\n\n" + settings["memorySettings"]["userName"] + "\n\n")
@@ -2211,7 +2653,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
                 content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            if m0:
+            if m0 and not request.is_sub_agent:
                 memoryLimit = settings["memorySettings"]["memoryLimit"]
                 try:
                     # 【核心修改】：使用 asyncio.to_thread 将同步的 search 方法放入线程池运行
@@ -2338,6 +2780,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     ],
                                     "role": "assistant",
                                     "content": "",
+                                    "reasoning_content": "",
                                 }
                             )
                             request.messages.insert(-1, 
@@ -2378,6 +2821,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 ],
                                 "role": "assistant",
                                 "content": "",
+                                "reasoning_content": "",
                             }
                         )
                         results = f"{response["name"]}工具已成功启动，获取结果需要花费很久的时间。请不要再次调用该工具，因为工具结果将生成后自动发送，再次调用也不能更快的获取到结果。请直接告诉用户，你会在获得结果后回答他的问题。"
@@ -2507,26 +2951,57 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             tools.append(Crawl4Ai_tool)
                         elif settings['webSearch']['crawler'] == 'firecrawl':
                             tools.append(firecrawl_tool)
+                        elif settings['webSearch']['crawler'] == 'simpleRequest':
+                            tools.append(simple_fetch_tool)
+                        elif settings['webSearch']['crawler'] == 'mdnew':
+                            tools.append(markdown_new_tool)
                 if kb_list:
                     tools.append(kb_tool)
                 if settings['tools']['deepsearch']['enabled'] or enable_deep_research: 
                     deepsearch_messages = copy.deepcopy(request.messages)
                     content_append(deepsearch_messages, 'user',  "\n\n将用户提出的问题或给出的当前任务拆分成多个步骤，每一个步骤用一句简短的话概括即可，无需回答或执行这些内容，直接返回总结即可，但不能省略问题或任务的细节。如果用户输入的只是闲聊或者不包含任务和问题，直接把用户输入重复输出一遍即可。如果是非常简单的问题，也可以只给出一个步骤即可。一般情况下都是需要拆分成多个步骤的。")
+                    
+                    # 1. 开启 stream=True 进行流式请求
                     response = await client.chat.completions.create(
                         model=model,
                         messages=deepsearch_messages,
                         temperature=0.5,
+                        stream=True,  # 新增
                         extra_body = extra_params, # 其他参数
                     )
-                    user_prompt = response.choices[0].message.content
-                    deepsearch_chunk = {
-                        "choices": [{
-                            "delta": {
-                                "tool_content": {"title": "deep_research", "content": user_prompt, "type": "call"},
+                    
+                    user_prompt = ""
+                    # 生成一个唯一的 ID，用于让前端锁定同一个 UI 块进行内容更新
+                    deepsearch_id = f"ds_{uuid.uuid4().hex[:8]}"
+                    
+                    # 2. 遍历流式响应并实时推给前端
+                    async for chunk in response:
+                        if not chunk.choices:
+                            continue
+                        
+                        # 兼容不同版本的 openai 响应对象
+                        chunk_dict = chunk.model_dump() if hasattr(chunk, 'model_dump') else chunk
+                        delta = chunk_dict["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        
+                        if content:
+                            user_prompt += content
+                            
+                            # 3. 借用前端原有的 tool_progress 渲染机制
+                            # 前端会自动创建类似 "调用deep_research工具" 的动态刷新框
+                            progress_chunk = {
+                                "choices": [{
+                                    "delta": {
+                                        "tool_progress": {
+                                            "name": "deep_research",
+                                            "arguments": user_prompt, # 传入不断累加的内容
+                                            "tool_call_id": deepsearch_id
+                                        }
+                                    }
+                                }]
                             }
-                        }]
-                    }
-                    yield f"data: {json.dumps(deepsearch_chunk)}\n\n"
+                            yield f"data: {json.dumps(progress_chunk)}\n\n"
+                    
                     content_append(request.messages, 'user',  f"\n\n如果用户没有提出问题或者任务，直接闲聊即可，如果用户提出了问题或者任务，任务描述不清晰或者你需要进一步了解用户的真实需求，你可以暂时不完成任务，而是分析需要让用户进一步明确哪些需求。")
                 # 如果启用推理模型
                 if settings['reasoner']['enabled'] or enable_thinking:
@@ -2661,7 +3136,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     response = await client.chat.completions.create(
                         model=model,
                         messages=msg,  # 添加图片信息到消息
-                        temperature=request.temperature,
+                        temperature=request.temperature or settings['temperature'],
                         tools=tools,
                         stream=True,
                         top_p=request.top_p or settings['top_p'],
@@ -2672,7 +3147,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     response = await client.chat.completions.create(
                         model=model,
                         messages=msg,  # 添加图片信息到消息
-                        temperature=request.temperature,
+                        temperature=request.temperature or settings['temperature'],
                         stream=True,
                         top_p=request.top_p or settings['top_p'],
                         extra_body = extra_params, # 其他参数
@@ -2795,8 +3270,9 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     }
                     yield f"data: {json.dumps(final_chunk)}\n\n"
                     full_content += final_chunk["choices"][0]["delta"].get("content", "")
-                # 将响应添加到消息列表
-                content_append(request.messages, 'assistant', full_content)
+                if not tool_calls:
+                    # 将响应添加到消息列表
+                    content_append(request.messages, 'assistant', full_content)
                 # 工具和深度搜索
                 if tool_calls:
                     print("tool_calls",tool_calls)
@@ -2863,6 +3339,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             {
                                 "role": "assistant",
                                 "content": full_content,
+                                "reasoning_content": "",
                             }
                         )
                         request.messages.append(
@@ -2898,12 +3375,14 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             {
                                 "role": "assistant",
                                 "content": full_content,
+                                "reasoning_content": "",
                             }
                         )
                         request.messages.append(
                             {
                                 "role": "user",
                                 "content": drs_msg,
+                                "reasoning_content": "",
                             }
                         )
                     elif response_content["status"] == "need_more_work":
@@ -2923,6 +3402,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             {
                                 "role": "assistant",
                                 "content": full_content,
+                                "reasoning_content": "",
                             }
                         )
                         request.messages.append(
@@ -2947,14 +3427,17 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             {
                                 "role": "assistant",
                                 "content": full_content,
+                                "reasoning_content": "",
                             }
                         )
                         request.messages.append(
                             {
                                 "role": "user",
                                 "content": drs_msg,
+                                "reasoning_content": "",
                             }
                         )
+
                 reasoner_messages = copy.deepcopy(request.messages)
                 while tool_calls or search_not_done:
                     full_content = ""
@@ -2962,10 +3445,28 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         response_content = tool_calls[0].function
                         print(response_content)
                         modified_data = '[' + response_content.arguments.replace('}{', '},{') + ']'
-                        # 使用json.loads来解析修改后的字符串为列表
                         data_list = json.loads(modified_data)
+                        
+                        # 【修复 1】显式发送 "call" 事件，锁定 UI 状态并同步 ID
+                        # 这告诉前端：参数接收完毕，确认调用，并绑定 ID
+                        call_confirm_chunk = {
+                            "choices": [{
+                                "delta": {
+                                    "tool_call_id": tool_calls[0].id, # 关键：带上 ID
+                                    "tool_content": {
+                                        "title": response_content.name,
+                                        "content": modified_data, # 发送完整参数
+                                        "type": "call"
+                                    }
+                                }
+                            }]
+                        }
+                        yield f"data: {json.dumps(call_confirm_chunk)}\n\n"
+
                         modified_tool = f"{await t("sendArg")}{data_list[0]}"
+                        
                         if settings['tools']['asyncTools']['enabled']:
+                            # ... 异步工具逻辑保持不变 ...
                             tool_id = uuid.uuid4()
                             async_tool_id = f"{response_content.name}_{tool_id}"
                             chunk_dict = {
@@ -2983,7 +3484,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 ]
                             }
                             yield f"data: {json.dumps(chunk_dict)}\n\n"
-                            # 启动异步任务并记录状态
                             asyncio.create_task(
                                 execute_async_tool(
                                     async_tool_id,
@@ -2993,7 +3493,6 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     user_prompt
                                 )
                             )
-                            
                             async with async_tools_lock:
                                 async_tools[async_tool_id] = {
                                     "status": "pending",
@@ -3001,22 +3500,12 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "name":response_content.name,
                                     "parameters":data_list[0]
                                 }
-                            results = f"{response_content.name}工具已成功启动，获取结果需要花费很久的时间。请不要再次调用该工具，因为工具结果将生成后自动发送，再次调用也不能更快的获取到结果。请直接告诉用户，你会在获得结果后回答他的问题。"
+                            results = f"{response_content.name}tool has been successfully launched. It will take some time to run, and the results will be provided in the next round of conversation." # 保持原样
                         else:
-                            results = await dispatch_tool(response_content.name, data_list[0],settings)
-                        
-                        if isinstance(results, str) and '"type": "approval_required"' in results:
-                            # 1. 构造 SSE 消息发送给前端
-                            yield make_sse({
-                                "title": response_content.name, 
-                                "content": results, # 这是 dispatch_tool 返回的审批 JSON
-                                "type": "tool_approval", # 新类型：审批
-                                "tool_call_id": tool_calls[0].id
-                            })
-                            # 2. 终止生成器，释放连接
-                            # 此时 AI 还没有收到结果，它处于“等待工具返回”的状态
-                            return 
+                            results = await dispatch_tool(response_content.name, data_list[0], settings)
+
                         if results is None:
+                            # 保持原样，但建议加上 ID
                             chunk = {
                                 "id": "extra_tools",
                                 "choices": [
@@ -3025,59 +3514,88 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                         "delta": {
                                             "role":"assistant",
                                             "content": "",
-                                            "tool_calls":modified_data,
+                                            "tool_calls": modified_data,
                                         }
                                     }
                                 ]
                             }
                             yield f"data: {json.dumps(chunk)}\n\n"
                             break
+
                         if response_content.name in ["query_knowledge_base"] and type(results) == list:
                             if settings["KBSettings"]["is_rerank"]:
-                                results = await rerank_knowledge_base(user_prompt,results)
+                                results = await rerank_knowledge_base(user_prompt, results)
                             results = json.dumps(results, ensure_ascii=False, indent=4)
-                        request.messages.append(
-                            {
-                                "tool_calls": [
-                                    {
-                                        "id": tool_calls[0].id,
-                                        "function": {
-                                            "arguments": json.dumps(data_list[0]),
-                                            "name": response_content.name,
-                                        },
-                                        "type": tool_calls[0].type,
+                        
+                        # 更新 messages 历史 (保持不变)
+                        request.messages.append({
+                            "tool_calls": [{
+                                "id": tool_calls[0].id,
+                                "function": {
+                                    "arguments": json.dumps(data_list[0]),
+                                    "name": response_content.name,
+                                },
+                                "type": tool_calls[0].type,
+                            }],
+                            "role": "assistant",
+                            "content": "",
+                            "reasoning_content": "",
+                        })
+
+                        # 【修复 2】发送结果时，务必带上 tool_call_id
+                        if not isinstance(results, AsyncIterator):
+                            result_chunk = {
+                                "choices": [{
+                                    "delta": {
+                                        "tool_call_id": tool_calls[0].id, # 关键：匹配之前的 Call ID
+                                        "tool_content": {
+                                            "title": response_content.name,
+                                            "content": str(results),
+                                            "type": "tool_result"
+                                        }
                                     }
-                                ],
-                                "role": "assistant",
-                                "content": "",
+                                }]
                             }
-                        )
-                        if (settings['webSearch']['when'] == 'after_thinking' or settings['webSearch']['when'] == 'both') and settings['tools']['asyncTools']['enabled'] is False:
-                            content_append(request.messages, 'user',  f"\n对于联网搜索的结果，如果联网搜索的信息不足以回答问题时，你可以进一步使用联网搜索查询还未给出的必要信息。如果已经足够回答问题，请直接回答问题。")
-                        if settings['tools']['asyncTools']['enabled']:
-                            pass
-                        else:
+                            yield f"data: {json.dumps(result_chunk)}\n\n"
+                        else:  
+                            # 流式工具结果处理 (AsyncIterator)
+                            buffer = []
+                            first = True
+                            async for chunk in results:
+                                buffer.append(chunk)
+                                if first:
+                                    # 第一帧带 title
+                                    stream_chunk = {
+                                        "choices": [{
+                                            "delta": {
+                                                "tool_call_id": tool_calls[0].id, # 关键
+                                                "tool_content": {
+                                                    "title": response_content.name,
+                                                    "content": chunk,
+                                                    "type": "tool_result_stream"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
+                                    first = False
+                                else:
+                                    # 后续帧
+                                    stream_chunk = {
+                                        "choices": [{
+                                            "delta": {
+                                                "tool_call_id": tool_calls[0].id, # 关键
+                                                "tool_content": {
+                                                    "title": "tool_result_stream",
+                                                    "content": chunk,
+                                                    "type": "tool_result_stream"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
+                            results = "".join(buffer)
 
-                            # 工具名国际化
-                            tool_name_text = f"{response_content.name}{await t('tool_result')}"
-                            stream_tool_name_text = f"{response_content.name}{await t('stream_tool_result')}"
-
-
-                            # ---------- 分情况处理 ----------
-                            if not isinstance(results, AsyncIterator):
-                                yield make_sse({"title": response_content.name, "content": str(results), "type": "tool_result"})
-                            else:  # AsyncIterator[str]
-                                buffer = []
-                                first = True
-                                async for chunk in results:
-                                    buffer.append(chunk)
-                                    if first:                       # 第一次：带头部
-                                        yield make_sse({"title": response_content.name, "content": chunk, "type": "tool_result_stream"})
-                                        first = False
-                                    else:                           # 后续：不带头部
-                                        yield make_sse({"title": "tool_result_stream", "content": chunk, "type": "tool_result_stream"})
-
-                                results = "".join(buffer)
                         request.messages.append(
                             {
                                 "role": "tool",
@@ -3090,12 +3608,14 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             {
                                 "role": "assistant",
                                 "content": str(response_content),
+                                "reasoning_content": "",
                             }
                         )
                         reasoner_messages.append(
                             {
                                 "role": "user",
                                 "content": f"{response_content.name}工具结果："+str(results),
+                                "reasoning_content": "",
                             }
                         )
                     # 如果启用推理模型
@@ -3214,7 +3734,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         response = await client.chat.completions.create(
                             model=model,
                             messages=msg,  # 添加图片信息到消息
-                            temperature=request.temperature,
+                            temperature=request.temperature or settings['temperature'],
                             tools=tools,
                             stream=True,
                             top_p=request.top_p or settings['top_p'],
@@ -3225,7 +3745,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         response = await client.chat.completions.create(
                             model=model,
                             messages=msg,  # 添加图片信息到消息
-                            temperature=request.temperature,
+                            temperature=request.temperature or settings['temperature'],
                             stream=True,
                             top_p=request.top_p or settings['top_p'],
                             extra_body = extra_params, # 其他参数
@@ -3342,8 +3862,9 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                         }
                         yield f"data: {json.dumps(final_chunk)}\n\n"
                         full_content += final_chunk["choices"][0]["delta"].get("content", "")
-                    # 将响应添加到消息列表
-                    content_append(request.messages, 'assistant', full_content)
+                    if not tool_calls:
+                        # 将响应添加到消息列表
+                        content_append(request.messages, 'assistant', full_content)
                     # 工具和深度搜索
                     if tool_calls:
                         pass
@@ -3365,6 +3886,8 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                             extra_body = extra_params, # 其他参数
                         )
                         response_content = response.choices[0].message.content
+                        if response_content is None:
+                            response_content = ""
                         # 用re 提取```json 包裹json字符串 ```
                         if "```json" in response_content:
                             try:
@@ -3409,6 +3932,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 {
                                     "role": "assistant",
                                     "content": full_content,
+                                    "reasoning_content": "",
                                 }
                             )
                             request.messages.append(
@@ -3444,6 +3968,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 {
                                     "role": "assistant",
                                     "content": full_content,
+                                    "reasoning_content": "",
                                 }
                             )
                             request.messages.append(
@@ -3469,6 +3994,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 {
                                     "role": "assistant",
                                     "content": full_content,
+                                    "reasoning_content": "",
                                 }
                             )
                             request.messages.append(
@@ -3493,6 +4019,7 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                 {
                                     "role": "assistant",
                                     "content": full_content,
+                                    "reasoning_content": "",
                                 }
                             )
                             request.messages.append(
@@ -3501,17 +4028,19 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                                     "content": drs_msg,
                                 }
                             )
+                logger.info(f"all msg: {request.messages}")
                 yield "data: [DONE]\n\n"
-                if m0:
+                if m0 and not request.is_sub_agent:
                     messages=f"用户说：{user_prompt}\n\n---\n\n你说：{full_content}"
                     executor = ThreadPoolExecutor()
+                    infer = cur_memory.get('infer') or False
                     async def add_async():
                         loop = asyncio.get_event_loop()
                         # 绑定 user_id 关键字参数
                         metadata = {
                             "timetamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         }
-                        func = partial(m0.add, user_id=memoryId,metadata=metadata,infer=False)
+                        func = partial(m0.add, user_id=memoryId,metadata=metadata,infer=infer)
                         # 传递 messages 作为位置参数
                         await loop.run_in_executor(executor, func, messages)
                         print("知识库更新完成")
@@ -3520,22 +4049,22 @@ async def generate_stream_response(client,reasoner_client, request: ChatRequest,
                     print("知识库更新任务已提交")
                 return
             except Exception as e:
-                        logger.error(f"Error occurred: {e}")
-                        # 捕获异常并返回结构化错误信息
-                        error_chunk = {
-                            "choices": [{
-                                "delta": {
-                                    "tool_content": {
-                                        "title": "❎ Error", # 统一标题
-                                        "content": str(e),   # 错误详情
-                                        "type": "error"      # 标记类型，方便前端切换样式
-                                    }
-                                }
-                            }]
+                logger.error(f"{request.messages}")
+                # 捕获异常并返回结构化错误信息
+                error_chunk = {
+                    "choices": [{
+                        "delta": {
+                            "tool_content": {
+                                "title": "❎ Error", # 统一标题
+                                "content": str(e),   # 错误详情
+                                "type": "error"      # 标记类型，方便前端切换样式
+                            }
                         }
-                        yield f"data: {json.dumps(error_chunk)}\n\n"
-                        yield "data: [DONE]\n\n"  # 确保最终结束
-                        return
+                    }]
+                }
+                yield f"data: {json.dumps(error_chunk)}\n\n"
+                yield "data: [DONE]\n\n"  # 确保最终结束
+                return
         
         return StreamingResponse(
             stream_generator(user_prompt, DRS_STAGE),
@@ -3560,6 +4089,36 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
     DRS_STAGE = 1 # 1: 明确用户需求阶段 2: 工具调用阶段 3: 生成结果阶段
     if len(request.messages) > 2:
         DRS_STAGE = 2
+
+    max_rounds = settings.get("max_rounds", 0)
+
+    if max_rounds > 0 and request.messages:
+        # 兼容获取 role 的辅助方法（支持 dict 或 Pydantic 对象）
+        def get_role(msg):
+            return msg.get("role") if isinstance(msg, dict) else msg.role
+
+        system_messages = []
+        chat_messages = request.messages
+
+        # 1. 仅判断第一条是不是 system（中间的不管）
+        if get_role(chat_messages[0]) == "system":
+            system_messages = [chat_messages[0]]
+            chat_messages = chat_messages[1:]
+
+        retain_count = max_rounds + 1 
+
+        # 2. 截断对话历史
+        if len(chat_messages) > retain_count:
+            chat_messages = chat_messages[-retain_count:]
+            
+            # 3. 终极边界处理：永远以 user 开始
+            # 只要第一条不是 user（比如是 assistant 或 tool），就一直丢弃
+            while chat_messages and get_role(chat_messages[0]) != "user":
+                chat_messages = chat_messages[1:]
+                
+        # 4. 重新拼合 messages
+        request.messages = system_messages + chat_messages
+
     from py.load_files import get_files_content,file_tool,image_tool
     from py.web_search import (
         DDGsearch_async, 
@@ -3581,8 +4140,10 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         serper_tool,
         bochaai_tool,
         jina_crawler_tool, 
+        simple_fetch_tool,
         Crawl4Ai_tool,
         firecrawl_tool,
+        markdown_new_tool,
     )
     from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
     from py.agent_tool import get_agent_tool
@@ -3802,7 +4363,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             # 修复字符串拼接错误
             content_append(request.messages, 'system', system_message)
         kb_list = []
-        user_prompt = request.messages[-1]['content']
+        user_prompt = request.messages[-1].get('content') or ""
         if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
             if settings["memorySettings"]["userName"] and settings["memorySettings"]["userName"] != "user":
                 print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
@@ -3984,6 +4545,10 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     tools.append(Crawl4Ai_tool)
                 elif settings['webSearch']['crawler'] == 'firecrawl':
                     tools.append(firecrawl_tool)
+                elif settings['webSearch']['crawler'] == 'simpleRequest':
+                    tools.append(simple_fetch_tool)
+                elif settings['webSearch']['crawler'] == 'mdnew':
+                    tools.append(markdown_new_tool)
         if kb_list:
             tools.append(kb_tool)
         if settings['tools']['deepsearch']['enabled'] or enable_deep_research: 
@@ -4078,7 +4643,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             response = await client.chat.completions.create(
                 model=model,
                 messages=msg,  # 添加图片信息到消息
-                temperature=request.temperature,
+                temperature=request.temperature or settings['temperature'],
                 tools=tools,
                 stream=False,
                 top_p=request.top_p or settings['top_p'],
@@ -4089,7 +4654,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             response = await client.chat.completions.create(
                 model=model,
                 messages=msg,  # 添加图片信息到消息
-                temperature=request.temperature,
+                temperature=request.temperature or settings['temperature'],
                 stream=False,
                 top_p=request.top_p or settings['top_p'],
                 extra_body = extra_params, # 其他参数
@@ -4111,6 +4676,9 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 extra_body = extra_params, # 其他参数
             )
             response_content = research_response.choices[0].message.content
+            if response_content is None:
+                response_content = ""
+
             # 用re 提取```json 包裹json字符串 ```
             if "```json" in response_content:
                 try:
@@ -4129,6 +4697,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     {
                         "role": "assistant",
                         "content": research_response.choices[0].message.content,
+                        "reasoning_content": "",
                     }
                 )
                 request.messages.append(
@@ -4148,6 +4717,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     {
                         "role": "assistant",
                         "content": research_response.choices[0].message.content,
+                        "reasoning_content": "",
                     }
                 )
                 request.messages.append(
@@ -4165,6 +4735,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     {
                         "role": "assistant",
                         "content": research_response.choices[0].message.content,
+                        "reasoning_content": "",
                     }
                 )
                 request.messages.append(
@@ -4181,6 +4752,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                     {
                         "role": "assistant",
                         "content": research_response.choices[0].message.content,
+                        "reasoning_content": "",
                     }
                 )
                 request.messages.append(
@@ -4236,6 +4808,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         ],
                         "role": "assistant",
                         "content": "",
+                        "reasoning_content": "",
                     }
                 )
                 request.messages.append(
@@ -4252,6 +4825,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 {
                     "role": "assistant",
                     "content": str(response_content),
+                    "reasoning_content": "",
                 }
             )
             reasoner_messages.append(
@@ -4301,7 +4875,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 response = await client.chat.completions.create(
                     model=model,
                     messages=msg,  # 添加图片信息到消息
-                    temperature=request.temperature,
+                    temperature=request.temperature or settings['temperature'],
                     tools=tools,
                     stream=False,
                     top_p=request.top_p or settings['top_p'],
@@ -4312,7 +4886,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 response = await client.chat.completions.create(
                     model=model,
                     messages=msg,  # 添加图片信息到消息
-                    temperature=request.temperature,
+                    temperature=request.temperature or settings['temperature'],
                     stream=False,
                     top_p=request.top_p or settings['top_p'],
                     extra_body = extra_params, # 其他参数
@@ -4352,6 +4926,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         {
                             "role": "assistant",
                             "content": research_response.choices[0].message.content,
+                            "reasoning_content": "",
                         }
                     )
                     request.messages.append(
@@ -4371,6 +4946,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         {
                             "role": "assistant",
                             "content": research_response.choices[0].message.content,
+                            "reasoning_content": "",
                         }
                     )
                     request.messages.append(
@@ -4388,6 +4964,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         {
                             "role": "assistant",
                             "content": research_response.choices[0].message.content,
+                            "reasoning_content": "",
                         }
                     )
                     request.messages.append(
@@ -4404,6 +4981,7 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                         {
                             "role": "assistant",
                             "content": research_response.choices[0].message.content,
+                            "reasoning_content": "",
                         }
                     )
                     request.messages.append(
@@ -4429,13 +5007,14 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
         if m0:
             messages=f"用户说：{user_prompt}\n\n---\n\n你说：{response_dict["choices"][0]['message']['content']}"
             executor = ThreadPoolExecutor()
+            infer = cur_memory.get('infer') or False
             async def add_async():
                 loop = asyncio.get_event_loop()
                 # 绑定 user_id 关键字参数
                 metadata = {
                     "timetamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                func = partial(m0.add, user_id=memoryId,metadata=metadata,infer=False)
+                func = partial(m0.add, user_id=memoryId,metadata=metadata,infer=infer)
                 # 传递 messages 作为位置参数
                 await loop.run_in_executor(executor, func, messages)
                 print("知识库更新完成")
@@ -4463,7 +5042,7 @@ async def execute_tool_manually(request: Request):
     
     # ==================== 核心逻辑：处理 "Always" ====================
     if approval_type == "always":
-        # 如果用户选择“不再询问”，则将该工具写入当前项目的 .party/config.json
+        # 如果用户选择“不再询问”，则将该工具写入当前项目的 .agent/config.json
         if cwd:
             try:
                 add_tool_to_project_config(cwd, tool_name)
@@ -4487,6 +5066,8 @@ async def execute_tool_manually(request: Request):
         jina_crawler_async,
         Crawl4Ai_search_async, 
         firecrawl_search_async,
+        simple_fetch_async,
+        markdown_new_async,
     )
     from py.know_base import query_knowledge_base
     from py.agent_tool import agent_tool_call
@@ -4515,6 +5096,8 @@ async def execute_tool_manually(request: Request):
         docker_sandbox_async,
         list_files_tool,
         read_file_tool,
+        read_file_range_tool, 
+        tail_file_tool,     
         search_files_tool,
         edit_file_tool,
         edit_file_patch_tool, 
@@ -4530,6 +5113,8 @@ async def execute_tool_manually(request: Request):
         bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
         list_files_tool_local,     # 本地文件列表
         read_file_tool_local,      # 本地文件读取
+        read_file_range_tool_local, # <--- 新增导入
+        tail_file_tool_local,       # <--- 新增导入
         search_files_tool_local,   # 本地文件搜索
         edit_file_tool_local,      # 本地文件写入
         edit_file_patch_tool_local,# 本地精确替换
@@ -4559,6 +5144,13 @@ async def execute_tool_manually(request: Request):
     )
     from py.random_topic import get_random_topics,get_categories
 
+    from py.task_tools import (
+        create_subtask,
+        query_task_progress,
+        cancel_subtask,
+        finish_task
+    )
+
     # ==================== 2. 定义工具映射表 ====================
     _TOOL_HOOKS = {
         "DDGsearch_async": DDGsearch_async,
@@ -4568,6 +5160,8 @@ async def execute_tool_manually(request: Request):
         "jina_crawler_async": jina_crawler_async,
         "Crawl4Ai_search_async": Crawl4Ai_search_async,
         "firecrawl_search_async": firecrawl_search_async,
+        "simple_fetch_async":simple_fetch_async,
+        "markdown_new_async":markdown_new_async,
         "agent_tool_call": agent_tool_call,
         "a2a_tool_call": a2a_tool_call,
         "custom_llm_tool": custom_llm_tool,
@@ -4618,6 +5212,8 @@ async def execute_tool_manually(request: Request):
         "docker_sandbox_async": docker_sandbox_async,
         "list_files_tool": list_files_tool,
         "read_file_tool": read_file_tool,
+        "read_file_range_tool": read_file_range_tool, # <--- 映射新工具
+        "tail_file_tool": tail_file_tool,             # <--- 映射新工具
         "search_files_tool": search_files_tool,
         "edit_file_tool": edit_file_tool,
         "edit_file_patch_tool": edit_file_patch_tool,
@@ -4631,6 +5227,8 @@ async def execute_tool_manually(request: Request):
         "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
         "list_files_tool_local": list_files_tool_local,         # 本地文件列表
         "read_file_tool_local": read_file_tool_local,           # 本地文件读取
+        "read_file_range_tool_local": read_file_range_tool_local, # <--- 映射新工具
+        "tail_file_tool_local": tail_file_tool_local,             # <--- 映射新工具
         "search_files_tool_local": search_files_tool_local,     # 本地文件搜索
         "edit_file_tool_local": edit_file_tool_local,           # 本地文件写入
         "edit_file_patch_tool_local": edit_file_patch_tool_local,  # 本地精确替换
@@ -4638,8 +5236,15 @@ async def execute_tool_manually(request: Request):
         "todo_write_tool_local": todo_write_tool_local,         # 本地任务管理
         "local_net_tool": local_net_tool,                       # 本地网络工具
         "read_skill_tool_local": read_skill_tool_local,         # 本地技能读取
+
+        # 任务中心工具（新增）
+        "create_subtask": create_subtask,
+        "query_task_progress": query_task_progress,
+        "cancel_subtask": cancel_subtask,
+        "finish_task":finish_task,
     }
     
+
     if tool_name not in _TOOL_HOOKS:
         return {"result": f"Tool {tool_name} not found in backend registry."}
     
@@ -4971,7 +5576,7 @@ async def simple_chat_endpoint(request: ChatRequest):
         model=current_settings['model'],
         messages=request.messages,
         stream=request.stream,
-        temperature=request.temperature,
+        temperature=request.temperature or settings['temperature'],
     )
 
     # --------------- 非流式：一次性返回 JSON ---------------
@@ -4990,6 +5595,100 @@ async def simple_chat_endpoint(request: ChatRequest):
         media_type="text/plain",      # 也可以保持 "text/event-stream"
         headers={"Cache-Control": "no-cache"}
     )
+
+
+from py.task_center import get_task_center
+from py.sub_agent import run_subtask_in_background
+
+# --- 新增任务中心 API ---
+
+class TaskCreateRequest(BaseModel):
+    title: str
+    description: str
+    agent_type: str = "default"
+
+@app.get("/v1/tasks/list")
+async def list_tasks_endpoint():
+    """获取当前工作区的所有任务"""
+    current_settings = await load_settings()
+    workspace_dir = current_settings.get("CLISettings", {}).get("cc_path")
+    
+    if not workspace_dir:
+        return {"tasks": [], "error": "No workspace configured"}
+        
+    try:
+        task_center = await get_task_center(workspace_dir)
+        tasks = await task_center.list_tasks()
+        return {"tasks": [t.model_dump() for t in tasks]}
+    except Exception as e:
+        return {"tasks": [], "error": str(e)}
+
+@app.post("/v1/tasks/create")
+async def create_task_endpoint(req: TaskCreateRequest):
+    """手动创建任务"""
+    current_settings = await load_settings()
+    workspace_dir = current_settings.get("CLISettings", {}).get("cc_path")
+    
+    if not workspace_dir:
+        raise HTTPException(status_code=400, detail="工作区路径未配置，请先在工具箱-CLI中设置")
+
+    try:
+        # 1. 获取任务中心
+        task_center = await get_task_center(workspace_dir)
+        
+        # 2. 创建任务记录
+        task = await task_center.create_task(
+            title=req.title,
+            description=req.description,
+            agent_type=req.agent_type,
+            parent_task_id="MANUAL_USER" # 标记为用户手动创建
+        )
+        
+        # 3. 读取共识文件（可选）
+        consensus_content = None
+        consensus_file = Path(workspace_dir) / ".agent" / "consensus.md"
+        if consensus_file.exists():
+            import aiofiles
+            async with aiofiles.open(consensus_file, 'r', encoding='utf-8') as f:
+                consensus_content = await f.read()
+
+        # 4. 后台启动执行
+        asyncio.create_task(
+            run_subtask_in_background(
+                task_id=task.task_id,
+                workspace_dir=workspace_dir,
+                settings=current_settings,
+                consensus_content=consensus_content
+            )
+        )
+        
+        return {"success": True, "task": task.model_dump()}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.post("/v1/tasks/cancel/{task_id}")
+async def cancel_task_endpoint(task_id: str):
+    """取消任务"""
+    current_settings = await load_settings()
+    workspace_dir = current_settings.get("CLISettings", {}).get("cc_path")
+    if not workspace_dir:
+        raise HTTPException(status_code=400, detail="No workspace")
+        
+    task_center = await get_task_center(workspace_dir)
+    success = await task_center.cancel_task(task_id)
+    return {"success": success}
+
+@app.delete("/v1/tasks/{task_id}")
+async def delete_task_endpoint(task_id: str):
+    """删除任务"""
+    current_settings = await load_settings()
+    workspace_dir = current_settings.get("CLISettings", {}).get("cc_path")
+    if not workspace_dir:
+        raise HTTPException(status_code=400, detail="No workspace")
+        
+    task_center = await get_task_center(workspace_dir)
+    success = await task_center.delete_task(task_id)
+    return {"success": success}
 
 def sanitize_proxy_url(input_url: str) -> str:
     """
@@ -7249,30 +7948,77 @@ async def stop_HA():
 
 @app.post("/start_ChromeMCP")
 async def start_ChromeMCP(request: Request):
-
     data = await request.json()
+    chromeMCPSettings = data.get('data', {})
 
-    chromeMCPSettings = data['data']
-
+    # 1. 确定包名
     if chromeMCPSettings.get('mcpName', 'browser-mcp') == 'browser-mcp':
-        Chrome_config = {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["@browsermcp/mcp@latest"]
-        }
+        target_package = "@browsermcp/mcp@latest"
     else:
-        Chrome_config = {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["@playwright/mcp@latest"]
-        }    
+        target_package = "@playwright/mcp@latest"
 
+    # 2. 准备基础变量
+    command = ""
+    args = []
+    
+    # 3. 准备环境变量 (这是解决权限问题的关键！)
+    env = os.environ.copy()
+
+    # ★关键设置 A: 指定 Playwright 浏览器下载位置到用户可写目录
+    # 避免它尝试写入系统目录或请求 sudo 权限
+    # 获取当前应用运行目录下的 'browsers' 文件夹
+    browser_storage = os.path.join(os.getcwd(), "browsers")
+    if not os.path.exists(browser_storage):
+        os.makedirs(browser_storage, exist_ok=True)
+    
+    env["PLAYWRIGHT_BROWSERS_PATH"] = browser_storage
+    
+    # ★关键设置 B: 告诉 npx 不要问 "Do you want to install..."
+    # 虽然 args 里加了 -y，但设置这个环境变量是双重保险
+    env["npm_config_yes"] = "true"
+
+    # 4. 命令探测逻辑
+    system_npx = shutil.which("npx")
+
+    if system_npx:
+        # --- 方案 A: 系统原生 npx (Docker 或 本地开发) ---
+        print(f"Using system npx: {system_npx}")
+        command = system_npx
+        # 加上 -y 自动确认安装包
+        args = ["-y", target_package] 
+    
+    else:
+        # --- 方案 B: Electron 内部环境 ---
+        electron_node = os.environ.get("ELECTRON_NODE_EXEC")
+        electron_npm = os.environ.get("ELECTRON_NPM_CLI")
+        
+        if electron_node and electron_npm:
+            print(f"System npx not found. Falling back to Electron Node.")
+            command = electron_node
+            # 构造: electron node npm-cli.js exec --yes -- @package
+            # --yes 是 npm exec 的参数，表示自动安装缺失的包
+            args = [electron_npm, "exec", "--yes", "--", target_package]
+            
+            # 必须设置，否则 Electron 会弹窗
+            env["ELECTRON_RUN_AS_NODE"] = "1"
+        else:
+            return JSONResponse(
+                status_code=500, 
+                content={"error": "Node.js runtime not found."}
+            )
+
+    # 5. 组装配置
+    Chrome_config = {
+        "command": command,
+        "args": args,
+        "env": env
+    }
+
+    # ... (后续连接逻辑保持不变) ...
     global ChromeMCP_client
     if ChromeMCP_client is not None:
-        # 已初始化过
         return JSONResponse({"status": "ready", "enabled": True})
 
-    # 用来通知“连接失败”的事件
     conn_failed_event = asyncio.Event()
     failure_reason = None
 
@@ -7283,23 +8029,27 @@ async def start_ChromeMCP(request: Request):
 
     try:
         ChromeMCP_client = McpClient()
-        await ChromeMCP_client.initialize("ChromeMCP", Chrome_config, on_failure_callback=on_failure)
-
-        # 等一小段时间验证连接确实活了
+        await ChromeMCP_client.initialize(
+            "ChromeMCP", 
+            Chrome_config, 
+            on_failure_callback=on_failure
+        )
+        
+        # ... (等待连接逻辑) ...
         try:
-            # 5 秒内如果事件被 set，说明连接失败
             await asyncio.wait_for(conn_failed_event.wait(), timeout=5.0)
-            # 走到这里说明失败了
             raise RuntimeError(f"ChromeMCP client connection failed: {failure_reason}")
         except asyncio.TimeoutError:
-            # 2 秒无事发生，认为连接成功
             pass
 
         return JSONResponse({"status": "ready", "enabled": True})
+
     except Exception as e:
         ChromeMCP_client = None
+        print(f"Start ChromeMCP Error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+# 停止接口保持不变
 @app.get("/stop_ChromeMCP")
 async def stop_ChromeMCP():
     global ChromeMCP_client
@@ -7318,7 +8068,6 @@ async def stop_ChromeMCP():
             status_code=500,
             content={"error": str(e)}
         )
-
 
 @app.post("/start_sql")
 async def start_sql(request: Request):
@@ -8169,304 +8918,318 @@ async def create_sticker_pack(
         logger.error(f"创建表情包时出错: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
-from py.qq_bot_manager import QQBotConfig, QQBotManager
-# 全局机器人管理器
-qq_bot_manager = QQBotManager()
+# ==========================================
+# 机器人管理器延迟加载容器 (Lazy Container)
+# ==========================================
+class BotContainer:
+    """管理所有机器人的单例，只有在第一次调用 get 方法时才会 import 对应的重型 SDK"""
+    _qq = None
+    _feishu = None
+    _dingtalk = None
+    _discord = None
+    _slack = None
+    _telegram = None
+
+    @classmethod
+    def get_qq(cls):
+        if cls._qq is None:
+            from py.qq_bot_manager import QQBotManager
+            cls._qq = QQBotManager()
+        return cls._qq
+
+    @classmethod
+    def get_feishu(cls):
+        if cls._feishu is None:
+            from py.feishu_bot_manager import FeishuBotManager
+            cls._feishu = FeishuBotManager()
+        return cls._feishu
+
+    @classmethod
+    def get_dingtalk(cls):
+        if cls._dingtalk is None:
+            from py.dingtalk_bot_manager import DingtalkBotManager
+            cls._dingtalk = DingtalkBotManager()
+        return cls._dingtalk
+
+    @classmethod
+    def get_discord(cls):
+        if cls._discord is None:
+            from py.discord_bot_manager import DiscordBotManager
+            cls._discord = DiscordBotManager()
+        return cls._discord
+
+    @classmethod
+    def get_slack(cls):
+        if cls._slack is None:
+            from py.slack_bot_manager import SlackBotManager
+            cls._slack = SlackBotManager()
+        return cls._slack
+
+    @classmethod
+    def get_telegram(cls):
+        if cls._telegram is None:
+            from py.telegram_bot_manager import TelegramBotManager
+            cls._telegram = TelegramBotManager()
+        return cls._telegram
+
+# ==========================================
+# 1. QQ 机器人全量路由
+# ==========================================
 
 @app.post("/start_qq_bot")
-async def start_qq_bot(config: QQBotConfig):
+async def start_qq_bot(config_data: dict):
     try:
-        qq_bot_manager.start_bot(config)
-        return {
-            "success": True,
-            "message": "QQ机器人已成功启动",
-            "environment": "thread-based"
-        }
+        from py.qq_bot_manager import QQBotConfig
+        config = QQBotConfig(**config_data)
+        BotContainer.get_qq().start_bot(config)
+        return {"success": True, "message": "QQ机器人已成功启动", "environment": "thread-based"}
     except Exception as e:
         logger.error(f"启动QQ机器人失败: {e}")
-        return JSONResponse(
-            status_code=400,  # 改为 400 表示客户端错误
-            content={
-                "success": False, 
-                "message": f"启动失败: {str(e)}",
-                "error_type": "startup_error"
-            }
-        )
+        return JSONResponse(status_code=400, content={"success": False, "message": f"启动失败: {str(e)}", "error_type": "startup_error"})
 
 @app.post("/stop_qq_bot")
 async def stop_qq_bot():
     try:
-        qq_bot_manager.stop_bot()
+        if BotContainer._qq:
+            BotContainer.get_qq().stop_bot()
         return {"success": True, "message": "QQ机器人已停止"}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
 @app.get("/qq_bot_status")
 async def qq_bot_status():
-    status = qq_bot_manager.get_status()
-    # 如果有启动错误，在状态中包含错误信息
+    if BotContainer._qq is None:
+        return {"is_running": False, "status": "stopped"}
+    status = BotContainer.get_qq().get_status()
     if status.get("startup_error") and not status.get("is_running"):
         status["error_message"] = f"启动失败: {status['startup_error']}"
     return status
 
 @app.post("/reload_qq_bot")
-async def reload_qq_bot(config: QQBotConfig):
+async def reload_qq_bot(config_data: dict):
     try:
-        # 先停止再启动
-        qq_bot_manager.stop_bot()
-        await asyncio.sleep(1)  # 等待完全停止
-        qq_bot_manager.start_bot(config)
-        
-        return {
-            "success": True,
-            "message": "QQ机器人已重新加载",
-            "config_changed": True
-        }
+        from py.qq_bot_manager import QQBotConfig
+        config = QQBotConfig(**config_data)
+        manager = BotContainer.get_qq()
+        manager.stop_bot()
+        await asyncio.sleep(1)
+        manager.start_bot(config)
+        return {"success": True, "message": "QQ机器人已重新加载", "config_changed": True}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
-# 入口文件部分代码
-
-from py.feishu_bot_manager import FeishuBotConfig, FeishuBotManager
-
-# 全局飞书机器人管理器
-feishu_bot_manager = FeishuBotManager()
+# ==========================================
+# 2. 飞书 机器人全量路由
+# ==========================================
 
 @app.post("/start_feishu_bot")
-async def start_feishu_bot(config: FeishuBotConfig):
+async def start_feishu_bot(config_data: dict):
     try:
-        feishu_bot_manager.start_bot(config)
-        return {
-            "success": True,
-            "message": "飞书机器人已成功启动",
-            "environment": "thread-based"
-        }
+        from py.feishu_bot_manager import FeishuBotConfig
+        config = FeishuBotConfig(**config_data)
+        BotContainer.get_feishu().start_bot(config)
+        return {"success": True, "message": "飞书机器人已成功启动", "environment": "thread-based"}
     except Exception as e:
         logger.error(f"启动飞书机器人失败: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False, 
-                "message": f"启动失败: {str(e)}",
-                "error_type": "startup_error"
-            }
-        )
+        return JSONResponse(status_code=400, content={"success": False, "message": f"启动失败: {str(e)}", "error_type": "startup_error"})
 
 @app.post("/stop_feishu_bot")
 async def stop_feishu_bot():
     try:
-        feishu_bot_manager.stop_bot()
+        if BotContainer._feishu:
+            BotContainer.get_feishu().stop_bot()
         return {"success": True, "message": "飞书机器人已停止"}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
 @app.get("/feishu_bot_status")
 async def feishu_bot_status():
-    status = feishu_bot_manager.get_status()
-    # 如果有启动错误，在状态中包含错误信息
+    if BotContainer._feishu is None:
+        return {"is_running": False}
+    status = BotContainer.get_feishu().get_status()
     if status.get("startup_error") and not status.get("is_running"):
         status["error_message"] = f"启动失败: {status['startup_error']}"
     return status
 
 @app.post("/reload_feishu_bot")
-async def reload_feishu_bot(config: FeishuBotConfig):
+async def reload_feishu_bot(config_data: dict):
     try:
-        # 先停止再启动
-        feishu_bot_manager.stop_bot()
-        await asyncio.sleep(1)  # 等待完全停止
-        feishu_bot_manager.start_bot(config)
-        
-        return {
-            "success": True,
-            "message": "飞书机器人已重新加载",
-            "config_changed": True
-        }
+        from py.feishu_bot_manager import FeishuBotConfig
+        config = FeishuBotConfig(**config_data)
+        manager = BotContainer.get_feishu()
+        manager.stop_bot()
+        await asyncio.sleep(1)
+        manager.start_bot(config)
+        return {"success": True, "message": "飞书机器人已重新加载", "config_changed": True}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
-    
-from py.dingtalk_bot_manager import DingtalkBotConfig, DingtalkBotManager
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
-# 全局钉钉机器人管理器
-dingtalk_bot_manager = DingtalkBotManager()
+# ==========================================
+# 3. 钉钉 机器人全量路由
+# ==========================================
 
-# 路由 1: 启动
 @app.post("/start_dingtalk_bot")
-async def start_dingtalk_bot(config: DingtalkBotConfig):
+async def start_dingtalk_bot(config_data: dict):
     try:
-        dingtalk_bot_manager.start_bot(config)
+        from py.dingtalk_bot_manager import DingtalkBotConfig
+        config = DingtalkBotConfig(**config_data)
+        BotContainer.get_dingtalk().start_bot(config)
         return {"success": True, "message": "钉钉机器人已成功启动"}
     except Exception as e:
         return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
 
-# 路由 2: 停止
 @app.post("/stop_dingtalk_bot")
 async def stop_dingtalk_bot():
     try:
-        dingtalk_bot_manager.stop_bot()
+        if BotContainer._dingtalk:
+            BotContainer.get_dingtalk().stop_bot()
         return {"success": True, "message": "钉钉机器人已停止"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
-# 路由 3: 状态检查
 @app.get("/dingtalk_bot_status")
 async def dingtalk_bot_status():
-    return dingtalk_bot_manager.get_status()
+    if BotContainer._dingtalk is None:
+        return {"is_running": False}
+    return BotContainer.get_dingtalk().get_status()
 
-# 路由 4: 重载配置
 @app.post("/reload_dingtalk_bot")
-async def reload_dingtalk_bot(config: DingtalkBotConfig):
+async def reload_dingtalk_bot(config_data: dict):
     try:
-        dingtalk_bot_manager.stop_bot()
-        time.sleep(1)
-        dingtalk_bot_manager.start_bot(config)
+        from py.dingtalk_bot_manager import DingtalkBotConfig
+        config = DingtalkBotConfig(**config_data)
+        manager = BotContainer.get_dingtalk()
+        manager.stop_bot()
+        import time as sync_time # 这里的 time 是为了配合你原代码中的 time.sleep
+        sync_time.sleep(1)
+        manager.start_bot(config)
         return {"success": True, "message": "钉钉机器人配置已重载"}
     except Exception as e:
         return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
 
-from py.discord_bot_manager import DiscordBotManager, DiscordBotConfig
-
-discord_bot_manager = DiscordBotManager()
+# ==========================================
+# 4. Discord 机器人全量路由
+# ==========================================
 
 @app.post("/start_discord_bot")
-async def start_discord_bot(config: DiscordBotConfig):
+async def start_discord_bot(config_data: dict):
     try:
-        discord_bot_manager.start_bot(config)
+        from py.discord_bot_manager import DiscordBotConfig
+        config = DiscordBotConfig(**config_data)
+        BotContainer.get_discord().start_bot(config)
         return {"success": True, "message": "Discord 机器人已启动"}
     except Exception as e:
         return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
 
 @app.post("/stop_discord_bot")
 async def stop_discord_bot():
-    discord_bot_manager.stop_bot()
+    if BotContainer._discord:
+        BotContainer.get_discord().stop_bot()
     return {"success": True, "message": "Discord 机器人已停止"}
 
 @app.get("/discord_bot_status")
 async def discord_bot_status():
-    return discord_bot_manager.get_status()
+    if BotContainer._discord is None:
+        return {"is_running": False}
+    return BotContainer.get_discord().get_status()
 
 @app.post("/reload_discord_bot")
-async def reload_discord_bot(config: DiscordBotConfig):
-    discord_bot_manager.stop_bot()
-    await asyncio.sleep(1)
-    discord_bot_manager.start_bot(config)
-    return {"success": True, "message": "Discord 机器人已重载"}
+async def reload_discord_bot(config_data: dict):
+    try:
+        from py.discord_bot_manager import DiscordBotConfig
+        config = DiscordBotConfig(**config_data)
+        manager = BotContainer.get_discord()
+        manager.stop_bot()
+        await asyncio.sleep(1)
+        manager.start_bot(config)
+        return {"success": True, "message": "Discord 机器人已重载"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
-
-from py.slack_bot_manager import SlackBotManager, SlackBotConfig
-
-slack_bot_manager = SlackBotManager()
+# ==========================================
+# 5. Slack 机器人全量路由
+# ==========================================
 
 @app.post("/start_slack_bot")
-async def start_slack_bot(config: SlackBotConfig):
+async def start_slack_bot(config_data: dict):
     try:
-        slack_bot_manager.start_bot(config)
+        from py.slack_bot_manager import SlackBotConfig
+        config = SlackBotConfig(**config_data)
+        BotContainer.get_slack().start_bot(config)
         return {"success": True, "message": "Slack 机器人已启动"}
     except Exception as e:
         return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
 
 @app.post("/stop_slack_bot")
 async def stop_slack_bot():
-    slack_bot_manager.stop_bot()
+    if BotContainer._slack:
+        BotContainer.get_slack().stop_bot()
     return {"success": True, "message": "Slack 机器人已停止"}
 
 @app.get("/slack_bot_status")
 async def slack_bot_status():
-    return slack_bot_manager.get_status()
+    if BotContainer._slack is None:
+        return {"is_running": False}
+    return BotContainer.get_slack().get_status()
 
 @app.post("/reload_slack_bot")
-async def reload_slack_bot(config: SlackBotConfig):
-    slack_bot_manager.stop_bot()
-    await asyncio.sleep(1)
-    slack_bot_manager.start_bot(config)
-    return {"success": True, "message": "Slack 机器人已重载"}
+async def reload_slack_bot(config_data: dict):
+    try:
+        from py.slack_bot_manager import SlackBotConfig
+        config = SlackBotConfig(**config_data)
+        manager = BotContainer.get_slack()
+        manager.stop_bot()
+        await asyncio.sleep(1)
+        manager.start_bot(config)
+        return {"success": True, "message": "Slack 机器人已重载"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
-from py.telegram_bot_manager import TelegramBotManager, TelegramBotConfig
-
-# 全局 Telegram 机器人管理器
-telegram_bot_manager = TelegramBotManager()
+# ==========================================
+# 6. Telegram 机器人全量路由
+# ==========================================
 
 @app.post("/start_telegram_bot")
-async def start_telegram_bot(config: TelegramBotConfig):
-    """
-    启动 Telegram 机器人（与飞书接口完全对称）
-    """
+async def start_telegram_bot(config_data: dict):
     try:
-        telegram_bot_manager.start_bot(config)
-        return {
-            "success": True,
-            "message": "Telegram 机器人已成功启动",
-            "environment": "thread-based"
-        }
+        from py.telegram_bot_manager import TelegramBotConfig
+        config = TelegramBotConfig(**config_data)
+        BotContainer.get_telegram().start_bot(config)
+        return {"success": True, "message": "Telegram 机器人已成功启动", "environment": "thread-based"}
     except Exception as e:
         logger.error(f"启动 Telegram 机器人失败: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": f"启动失败: {str(e)}",
-                "error_type": "startup_error"
-            }
-        )
-
+        return JSONResponse(status_code=400, content={"success": False, "message": f"启动失败: {str(e)}", "error_type": "startup_error"})
 
 @app.post("/stop_telegram_bot")
 async def stop_telegram_bot():
-    """
-    停止 Telegram 机器人
-    """
     try:
-        telegram_bot_manager.stop_bot()
+        if BotContainer._telegram:
+            BotContainer.get_telegram().stop_bot()
         return {"success": True, "message": "Telegram 机器人已停止"}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
-
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
 @app.get("/telegram_bot_status")
 async def telegram_bot_status():
-    """
-    获取 Telegram 机器人状态
-    """
-    status = telegram_bot_manager.get_status()
+    if BotContainer._telegram is None:
+        return {"is_running": False}
+    status = BotContainer.get_telegram().get_status()
     if status.get("startup_error") and not status.get("is_running"):
         status["error_message"] = f"启动失败: {status['startup_error']}"
     return status
 
-
 @app.post("/reload_telegram_bot")
-async def reload_telegram_bot(config: TelegramBotConfig):
-    """
-    重新加载 Telegram 机器人（先停后启）
-    """
+async def reload_telegram_bot(config_data: dict):
     try:
-        telegram_bot_manager.stop_bot()
-        await asyncio.sleep(1)  # 等待完全停止
-        telegram_bot_manager.start_bot(config)
-        return {
-            "success": True,
-            "message": "Telegram 机器人已重新加载",
-            "config_changed": True
-        }
+        from py.telegram_bot_manager import TelegramBotConfig
+        config = TelegramBotConfig(**config_data)
+        manager = BotContainer.get_telegram()
+        manager.stop_bot()
+        await asyncio.sleep(1)
+        manager.start_bot(config)
+        return {"success": True, "message": "Telegram 机器人已重新加载", "config_changed": True}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": str(e)}
-        )
-
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e)})
 
 @app.post("/add_workflow")
 async def add_workflow(file: UploadFile = File(...), workflow_data: str = Form(...)):
@@ -8736,6 +9499,56 @@ def get_ip():
     ip = get_internal_ip()
     return {"ip": ip}
 
+class ManagerFactory:
+    _instances = {}
+
+    @classmethod
+    def get(cls, name, import_path, class_name):
+        if name not in cls._instances:
+            # 只有在第一次访问时才导入
+            import importlib
+            module = importlib.import_module(import_path)
+            mgr_cls = getattr(module, class_name)
+            cls._instances[name] = mgr_cls()
+        return cls._instances[name]
+
+    @classmethod
+    def is_created(cls, name):
+        """检查某个管理器是否已经初始化（不触发导入）"""
+        return name in cls._instances
+
+# --- 在 ManagerFactory 类之后添加代理类（如果之前没有添加的话）---
+class _LazyManager:
+    """惰性代理：访问属性时才会真正加载对应的管理器"""
+    def __init__(self, name, import_path, class_name):
+        self.name = name
+        self.import_path = import_path
+        self.class_name = class_name
+
+    def __getattr__(self, attr):
+        # 首次访问任何属性时，通过工厂获取真实的管理器实例
+        mgr = ManagerFactory.get(self.name, self.import_path, self.class_name)
+        # 返回真实管理器的对应属性
+        return getattr(mgr, attr)
+
+# --- 直接创建全局代理对象（代替原来的 @property 函数）---
+qq_bot_manager = _LazyManager("qq", "py.qq_bot_manager", "QQBotManager")
+feishu_bot_manager = _LazyManager("feishu", "py.feishu_bot_manager", "FeishuBotManager")
+dingtalk_bot_manager = _LazyManager("dingtalk", "py.dingtalk_bot_manager", "DingtalkBotManager")
+discord_bot_manager = _LazyManager("discord", "py.discord_bot_manager", "DiscordBotManager")
+slack_bot_manager = _LazyManager("slack", "py.slack_bot_manager", "SlackBotManager")
+telegram_bot_manager = _LazyManager("telegram", "py.telegram_bot_manager", "TelegramBotManager")
+
+
+# 辅助宏：快速获取实例（仅内部使用，确保不改动你的外部调用）
+def _get_mgr(name):
+    if name == "qq": return qq_bot_manager
+    if name == "feishu": return feishu_bot_manager
+    if name == "dingtalk": return dingtalk_bot_manager
+    if name == "discord": return discord_bot_manager
+    if name == "slack": return slack_bot_manager
+    if name == "telegram": return telegram_bot_manager
+
 async def sync_all_bots_behavior(settings_dict: dict):
     """
     统一同步所有平台机器人的行为引擎配置
@@ -8999,11 +9812,29 @@ async def websocket_endpoint(websocket: WebSocket):
                 except Exception:
                     pass
 
+@app.post("/sys/shutdown")
+async def shutdown_server():
+    """
+    接收到此请求后，向自己发送 SIGTERM 信号，
+    这将触发 FastAPI 的 lifespan 关闭流程（清理 Node 进程）。
+    """
+    if IS_DOCKER:
+        return {"message": "Not allowed in Docker mode."}
+
+    print("Received shutdown request via API...")
+    # 获取当前进程 ID 并发送终止信号
+    # Windows 和 Linux/Mac 都支持 SIGTERM
+    os.kill(os.getpid(), signal.SIGTERM)
+    return {"message": "Shutting down..."}
+
 from py.uv_api import router as uv_router
 app.include_router(uv_router)
 
 from py.node_api import router as node_router 
 app.include_router(node_router)
+
+from py.docker_api import router as docker_router 
+app.include_router(docker_router)
 
 from py.extensions import router as extensions_router
 
@@ -9046,5 +9877,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host=HOST,
-        port=PORT
+        port=PORT,
+        log_level="warning"
     )

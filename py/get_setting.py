@@ -14,24 +14,7 @@ APP_NAME = "Super-Agent-Party"
 HOST = None
 PORT = None
 
-# 使用一次性检测
-def _detect_docker():
-    if os.environ.get("IS_DOCKER", "").lower() == "true":
-        return True
-    try:
-        if os.path.exists('/.dockerenv'):
-            return True
-        cgroup_path = '/proc/self/cgroup'
-        if os.path.exists(cgroup_path):
-            with open(cgroup_path, 'rt', encoding='utf-8') as f:
-                content = f.read()
-                if 'docker' in content or 'container' in content:
-                    return True
-    except Exception:
-        pass
-    return False
-
-IS_DOCKER = _detect_docker()
+IS_DOCKER = os.environ.get("IS_DOCKER", "").lower() in ("1", "true")
 
 def in_docker():
     return IS_DOCKER
@@ -60,7 +43,33 @@ KB_DIR = os.path.join(USER_DATA_DIR, 'kb')
 EXT_DIR = os.path.join(USER_DATA_DIR, "ext")
 DEFAULT_ASR_DIR = os.path.join(USER_DATA_DIR, 'asr')
 DEFAULT_EBD_DIR = os.path.join(USER_DATA_DIR, 'ebd')
-SKILLS_DIR = os.path.join(USER_DATA_DIR, 'skills')
+
+# --- 跨平台全局Skills路径 ---
+def get_global_skills_dir():
+    """
+    获取标准的全局Agent Skills目录，支持跨平台
+    标准路径: ~/.agents/skills (macOS/Linux) 或 %USERPROFILE%\.agents\skills (Windows)
+    """
+    home_dir = Path.home()
+    
+    # 检查是否在Docker环境中
+    if IS_DOCKER:
+        # Docker环境中使用/app/.agents/skills
+        docker_skills_dir = Path('/app/.agents/skills')
+        docker_skills_dir.mkdir(parents=True, exist_ok=True)
+        return str(docker_skills_dir)
+    
+    # 标准全局路径
+    global_skills_dir = home_dir / '.agents' / 'skills'
+    
+    # 确保目录存在
+    global_skills_dir.mkdir(parents=True, exist_ok=True)
+    
+    return str(global_skills_dir)
+
+# 使用标准的全局skills路径
+SKILLS_DIR = get_global_skills_dir()
+
 
 # --- 配置文件 ---
 SETTINGS_FILE = os.path.join(USER_DATA_DIR, 'settings.json')
@@ -75,6 +84,18 @@ STATIC_DIR = os.path.join(base_path, "static")
 # --- 数据库 ---
 DATABASE_PATH = os.path.join(USER_DATA_DIR, 'super_agent_party.db')
 COVS_PATH = os.path.join(USER_DATA_DIR, "conversations.db")
+
+# 批量创建目录
+dirs_to_create = [
+    USER_DATA_DIR, LOG_DIR, MEMORY_CACHE_DIR, UPLOAD_FILES_DIR, 
+    TOOL_TEMP_DIR, AGENT_DIR, KB_DIR, EXT_DIR, 
+    DEFAULT_ASR_DIR, DEFAULT_EBD_DIR, CONFIG_BASE_PATH, SKILLS_DIR
+]
+for d in set(dirs_to_create):
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
 
 # ----------------- 3. 关键修复：恢复全局 BLOCKLIST 变量 -----------------
 # 兼容 py/load_files.py 的导入需求
@@ -124,23 +145,56 @@ def get_default_settings_sync():
         _cached_default_settings = {}
     return _cached_default_settings
 
+# ----------------- Agent Skills 初始化 -----------------
+
+async def _copy_default_skills():
+    """
+    将项目根目录的 skills/ 复制到 USER_DATA_DIR/skills/。
+    核心逻辑：若目标子目录已存在，则跳过该目录；不覆盖用户已有文件。
+    """
+    # 源目录：项目根目录下的 skills
+    src_skills_root = os.path.join(base_path, 'skills')
+    # 目标目录：用户数据目录下的 skills
+    dst_skills_root = SKILLS_DIR  # 你在路径定义中已配置
+
+    # 如果源目录根本不存在，说明这个版本没带默认技能，直接跳过
+    if not os.path.isdir(src_skills_root):
+        logging.info("[Skills] 项目根目录无 skills/ 文件夹，跳过初始化复制。")
+        return
+
+    # 确保目标根目录存在（你在 dirs_to_create 已包含，这里双重保障）
+    os.makedirs(dst_skills_root, exist_ok=True)
+
+    # 遍历源目录下的每一项（一级子目录/文件）
+    try:
+        for item_name in os.listdir(src_skills_root):
+            src_path = os.path.join(src_skills_root, item_name)
+            dst_path = os.path.join(dst_skills_root, item_name)
+
+            # 仅处理目录 —— Skill 的根必须是文件夹
+            if os.path.isdir(src_path):
+                # 核心判断：如果目标目录已存在，完全跳过该 Skill 的复制
+                if os.path.exists(dst_path):
+                    logging.debug(f"[Skills] 目标技能已存在，跳过: {item_name}")
+                    continue
+                
+                # 不存在则完整复制整个 Skill 文件夹
+                # 使用 shutil.copytree，且不覆盖（因为已判断不存在）
+                import shutil
+                shutil.copytree(src_path, dst_path)
+                logging.info(f"[Skills] 已安装默认技能: {item_name}")
+            else:
+                # 源根目录下的孤立文件（非标准 Skill 结构），根据你的策略可忽略或复制
+                # 标准 Agent Skills 只认文件夹，这里建议忽略
+                logging.debug(f"[Skills] 忽略非文件夹项: {item_name}")
+    except Exception as e:
+        logging.error(f"[Skills] 复制默认技能时发生错误: {e}", exc_info=True)
+
 # ----------------- 5. 初始化逻辑 -----------------
 
 async def init_db():
     global _db_init_done
     if _db_init_done: return
-    
-    # 批量创建目录
-    dirs_to_create = [
-        USER_DATA_DIR, LOG_DIR, MEMORY_CACHE_DIR, UPLOAD_FILES_DIR, 
-        TOOL_TEMP_DIR, AGENT_DIR, KB_DIR, EXT_DIR, 
-        DEFAULT_ASR_DIR, DEFAULT_EBD_DIR, CONFIG_BASE_PATH, SKILLS_DIR
-    ]
-    for d in set(dirs_to_create):
-        try:
-            os.makedirs(d, exist_ok=True)
-        except Exception:
-            pass
 
     async with aiosqlite.connect(DATABASE_PATH) as db:
         await db.execute('''

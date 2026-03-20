@@ -1498,7 +1498,22 @@ function startChunkAnimation(chunkId, chunkState) {
             const expression = chunkState.expression;
             let limit = 1.0;
             if (expression && ['happy', 'surprised'].includes(expression)) {
-                limit = 0.7; 
+                limit = 0.5; 
+            }
+
+            if (expression) {
+                // 常见的情绪列表（排除了 blink，以免干扰自动眨眼，除非明确需要）
+                const EMOTIONS = ['surprised', 'happy', 'angry', 'sad', 'neutral', 'relaxed'];
+                
+                // 如果当前指令是情绪表情，则将其设为 1.0，并将其他情绪归 0.0（防止表情混合变成鬼脸）
+                if (EMOTIONS.includes(expression)) {
+                    EMOTIONS.forEach(exp => {
+                        currentVrm.expressionManager.setValue(exp, exp === expression ? 1.0 : 0.0);
+                    });
+                } else {
+                    // 如果是 blink 等特定表情，直接应用
+                    currentVrm.expressionManager.setValue(expression, 1.0);
+                }
             }
 
             ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => {
@@ -1766,7 +1781,7 @@ function initSubtitleElement() {
     subtitleElement.id = 'subtitle-container';
     subtitleElement.style.cssText = `
         position: fixed;
-        bottom: 30%;
+        top: 70%;  
         left: 50%;
         width: auto;
         max-width: 80%;
@@ -2579,7 +2594,7 @@ function addcontrolPanel() {
 
         // 图标容器
         const iconContainer = document.createElement('div');
-        iconContainer.innerHTML = '<el-icon class="logo-icon"><img src="./source/icon.png" /></el-icon>';
+        iconContainer.innerHTML = '<i class="fa-solid fa-arrows-up-down-left-right"></i>';
         iconContainer.style.cssText = `
             position: relative;
             z-index: 2;
@@ -4027,15 +4042,16 @@ function sendToMain(type, data) {
 let fullTargetText = "";          // 记录当前对话收到的所有文本
 let currentVisibleCount = 0;      // 当前已显示的字符数
 let displayStartIndex = 0; // 新增：锁定当前显示的起始位置
-const MAX_WINDOW_SIZE = 80;  // 一屏最多显示约40个字（视UI宽度而定）
-const OVERLAP_SIZE = 40;     // 翻页时保留的字数（即“半页”重叠）
+const MAX_WINDOW_SIZE = 60;  // 一屏最多显示约40个字（视UI宽度而定）
+const OVERLAP_SIZE = 30;     // 翻页时保留的字数（即“半页”重叠）
 const SAFE_PUNC_LIST = /[，。！？；：、“”（）《》,.!?;:()]/; // 定义安全分割的标点符号
 
 let typewriterTimer = null;       // 打字机计时器
 let isAudioStreaming = false;
 let isOmniMode = false;           // 是否处于 Omni 流模式
 let omniNextStartTime = 0;        // 预估的音频流结束时间点
-
+let omniTotalAudioDuration = 0;   // 记录当前句子已接收到的音频总时长
+let omniPlaybackStartTime = 0;    // 记录这句音频开始播放的绝对时间
 /**
  * 强制停止所有音频播放并重置音频上下文
  * 解决“上一句话还没说完，下一句话就开始了”产生的重叠问题
@@ -4076,7 +4092,8 @@ function handleTTSMessage(message) {
             displayStartIndex = 0;
             isAudioStreaming = false;
             omniNextStartTime = 0;
-            
+            omniTotalAudioDuration = 0;  // 重置
+            omniPlaybackStartTime = 0;   // 重置
             // 确保如果有旧的打字机在跑，立即停止
             stopTypewriterLoop();
             stopAllChunkAnimations();
@@ -4088,6 +4105,15 @@ function handleTTSMessage(message) {
 
         case 'omniStreaming':
             if (windowName === 'default') {
+                if (!isOmniMode || (data.text && data.text.length < fullTargetText.length)) {
+                    fullTargetText = "";
+                    currentVisibleCount = 0;
+                    displayStartIndex = 0;
+                    omniNextStartTime = 0;
+                    stopTypewriterLoop();
+                    clearSubtitle();
+                }
+
                 isOmniMode = true;
                 isAudioStreaming = true; // 标记正在接收流
                 if (data.text) fullTargetText = data.text;
@@ -4162,85 +4188,80 @@ function handleTTSMessage(message) {
  * 支持：动态语速、半页重叠翻页、标点符号安全分割、视觉反馈
  */
 function startTypewriterLoop() {
-    if (typewriterTimer) return;
+    if (typewriterTimer) return; // 防止重复启动
 
-    function type() {
-        const pendingChars = fullTargetText.length - currentVisibleCount;
-        
-        if (pendingChars > 0) {
-            const now = currentAudioContext ? currentAudioContext.currentTime : 0;
-            const remainingAudioTime = Math.max(0, omniNextStartTime - now);
-            
-            let idealDelay = 0;
-            const isChinese = /[\u4e00-\u9fa5]/.test(fullTargetText);
-            const naturalDelay = isChinese ? 200 : 100; 
-            if (isAudioStreaming) {
-                // --- A模式：流增长阶段 (固定语速模式) ---
-                // 提高一点基础延迟，让语速更自然
-                idealDelay = naturalDelay;
-
-                // 只有大幅落后（>40字）才轻微补偿，步进不超过 50ms
-                if (pendingChars > 40) idealDelay -= 40;
-
-            } else {
-                // --- B 模式：收尾阶段 (修正拖后腿问题) ---
-                if (remainingAudioTime > 0) {
-                    // 计算同步所需的延迟
-                    let syncDelay = (remainingAudioTime / pendingChars) * 1000;
-                    idealDelay = Math.min(syncDelay, naturalDelay);
-                } else {
-                    // 音频已经放完了，文字还没打完，用较快的固定语速收尾
-                    idealDelay = 100; 
-                }
-
-                // 最终 B 模式最快限制在 80ms，不至于快到闪瞎眼
-                idealDelay = Math.max(idealDelay, 80);
-            }
-            
-            // 综合约束：最快 60ms (约每秒7字)，最慢 450ms
-            const finalDelay = Math.min(Math.max(idealDelay, 60), 450);
-
-            currentVisibleCount++;
-
-            // --- 智能翻页逻辑 (保持不变) ---
-            const currentDisplayLength = currentVisibleCount - displayStartIndex;
-            if (currentDisplayLength > MAX_WINDOW_SIZE) {
-                let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
-                const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
-                const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
-                let lastPuncIndex = -1;
-                for (let i = searchText.length - 1; i >= 0; i--) {
-                    if (SAFE_PUNC_LIST.test(searchText[i])) {
-                        lastPuncIndex = i;
-                        break;
-                    }
-                }
-                if (lastPuncIndex !== -1) {
-                    const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
-                    const newOverlap = currentVisibleCount - foundIndex;
-                    if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
-                        targetStartIndex = foundIndex;
-                    }
-                }
-                displayStartIndex = targetStartIndex;
-                // triggerPageFlipEffect();
-            }
-
-            // --- 渲染 ---
-            const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
-            const prefix = displayStartIndex > 0 ? "..." : "";
-            renderSubtitleUI(prefix + displayText);
-
-            typewriterTimer = setTimeout(type, finalDelay);
-        } else {
+    function syncTextToAudio() {
+        if (!isOmniMode || !currentAudioContext) {
             typewriterTimer = null;
-            // 只有当所有文字都打完了，才进入收尾倒计时
-            if (!isOmniMode) {
-                finalizeSpeech(false);
+            return;
+        }
+
+        const now = currentAudioContext.currentTime;
+        const totalChars = fullTargetText.length;
+
+        if (totalChars > 0 && omniTotalAudioDuration > 0) {
+            // 计算当前音频播放了多长时间
+            const playedTime = Math.max(0, now - omniPlaybackStartTime);
+            
+            // 计算播放进度比例 (稍微给文本一点提前量，乘以1.05感觉更贴脸)
+            let progress = (playedTime / omniTotalAudioDuration) * 1.05; 
+            progress = Math.min(1.0, progress); // 最高 100%
+
+            // 如果音频流还在传输，限制进度不能超过当前文本的最大长度
+            // 如果音频断流结束了（!isAudioStreaming），则允许跑满
+            let targetCharCount = Math.floor(progress * totalChars);
+
+            // 如果已经接收完毕，但还有音频没播完，正常按照比例走
+            // 如果音频播完了（now > omniNextStartTime），直接显示全部
+            if (!isAudioStreaming && now >= omniNextStartTime) {
+                targetCharCount = totalChars;
+            }
+
+            // 平滑递增，不能倒退
+            if (targetCharCount > currentVisibleCount) {
+                currentVisibleCount = targetCharCount;
+                
+                // --- 你的智能翻页逻辑 (完全保留) ---
+                const currentDisplayLength = currentVisibleCount - displayStartIndex;
+                if (currentDisplayLength > MAX_WINDOW_SIZE) {
+                    let targetStartIndex = currentVisibleCount - OVERLAP_SIZE;
+                    const lookbackRange = Math.floor(MAX_WINDOW_SIZE * 0.6); 
+                    const searchText = fullTargetText.slice(currentVisibleCount - lookbackRange, currentVisibleCount);
+                    let lastPuncIndex = -1;
+                    for (let i = searchText.length - 1; i >= 0; i--) {
+                        if (SAFE_PUNC_LIST.test(searchText[i])) {
+                            lastPuncIndex = i;
+                            break;
+                        }
+                    }
+                    if (lastPuncIndex !== -1) {
+                        const foundIndex = (currentVisibleCount - lookbackRange) + lastPuncIndex + 1;
+                        const newOverlap = currentVisibleCount - foundIndex;
+                        if (newOverlap >= 5 && newOverlap <= MAX_WINDOW_SIZE * 0.8) {
+                            targetStartIndex = foundIndex;
+                        }
+                    }
+                    displayStartIndex = targetStartIndex;
+                }
+
+                // --- 渲染 ---
+                const displayText = fullTargetText.slice(displayStartIndex, currentVisibleCount);
+                const prefix = displayStartIndex > 0 ? "..." : "";
+                renderSubtitleUI(prefix + displayText);
             }
         }
+
+        // 判断是否结束
+        if (!isOmniMode || (!isAudioStreaming && currentVisibleCount >= totalChars)) {
+            typewriterTimer = null;
+            if (!isOmniMode) finalizeSpeech(false);
+        } else {
+            // 使用 requestAnimationFrame 帧同步，性能远高于 setTimeout
+            typewriterTimer = requestAnimationFrame(syncTextToAudio);
+        }
     }
-    type();
+
+    typewriterTimer = requestAnimationFrame(syncTextToAudio);
 }
 
 
@@ -4294,9 +4315,16 @@ async function processOmniStreaming(data) {
         source.connect(state.analyser);
 
         const now = currentAudioContext.currentTime;
+
+        if (omniNextStartTime === 0 || omniPlaybackStartTime === 0) {
+            omniPlaybackStartTime = Math.max(now, omniNextStartTime);
+        }
+
         if (omniNextStartTime < now) omniNextStartTime = now;
         
         source.start(omniNextStartTime);
+
+        omniTotalAudioDuration += buffer.duration;
         omniNextStartTime += buffer.duration;
     } catch (e) {
         console.error('Omni Streaming Error:', e);

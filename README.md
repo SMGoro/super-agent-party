@@ -26,49 +26,29 @@
 
 ### 🚀 **An AI desktop companion with endless possibilities!**  
 
-- ✅ Omnichannel One-Click Deployment: Supports rapid deployment of agent configurations to multiple terminals, already compatible with scenarios such as classic chat interfaces, desktop companion, QQ, Feishu, Telegram, Discord, Slack chatbots, Bilibili, YouTube, Twitch live-streaming bots, and more—ready to use out of the box.  
+#### VRM Desktop Pet: Supports uploading custom VRM models to create your exclusive desktop companion
+![image](doc/image/img-2/vrm.jpeg)
 
-- ✅ Ecosystem Tool Interconnectivity: Freely integrates third-party agents and workflows as toolchains (already adapted for systems like Home Assistant, Claude Code, Qwen Code, Dify, ComfyUI, MCP, A2A, etc.), enabling cross-platform capability aggregation through the Agent-Party architecture.  
+#### Task Center: Enables your AI agents to perform any advanced tasks in the background, automatically controlling your computer to get work done
+![image](doc/image/img-2/task.jpeg)
 
-- ✅ Rich Extension Ecosystem: Supports custom extension development, with community sharing via the official [Extension Marketplace](https://super-agent-party.github.io/plugins.html) to meet personalized needs.  
+#### Multi-Role Group Chat: Supports tavern character cards and long-term memory, allowing you to chat with multiple characters simultaneously!
+![image](doc/image/img-2/group.jpeg)
 
-- ✅ Standardized interface openness: Provides OpenAI API-compatible interfaces and MCP protocol support, facilitating developers' direct integration with external systems for rapid agent capability transfer and secondary development. The VRM desktop pet supports the VMC protocol, enabling cross-application action synchronization. The VRM desktop pet interface also supports the webXR protocol, allowing immersive experiences on XR-compatible devices.
+#### Instant Messaging Bot: Supports one-click deployment to QQ, Feishu, DingTalk, Telegram, Discord, Slack
+![image](doc/image/img-2/im.jpeg)
 
-- ✅ Seamless capability enhancement: It is possible to achieve an enterprise-level upgrade of the LLM API without code modification, seamlessly integrating knowledge bases, real-time networking, permanent memory, compatible SillyTavern Character Card, code execution, multimodal capabilities (vision/drawing/audition/speech), Automation capabilities (controlling smart homes, controlling browsers), deep thinking control and research, and other modular functions into the existing model interface, creating a pluggable LLM enhancement platform.
+#### Live Streaming Bot: Supports one-click deployment to Bilibili, YouTube, Twitch
+![image](doc/image/img-2/yt.jpeg)
 
-- ✅ Compatible and adaptable across all platforms: It covers the native running environments of Windows/macOS/Linux, supports Docker containerized deployment and web-based cloud services, and meets the needs of multi-scene technology stacks.
+#### AI Browser: Equips your AI agents with their own browser, supporting automatic control
+![image](doc/image/img-2/browser.jpeg)
 
-## Software Screenshots
+#### Extension System: Supports installing extensions and creating new ones yourself. The image below shows a galgame extension
+![image](doc/image/img-2/ext.jpeg)
 
-### Multi-Service Provider Support: Supports both locally deployed engines (e.g., Ollama, Dify) and cloud service provider APIs.
-![image](doc/image/1.jpeg)
-
-### Extensive Tool Integration: Built-in various tools (e.g., knowledge base, web search, smart home control, browser automation), supporting asynchronous invocation without blocking agent responses.
-![image](doc/image/2.jpeg)
-
-### VRM Desktop Pet: Supports uploading custom VRM models to create a personalized desktop companion.
-![image](doc/image/3.jpeg)
-
-### Extension System: Supports installing extensions and creating new ones. The image below shows a galgame extension.  
-![image](doc/image/4.jpeg)
-
-### Tavern Character Cards: Supports Tavern character cards with long-term memory capabilities.
-![image](doc/image/5.jpeg)
-
-### Instant Messaging Bot: Supports One-Click Deployment to QQ, Feishu, Telegram, Discord, Slack
-![image](doc/image/6-1.jpeg)
-
-### Live Streaming Bot: Supports One-Click Deployment to Bilibili, YouTube, and Twitch
-![image](doc/image/7.jpeg)
-
-### Developer-Friendly: Provides open OpenAI API and MCP interfaces, allowing the agent to be exposed externally.
-![image](doc/image/8.jpeg)
-
-### AI Browser: Empower Your AI Agents with Their Own Browser, Supporting Automatic Control
-![image](doc/image/9.jpeg)
-
-### Multi-Role Group Chat: You can chat with multiple characters at the same time!
-![image](doc/image/10.jpeg)
+#### Developer-Friendly: Offers open OpenAI API interfaces and MCP interfaces, allowing agents to be externally connected
+![image](doc/image/img-2/api.jpeg)
 
 ## Quick Start
 
@@ -76,22 +56,22 @@
 
 ### Windows portable package (Recommended! Installation-free source version, support one-click synchronization to the latest version of the warehouse, no need to wait for the desktop version to be packaged)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/super-agent-party-win-v0.3.7.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/super-agent-party-win-v0.3.7.7z)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-win-v0.3.8.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-win-v0.3.8.7z)
 
 ⭐ Note!  You can double-click `一键更新(update).bat` to update the software, or you can double-click `一键启动(start).bat` to start the software.The operating system must be **Windows 10/11, Windows Server 2025**, or a later version!
 
 ### Windows Desktop Installation
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-Setup-0.3.7.exe)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/Super-Agent-Party-Setup-0.3.7.exe)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-Setup-0.3.8.exe)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-Setup-0.3.8.exe)
 
 ⭐ Note! Choose to install only for the current user during installation, otherwise, administrator privileges will be required to start.The operating system must be **Windows 10/11, Windows Server 2025**, or a later version!
 
 ### macOS portable package (Currently only M chips are supported, developer-oriented, no-install source version, one-click sync to latest repo, no need to wait for desktop build)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/super-agent-party-mac-v0.3.7.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/super-agent-party-mac-v0.3.7.7z)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-mac-v0.3.8.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-mac-v0.3.8.7z)
 
 ⭐ Note! You can update the software in Terminal with `one-click update(update).sh` or launch it with `one-click start(start).sh`. Remember to grant permissions before use!
 
@@ -104,8 +84,8 @@
 
 ### MacOS Desktop Installation (Currently only M chips are supported.)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Mac.dmg)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.7/Super-Agent-Party-0.3.7-Mac.dmg)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Mac.dmg)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-0.3.8-Mac.dmg)
 
 ⭐Attention! After downloading, drag the app file of the dmg file into the `/Applications` directory, then open end point, execute the following command and enter the root password to remove the attached Quarantine attribute from the network download:
 
@@ -121,11 +101,11 @@ We provide two mainstream Linux installation package formats for your convenienc
 
 `.AppImage` is a Linux application format that does not require installation and can be used immediately. Suitable for most Linux distributions.
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Linux.AppImage)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.AppImage)
 
 #### 2. Install using `.deb` package (Suitable for Ubuntu/Debian systems)
 
-  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.7/Super-Agent-Party-0.3.7-Linux.deb)
+  👉 [Click to download](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.deb)
 
 ### Docker Deployment (This version of the table pet can only be viewed through the browser.)
 
@@ -157,9 +137,9 @@ We provide two mainstream Linux installation package formats for your convenienc
 
 ### Lite client that matches your Docker version, turning Docker into a desktop app
 
-👉 [SAP-lite-Windows-exe](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.1/super-agent-party-lite-Setup-0.1.1.exe)
+👉 [SAP-lite-Windows-exe](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.2/super-agent-party-lite-Setup-0.1.2.exe)
 
-👉 [SAP-lite-MacOS-dmg](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.1/super-agent-party-lite-0.1.1-Mac.dmg)
+👉 [SAP-lite-MacOS-dmg](https://github.com/heshengtao/desktop-for-sap/releases/download/v0.1.2/super-agent-party-lite-0.1.2-Mac.dmg)
 
 ### Source Code Deployment
 
@@ -174,6 +154,25 @@ We provide two mainstream Linux installation package formats for your convenienc
 ## Extension
 
 Added a brand-new extension system. You can check available plugins at [plugins list](https://super-agent-party.github.io/plugins.html), or directly view and install them in the party under 【Developer】->【Extensions】. You can also add your own developed extensions to the official plugin list at [super-agent-party.github.io](https://github.com/super-agent-party/super-agent-party.github.io)! 
+
+### Existing Extension
+
+| Name                  | Author            | Description                                                        | Repository URL                                   |
+|-----------------------|-------------------|--------------------------------------------------------------------|--------------------------------------------------|
+| Super Agent Party Example | heshengtao        | Example plugin for Super Agent Party, demonstrating plugin architecture and capabilities. | https://github.com/heshengtao/sap-example        |
+| Super Agent Party Example With NodeJS | heshengtao        | This is a chat frontend example with nodeJS environment | https://github.com/heshengtao/sap-example-with-node        |
+| Web Preview           | heshengtao        | A plugin enabling web previewing functionality for Super Agent Party. | https://github.com/heshengtao/sap-web-preview    |
+| Story Adventure       | heshengtao | An interactive story adventure plugin that generates story content and options using AI. | https://github.com/heshengtao/sap-story-adventure |
+| Live 2D      | heshengtao  | This is a Live 2D extension                   | https://github.com/heshengtao/sap-live2d  |
+| AI Editor      | heshengtao  | This is an AI Editor       | https://github.com/heshengtao/sap-aieditor  |
+| AI galgame      | heshengtao  | This is an AI galgame extension     | https://github.com/heshengtao/sap-aigalgame  |
+| AI tarot reader      | heshengtao  | This is an AI tarot reader extension      | https://github.com/heshengtao/sap-tarot  |
+| AI sheet      | heshengtao  | This is an AI Sheet extension                | https://github.com/heshengtao/sap-ai-sheet  |
+| AI drawio      | heshengtao  | This is an AI drawio extension                 | https://github.com/heshengtao/sap-ai-drawio  |
+| AI mermaid      | heshengtao  | This is an AI mermaid editor extension                  | https://github.com/heshengtao/sap-ai-mermaid  |
+| AI RSS reader      | heshengtao  | This is an AI RSS reader extension for the Super Agent Party      | https://github.com/heshengtao/sap-rss  |
+| Remote      | heshengtao  | One-click expose Super Agent Party to the public internet             | https://github.com/heshengtao/sap-remote  |
+| Code Server      | heshengtao  | IDE extension for Super Agent Party          | https://github.com/heshengtao/sap-code-server  |
 
 ## Hardware requirements
 
@@ -234,7 +233,7 @@ Please refer to the following document for the main functions:
 | Chat Interface | The chat interface supports front-end rendering features such as A2UI, mathematical formulas, mermaid diagrams, and HTML code graphics. Images can be downloaded or copied.Supports capsule mode and assistant mode, making it easy to shrink and dock the conversation interface. Combined with desktop vision and screenshots, it seamlessly integrates into work and entertainment |
 | Role-Playing | Supports uploading, editing, and downloading tavern character cards. Allows configuring different voices and avatars for different characters. Features long-term memory, multi-voice support when using character cards, narrator voice for non-character text, and supports emojis and memes. |
 | Extensive Native Tools | Tool calling supports asynchronous execution, including web search, knowledge base access, smart home control, browser control, code execution in sandbox environments, controlling ComfyUI for image generation, and Claude code operates the file system. |
-| Custom Tool Interfaces | Supports MCP, A2A, HTTP requests, and any LLM interface as tools for the main agent, enabling users to freely customize their agent's toolchain. |
+| Custom Tool Interfaces | Supports MCP, Skills, A2A, HTTP requests, and any LLM interface as tools for the main agent, enabling users to freely customize their agent's toolchain. |
 | Open External APIs | Developer-friendly with open APIs simulating OpenAI and MCP, as well as desktop pet APIs. |
 | Extension System | You can check out the available plugins in the [Extension List](https://super-agent-party.github.io/plugins.html). You can also view and install plugins directly in Party by navigating to 【Developer】 -> 【Extensions】. You can add your own developed extensions to the official extension list at [super-agent-party.github.io](https://github.com/super-agent-party/super-agent-party.github.io)! |
 | Storage Space | All files and data are stored in the user's local data folder. When deployed with NAS, it can also serve as a personal image or file host within the local network. |

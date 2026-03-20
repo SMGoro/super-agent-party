@@ -1,115 +1,118 @@
-/* styles.css 完整主题方案 */
+/* styles.css 完整优化方案 */
 :root {
-  /* 过渡动画 */
   --transition-duration: 0.3s;
   --transition-function: cubic-bezier(0.4, 0, 0.2, 1);
-  --progress:0%;
+  --progress: 0%;
 }
-/* 亮色主题默认值 */
+
+/* 亮色主题：艺术纸张风格 (Paper White) */
 [data-theme="light"] {
-  /* 基础颜色 */
-  --bg-color: #ffffff;
-  --text-color: #2c3e50;
-  --border-color: #dcdfe6;
+  /* 基础颜色 - 这种白像高级铜版纸，温润而不发黄 */
+  --bg-color: #f9f9f7; 
+  --text-color: #333330; /* 深炭灰，非纯黑，阅读更舒适 */
+  --border-color: #e2e2df;
   
-  /* Element Plus 核心变量 */
-  --el-color-primary: #1e849b;
-  --el-color-primary-light-3: #469bae;
-  --el-color-primary-light-5: #80becd;
-  --el-color-primary-light-7: #adced5;
-  --el-color-primary-light-9: #d2e7ea;
-  --el-color-primary-rgb: 64, 158, 255 !important;
+  /* Element Plus 核心变量 - 稍微降低主色的侵略性 */
+  --el-color-primary: #2a7a8c; /* 稍作降饱和处理的青石色 */
+  --el-color-primary-light-3: #599ca9;
+  --el-color-primary-light-5: #8bbdc7;
+  --el-color-primary-light-7: #bcdbe1;
+  --el-color-primary-light-9: #e6f0f2;
+  --el-color-primary-rgb: 42, 122, 140 !important;
   
   --el-bg-color: var(--bg-color) !important;
   --el-text-color-primary: var(--text-color) !important;
-  --el-border-color :var(--border-color) !important;
-  --el-border-color-light: var(--border-color) !important;
+  --el-border-color: var(--border-color) !important;
+  --el-border-color-light: #ebebe8 !important;
 
   /* 组件颜色 */
   --el-button-bg-color: var(--el-color-primary) !important;
-  --el-input-bg-color: #f5f7fa !important;
+  --el-input-bg-color: #f2f2ef !important; /* 比背景深一点的纸感灰 */
   --el-menu-bg-color: var(--bg-color) !important;
   --el-table-bg-color: var(--bg-color) !important;
-  --el-tag-bg-color: #ecf5ff !important;
-  --el-bg-color-page: #f0f2f5 !important;
-  --el-tabs-bg-color: #f0f2f5 !important;
+  --el-tag-bg-color: #f0f4f5 !important;
+  --el-bg-color-page: #f2f2ef !important; /* 页面底色 */
+  --el-tabs-bg-color: #f2f2ef !important;
   
-  /* 状态颜色 */
-  --el-color-success: #67c23a !important;
-  --el-color-warning: #e6a23c !important;
-  --el-color-danger: #f56c6c !important;
-  --el-color-info: #909399 !important;
+  /* 状态颜色 - 采用莫兰迪色系的变体，降低饱和度 */
+  --el-color-success: #6b9e78 !important;
+  --el-color-warning: #d4a35c !important;
+  --el-color-danger: #c96868 !important;
+  --el-color-info: #959590 !important;
   
   /* 文字颜色 */
-  --el-text-color-regular: #606266 !important;
-  --el-text-color-secondary: #909399 !important;
+  --el-text-color-regular: #5c5c58 !important;
+  --el-text-color-secondary: #8e8e8a !important;
   
-  /* 阴影 */
-  --el-box-shadow-light: 0 2px 12px rgba(0, 0, 0, 0.1) !important;
+  /* 阴影 - 减弱阴影强度，使用偏暖的灰色投影 */
+  --el-box-shadow-light: 0 4px 12px rgba(80, 80, 70, 0.08) !important;
 
-  /* Input 文字颜色 */
+  /* Input 调整 */
   --el-input-text-color: var(--text-color);
-  /* Placeholder 颜色 */
-  --el-input-placeholder-color: #999;
-  /* Hover 边框 */
+  --el-input-placeholder-color: #b5b5b0;
   --el-input-hover-border-color: var(--el-color-primary-light-3);
-  /* Focus 边框 */
   --el-input-focus-border-color: var(--el-color-primary);
 
-  --code-bg: #f8f8f8;
-  --code-border: #e4e7ed;
+  --code-bg: #f2f2ef;
+  --code-border: #e0e0dc;
   
-  /* 卡片阴影 */
-  --card-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  --card-shadow: 0 2px 16px 0 rgba(0, 0, 0, 0.05);
 }
-/* 暗色主题 */
+
+/* 暗色主题：黑板/石墨风格 (Chalkboard Black) */
 [data-theme="dark"] {
-  --bg-color: #1a1a1a;
-  --text-color: #e5e7eb;
-  --border-color: #434343;
-  --el-color-primary: #ee7e00;
-  --el-color-primary-light-3: #ec8e23;
-  --el-color-primary-light-5: #eba351;
-  --el-color-primary-light-7: #deb88b;
-  --el-color-primary-light-9: #e7dacb;
-  --el-color-primary-rgb: 22, 104, 220 !important;
+  /* 基础颜色 - 这种黑像深色石墨或磨砂黑板，不带蓝调 */
+  --bg-color: #1c1c1b; 
+  --text-color: #d6d6d0; /* 柔和的米白，像粉笔字 */
+  --border-color: #383835;
+  
+  /* 橙色主色调优化：往琥珀色靠拢，更显稳重 */
+  --el-color-primary: #d97706; 
+  --el-color-primary-light-3: #f59e0b;
+  --el-color-primary-light-5: #fbbf24;
+  --el-color-primary-light-7: #fcd34d;
+  --el-color-primary-light-9: #fef3c7;
+  --el-color-primary-rgb: 217, 119, 6 !important;
 
   --el-bg-color: var(--bg-color) !important;
   --el-text-color-primary: var(--text-color) !important;
   --el-border-color: var(--border-color) !important;
-  --el-border-color-light: var(--border-color) !important;
-  /* 组件颜色 */
-  --el-button-bg-color: #2a2a2a !important;
-  --el-input-bg-color: #2d2d2d !important;
-  --el-menu-bg-color: #1f1f1f !important;
-  --el-table-bg-color: #262626 !important;
-  --el-tag-bg-color: rgba(22, 104, 220, 0.2) !important;
-  --el-bg-color-page: #1f1f1f !important;
-  --el-tabs-bg-color: #1f1f1f !important;
-  /* 状态颜色 */
-  --el-color-success: #85ce61 !important;
-  --el-color-warning: #ebd263 !important;
-  --el-color-danger: #f78989 !important;
-  --el-color-info: #a1a3a8 !important;
-  /* 文字颜色 */
-  --el-text-color-regular: #d0d4db !important;
-  --el-text-color-secondary: #8c8c8c !important;
-  /* 阴影 */
-  --el-box-shadow-light: 0 2px 12px rgba(0, 0, 0, 0.3) !important;
+  --el-border-color-light: #2d2d2a !important;
 
-  --el-input-text-color: #e5e7eb;
-  --el-input-placeholder-color: #666;
+  /* 组件颜色 */
+  --el-button-bg-color: #2d2d2a !important;
+  --el-input-bg-color: #262624 !important;
+  --el-menu-bg-color: #1c1c1b !important;
+  --el-table-bg-color: #21211f !important;
+  --el-tag-bg-color: rgba(217, 119, 6, 0.15) !important;
+  --el-bg-color-page: #161615 !important;
+  --el-tabs-bg-color: #161615 !important;
+
+  /* 状态颜色 - 适应暗色的低对比度需求 */
+  --el-color-success: #7ea381 !important;
+  --el-color-warning: #ccac70 !important;
+  --el-color-danger: #cf7676 !important;
+  --el-color-info: #858580 !important;
+
+  /* 文字颜色 */
+  --el-text-color-regular: #b2b2ac !important;
+  --el-text-color-secondary: #7a7a75 !important;
+
+  /* 阴影 - 纯黑环境中通过极细微的亮边替代深阴影 */
+  --el-box-shadow-light: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+
+  --el-input-text-color: #d6d6d0;
+  --el-input-placeholder-color: #5c5c58;
   --el-input-hover-border-color: var(--el-color-primary-light-5);
   --el-input-focus-border-color: var(--el-color-primary-light-7);
   
-  /* 调整暗色输入框禁用状态 */
-  --el-input-disabled-bg-color: #333;
-  --el-input-disabled-border-color: #444;
+  --el-input-disabled-bg-color: #262624;
+  --el-input-disabled-border-color: #333330;
 
-  --code-bg: #4c4c4c;
-  --code-border: #787878;
+  --code-bg: #262624;
+  --code-border: #3d3d3a;
   
-  --card-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.3);
+  --card-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.5);
 }
 
 /* 新增 Ocean Midnight 主题 */
@@ -1457,7 +1460,7 @@ body {
 }
 
 .system .message-content {
-  background: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-3);
   border: 1px solid var(--el-border-color-light);
   color: #ffffff;
   border-radius: 12px;
@@ -1564,7 +1567,7 @@ body {
 
   .el-main {
     padding: 0!important;
-    margin: 4px!important;
+    margin: 0!important;
   }
 }
 
@@ -3406,9 +3409,6 @@ body {
   .video-item {
     min-width: 0px!important;
   }
-  .el-dialog {
-    width: 250px !important;
-  }
   .page .logo-container{
     width: 100% !important;
     padding-left: 1px!important;
@@ -3584,7 +3584,7 @@ body {
 }
 
 .message.assistant .tts-controls {
-  background: var(--el-bg-color);
+  background: var(--el-bg-color-page);
 }
 
 .message.assistant .tts-controls .tts-status {
@@ -3741,13 +3741,18 @@ body {
 .model-info {
   border-radius: 16px!important;
   margin: 1px!important;
-  background-color: var(--el-input-bg-color);
+  background-color: var(--el-bg-color-page);
   color: var(--el-text-color);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .model-info:hover {
   transform: scale(1.01);
+}
+
+.model-info .el-alert{
+  background-color: var(--el-bg-color-page)!important;
+  color: var(--el-primary-color)!important;
 }
 
 .event-button-group {
@@ -4225,6 +4230,7 @@ body {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
@@ -5116,6 +5122,7 @@ body {
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -5917,6 +5924,7 @@ hr.footnotes-sep {
     /* 标题渐变：从主文本色到次文本色 */
     background: linear-gradient(135deg, var(--el-text-color-primary) 0%, var(--el-text-color-secondary) 100%);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 40px;
     letter-spacing: -1px;
@@ -7847,6 +7855,7 @@ hr.footnotes-sep {
   /* 限制显示两行，超出省略 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   white-space: normal; /* 允许换行 */
@@ -8396,4 +8405,1123 @@ hr.footnotes-sep {
 /* 调整输入框和按钮的对齐（如果用了 textarea） */
 .event-row-item .el-textarea {
   display: block;
+}
+
+/* 任务中心容器 */
+.task-center-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--el-bg-color);
+}
+
+/* 头部导航条 */
+.task-center-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid var(--el-border-color-light);
+  background-color: var(--el-bg-color);
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--el-text-color-primary);
+}
+
+/* 内容滚动区 */
+.task-content-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* 空状态 */
+.task-empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.empty-tip {
+  color: var(--el-text-color-secondary);
+  margin-bottom: 15px;
+  font-size: 13px;
+}
+
+/* 任务列表工具栏 */
+.task-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.toolbar-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+/* 任务卡片 */
+.task-card-item {
+  margin-bottom: 12px;
+}
+
+.task-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.task-title-row {
+  flex: 1;
+  overflow: hidden;
+  margin-right: 8px;
+}
+
+.task-title {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.task-card-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-progress-bar {
+  margin-bottom: 10px;
+}
+
+.task-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.task-meta-info {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+
+.task-actions .el-button {
+  padding: 0 4px;
+}
+
+/* 特殊样式：任务中心入口卡片 */
+.task-center-card {
+    border-left: 4px solid var(--el-color-primary) !important;
+    background-color: var(--el-bg-color-page) !important;
+}
+
+.el-card {
+    border: 1px solid var(--el-border-color) !important;
+    border-radius: 6px !important;
+    background-color: var(--el-bg-color-page) !important;
+}
+
+/* 强制将该按钮下的图标设为白色 */
+.white-icon-btn i {
+    color: white !important;
+    /* 可选：增加一点悬停时的透明度变化，让它看起来有交互感 */
+    transition: opacity 0.2s;
+}
+
+.white-icon-btn:hover i {
+    opacity: 0.8;
+}
+
+.task-detail-view {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.task-detail-content {
+    padding: 15px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.task-info-summary {
+    background: var(--el-fill-color-light);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.timeline-wrapper {
+    padding: 10px 5px;
+}
+
+.history-log-item {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--el-text-color-primary);
+    background: var(--el-bg-color);
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--el-border-color-lighter);
+}
+
+.history-log-item.status-text {
+    color: var(--el-color-primary);
+    font-style: italic;
+    border: none;
+    background: transparent;
+}
+
+.detail-result-box {
+    margin-top: 20px;
+    padding-bottom: 30px;
+}
+
+/* 确保详情页的 markdown 格式正确 */
+.markdown-body {
+    font-family: inherit;
+    font-size: 13px;
+}
+
+/* 1. 取消消息列表外层框 */
+.messages-container {
+  background-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* 2. 浮动输入区域整体 */
+.input-container {
+  position: relative;
+  padding: 0 8px 8px 8px;
+}
+
+/* 3. unified-input-wrapper 增强成卡片感 */
+.unified-input-wrapper {
+  background-color: var(--el-bg-color) !important;
+  border: 1px solid var(--el-border-color) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0,0,0,0.06) !important;
+}
+
+/* 4. 工具栏按钮组（现在移入输入框内）*/
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8px 12px 4px 12px;
+  gap: 2px;
+  /* border-bottom: 1px solid var(--el-border-color-lighter);  <-- 删除或注释掉这一行 */
+  border-bottom: none !important; /* 确保彻底移除线 */
+}
+
+/* 5. 图标按钮缩小，更紧凑 */
+.button-group .el-button.is-circle {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+/* 针对浏览器侧边栏的特殊适配 */
+.browser-copilot-sidebar .messages-container {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* 侧边栏容器背景 */
+.browser-copilot-sidebar {
+    background-color: var(--el-bg-color-page) !important;
+}
+
+/* 确保侧边栏内的输入框卡片感依然存在 */
+.browser-copilot-sidebar .unified-input-wrapper {
+    background-color: var(--el-bg-color) !important; /* 卡片本身是白色/深灰 */
+    margin: 0 4px; /* 侧边栏较窄，给边缘留一点点呼吸空间 */
+}
+
+/* 移除侧边栏输入框容器可能存在的额外边框 */
+.browser-copilot-sidebar .chat-area > div:last-child {
+    border-top: none !important;
+}
+
+/* --- 输入框容器优化 --- */
+.input-container {
+  /* 顶部完全不留空，左右留极窄间距，底部留出呼吸空间 */
+  padding: 0 4px 6px 4px !important; 
+  position: relative;
+  background: transparent !important;
+  z-index: 10;
+}
+
+/* --- 移动端适配：间距压缩到极致 --- */
+@media (max-width: 768px) {
+  .input-container {
+    padding: 0 2px 4px 2px !important; /* 手机端几乎贴边 */
+  }
+  
+  .unified-input-wrapper {
+    border-radius: 12px !important; /* 手机端圆角稍微减小，增加内部空间 */
+  }
+}
+
+/* --- 输入框卡片：增加顶部悬浮感 --- */
+.unified-input-wrapper {
+  background-color: var(--el-bg-color) !important;
+  /* 增加一个向上的淡淡阴影，使其看起来像是盖在消息列表上面的 */
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03), 
+              0 4px 24px rgba(0, 0, 0, 0.1) !important;
+  border-bottom: none !important; /* 底部不需要边框，贴近屏幕边缘 */
+}
+
+/* --- 消息列表：底部留白调整 --- */
+.messages-container {
+  /* 确保消息列表底部有足够的填充，防止最后一条消息被输入框完全挡死 */
+  padding-bottom: 20px !important; 
+}
+
+/* 1. 消除消息区域与输入区域之间的物理间距 */
+.chat-area {
+    gap: 0 !important; /* 关键：彻底去掉中间的空隙 */
+}
+
+/* 2. 消息容器处理 */
+.messages-container {
+    flex: 1;
+    /* 增加底部填充，确保最后一条消息在滚动到底时，文字不会被浮动的输入框挡住 */
+    padding-bottom: 30px !important; 
+}
+
+/* 3. 输入框容器：彻底去掉顶部间距，压缩左右间距 */
+.input-container {
+    margin: 0 !important;
+    padding: 0 4px 8px 4px !important; /* 顶部0，左右4px贴边，底部8px呼吸 */
+    position: relative;
+    z-index: 10;
+}
+
+/* --- 输入框包裹器圆角升级 --- */
+.unified-input-wrapper {
+  background-color: var(--el-bg-color) !important;
+  /* 将圆角从 12px/16px 提升到 24px */
+  border-radius: 24px !important; 
+  
+  border: 1px solid var(--el-border-color) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.05), 
+              0 10px 30px rgba(0, 0, 0, 0.1) !important;
+  overflow: hidden; /* 必须加上这个，确保内部的输入框不会超出圆角边缘 */
+}
+
+/* --- 内部输入框适配 --- */
+.input-box-transparent .el-textarea__inner {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  /* 底部圆角要和外层保持一致，防止点击时的 focus 状态出现直角 */
+  border-radius: 0 0 24px 24px !important; 
+  padding: 8px 16px 16px 16px !important; /* 增加左右内边距，配合大圆角 */
+}
+
+/* --- 移动端适配 --- */
+@media (max-width: 768px) {
+  .unified-input-wrapper {
+    border-radius: 20px !important; /* 手机端稍微小一点点，更协调 */
+  }
+  .input-box-transparent .el-textarea__inner {
+    border-radius: 0 0 20px 20px !important;
+    padding: 8px 12px 12px 12px !important;
+  }
+}
+
+/* 5. 移动端极致贴边 */
+@media (max-width: 768px) {
+    .input-container {
+        padding: 0 2px 4px 2px !important; /* 手机端左右仅留 2px，最大化宽度 */
+    }
+    .unified-input-wrapper {
+        border-radius: 12px !important; /* 稍微减小圆角，让视野更方正 */
+    }
+}
+
+/* --- 修复按钮组对齐问题 --- */
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start; /* 默认左对齐 */
+  align-items: center;
+  gap: 8px; /* 使用 gap 统一控制横向和纵向间距 */
+  padding: 8px 12px;
+  border-bottom: none !important; /* 移除下边框 */
+}
+
+.send-btn {
+  margin-left: auto !important;
+}
+
+/* 关键修复：强制重置 Element UI 默认的按钮间距 */
+.button-group .el-button {
+  margin: 0 !important; /* 彻底移除默认的 margin-left: 12px */
+}
+
+/* 移动端间距微调 */
+@media (max-width: 768px) {
+  .button-group {
+    gap: 8px!important; 
+    padding: 6px 8px!important; 
+  }
+}
+
+/* =========================================
+   Unified Input Wrapper - Icon-Only Buttons
+   ========================================= */
+
+/* 1. 基础重置：移除所有按钮的背景、边框和阴影 */
+.unified-input-wrapper .el-button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  height: 32px !important; /* 统一按钮高度 */
+  width: 32px !important;  /* 统一按钮宽度 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 2. 核心逻辑：类型（Type）只影响图标颜色 */
+
+/* Default 类型：使用次级文字颜色（深灰） */
+.unified-input-wrapper .el-button--default {
+  color: var(--el-text-color-regular) !important;
+}
+
+/* Primary 类型：使用主题主色 */
+.unified-input-wrapper .el-button--primary {
+  color: var(--el-color-primary) !important;
+}
+
+/* Danger 类型：使用危险色（红色） */
+.unified-input-wrapper .el-button--danger {
+  color: var(--el-color-danger) !important;
+}
+
+/* 3. 悬停反馈（Hover）：轻微背景底色和缩放 */
+.unified-input-wrapper .el-button:hover {
+  background-color: rgba(128, 128, 128, 0.1) !important; /* 极淡的灰色圆圈 */
+  transform: scale(1.1); /* 图标略微放大 */
+}
+
+/* 特定类型的悬停颜色加强 */
+.unified-input-wrapper .el-button--primary:hover {
+  background-color: color-mix(in srgb, var(--el-color-primary) 15%, transparent) !important;
+}
+
+.unified-input-wrapper .el-button--danger:hover {
+  background-color: color-mix(in srgb, var(--el-color-danger) 15%, transparent) !important;
+}
+
+/* 4. 激活状态（Active/Click） */
+.unified-input-wrapper .el-button:active {
+  transform: scale(0.95);
+  background-color: rgba(128, 128, 128, 0.2) !important;
+}
+
+/* 5. 适配特殊元素（Vendor Logo 图片） */
+.unified-input-wrapper .model-btn .model-vendor-logo {
+  width: 20px;
+  height: 20px;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.unified-input-wrapper .model-btn:hover .model-vendor-logo {
+  opacity: 1;
+}
+
+/* 6. 禁用状态 */
+.unified-input-wrapper .el-button.is-disabled {
+  opacity: 0.3 !important;
+  background: transparent !important;
+  cursor: not-allowed;
+}
+
+/* 7. 布局微调：确保按钮组里的图标对齐 */
+.unified-input-wrapper .button-group {
+  gap: 4px !important; /* 按钮之间的间距 */
+  padding: 8px 12px 2px 12px !important; /* 调整底部间距，让它离输入框更近 */
+}
+
+/* 特殊修正：发送按钮不需要 margin-left: auto 时的对齐 */
+.unified-input-wrapper .send-btn {
+  /* 如果你想让发送按钮依然保持在最右边 */
+  margin-left: auto !important;
+}
+
+/* 容器基本样式 */
+.input-container-wrapper {
+  position: relative;
+  border: 1px solid transparent;
+  transition: all 0.3s;
+  border-radius: 8px;
+}
+
+/* 拖拽时的视觉效果 */
+.input-container-wrapper.is-dragging {
+  border: 2px dashed var(--el-color-primary);
+  background-color: rgba(var(--el-color-primary-rgb), 0.05);
+}
+
+/* 拖拽遮罩（可选） */
+.drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(128, 128, 128, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none; /* 确保不干扰拖拽事件 */
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+}
+
+/* =========================================
+   Message Bubble Buttons Optimization (紧凑修复版)
+   ========================================= */
+
+/* 1. 基础样式：去掉背景、边框，清零默认外边距 */
+.message-actions .el-button,
+.tts-controls .el-button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--el-text-color-secondary) !important;
+  
+  /* 🌟 核心修复 1：彻底干掉 Element 默认的相邻按钮 margin-left */
+  margin: 0 !important; 
+  padding: 0 !important;
+  
+  /* 🌟 核心修复 2：将尺寸从 30px 缩小到 26px，更加紧凑精致 */
+  width: 26px !important; 
+  height: 26px !important;
+  font-size: 13px !important; /* 稍微缩小图标字体适配容器 */
+  
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 2. 悬停反馈：淡淡的圆形背景 */
+.message-actions .el-button:hover,
+.tts-controls .el-button:hover {
+  background-color: rgba(128, 128, 128, 0.1) !important;
+  color: var(--el-color-primary) !important; 
+  transform: scale(1.1);
+}
+
+/* 3. 播放状态按钮 (TTS) */
+.tts-controls .el-button--primary,
+.tts-controls .el-button.is-active {
+  color: var(--el-color-primary) !important;
+}
+
+/* 4. 调整间距：确保 Flex 布局生效 */
+.message-actions, .tts-controls {
+  /* 🌟 核心修复 3：强制使用 flex 布局，确保 gap 规则完美接管间距 */
+  display: flex !important; 
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px !important; /* 纯净的 4px 间距，配合 26px 的按钮最完美 */
+  
+  margin-top: 6px !important;
+  opacity: 0.4; 
+  transition: opacity 0.3s ease;
+}
+
+.message:hover .message-actions,
+.message:hover .tts-controls {
+  opacity: 1; 
+}
+
+/* =========================================
+   Sidebar Cards & Task Items
+   ========================================= */
+
+.extension-card, .task-center-card, .default-view-card {
+  border: 1px solid var(--el-border-color-lighter) !important;
+  border-radius: 16px !important; /* 更大的圆角 */
+  background-color: var(--el-bg-color) !important;
+  transition: all 0.3s ease !important;
+  margin-bottom: 12px !important;
+}
+
+.extension-card:hover {
+  border-color: var(--el-color-primary-light-5) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* 任务中心里面的列表项 */
+.task-card-item .el-card {
+  border-radius: 12px !important;
+  background-color: var(--el-bg-color) !important;
+}
+
+
+/* =========================================
+   Ultra-Elegant Resizer (Capsule Style)
+   ========================================= */
+
+/* 1. 拖拽条物理热区 - 保持宽度，确保鼠标好抓取，不卡顿 */
+.resizer {
+  width: 16px !important; /* 稍微给宽一点点热区，提升手感 */
+  background: transparent !important; 
+  border: none !important;
+  position: relative;
+}
+
+/* 隐藏原有复古点阵和发光层 */
+.resizer-dots, .resizer::before {
+  display: none !important;
+}
+
+/* 2. 绘制高级“胶囊”拖拽手柄 
+   注意：使用 :not 排除收起状态的按钮，防止样式冲突 */
+.resizer:not(.resizer-collapsed-right):not(.resizer-collapsed-left)::after {
+  content: '';
+  position: absolute;
+  /* 垂直和水平绝对居中 */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  
+  /* --- 核心调整：短一点，粗一丁点 --- */
+  height: 60px;  /* 长度限制在中间区域 */
+  width: 4px;    /* 稍微粗一点，不再是1px的一条线 */
+  
+  /* --- 核心调整：高级圆角 --- */
+  border-radius: 4px; /* 上下全圆角，形成完美的胶囊状 */
+  
+  /* 默认颜色：低调的高级灰，不抢戏 */
+  background-color: var(--el-border-color-darker, rgba(144, 147, 153, 0.4)); 
+  
+  /* 弹性动画过渡 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 3. 悬停和正在拖拽时的交互反馈 */
+.resizer:not(.resizer-collapsed-right):not(.resizer-collapsed-left):hover::after,
+.chat-wrapper.resizing .resizer::after {
+  width: 6px;    /* 微微变粗，增强握持感 */
+  height: 72px;  /* 微微拉长，增加动态张力 */
+  background-color: var(--el-color-primary); /* 亮起主题色 */
+  box-shadow: 0 0 10px rgba(var(--el-color-primary-rgb), 0.5); /* 柔和的发光 */
+}
+
+
+/* -----------------------------------------
+   2. 右侧面板 (Side Panel) - 悬浮大卡片化
+   ----------------------------------------- */
+.side-panel {
+  /* 背景从页面底色改为“组件纯色”，更具实体感 */
+  background-color: var(--el-bg-color) !important; 
+  
+  /* 现代化的圆角 */
+  border-radius: 16px !important; 
+  border: 1px solid var(--el-border-color-lighter) !important;
+  
+  /* 高级悬浮阴影 */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  
+  /* 制造卡片悬浮感：上下右留出间距，左侧贴近拖拽条 */
+  margin: 12px 12px 12px 0 !important;
+  height: calc(100% - 24px) !important; /* 配合 margin 扣除高度 */
+  
+  overflow: hidden; /* 关键：防止内部的网页/列表把圆角刺破 */
+}
+
+/* 确保右侧面板里的内部容器（如iframe）完美贴合新的大圆角 */
+.side-panel-iframe, 
+.side-panel-scroll {
+  border-radius: 16px !important;
+  background: transparent !important;
+}
+
+/* =========================================
+   Auto-Hiding Scrollbars (Mac-style Immersive)
+   ========================================= */
+
+/* 1. 目标滚动容器：左侧消息列表、右侧面板及内层各类列表 */
+.messages-container,
+.side-panel-scroll,
+.task-content-wrapper,
+.task-detail-content,
+.extensions-list {
+  /* Firefox 方案：默认滑块和轨道都透明 */
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+  /* 增加平滑过渡 */
+  transition: scrollbar-color 0.4s ease;
+}
+
+/* Chrome/Edge/Safari 方案：默认滑块透明 */
+.messages-container::-webkit-scrollbar-thumb,
+.side-panel-scroll::-webkit-scrollbar-thumb,
+.task-content-wrapper::-webkit-scrollbar-thumb,
+.task-detail-content::-webkit-scrollbar-thumb,
+.extensions-list::-webkit-scrollbar-thumb {
+  background-color: transparent !important;
+  border-radius: 6px; /* 更加圆润 */
+}
+
+/* 2. 交互状态：当鼠标悬停 (hover) 或 容器内正在输入/点击 (focus-within) 时，浮现滚动条 */
+.messages-container:hover,
+.messages-container:focus-within,
+.side-panel-scroll:hover,
+.side-panel-scroll:focus-within,
+.task-content-wrapper:hover,
+.task-content-wrapper:focus-within,
+.task-detail-content:hover,
+.task-detail-content:focus-within,
+.extensions-list:hover,
+.extensions-list:focus-within {
+  /* Firefox 唤醒颜色 */
+  scrollbar-color: rgba(144, 147, 153, 0.3) transparent;
+}
+
+/* Chrome/Edge/Safari 唤醒颜色 */
+.messages-container:hover::-webkit-scrollbar-thumb,
+.messages-container:focus-within::-webkit-scrollbar-thumb,
+.side-panel-scroll:hover::-webkit-scrollbar-thumb,
+.side-panel-scroll:focus-within::-webkit-scrollbar-thumb,
+.task-content-wrapper:hover::-webkit-scrollbar-thumb,
+.task-content-wrapper:focus-within::-webkit-scrollbar-thumb,
+.task-detail-content:hover::-webkit-scrollbar-thumb,
+.task-detail-content:focus-within::-webkit-scrollbar-thumb,
+.extensions-list:hover::-webkit-scrollbar-thumb,
+.extensions-list:focus-within::-webkit-scrollbar-thumb {
+  background-color: rgba(144, 147, 153, 0.3) !important;
+}
+
+/* 3. 握持状态：当鼠标精准放在滚动条滑块上时，颜色进一步加深，提示可拖拽 */
+.messages-container::-webkit-scrollbar-thumb:hover,
+.side-panel-scroll::-webkit-scrollbar-thumb:hover,
+.task-content-wrapper::-webkit-scrollbar-thumb:hover,
+.task-detail-content::-webkit-scrollbar-thumb:hover,
+.extensions-list::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(144, 147, 153, 0.6) !important;
+}
+
+/* --- (可选) 针对右侧 iframe 的隐藏滚动条穿透 --- */
+/* 注意：iframe 内的网页滚动条需要网页自身支持，但在侧边栏套壳时，尽量保证外部干净 */
+.side-panel-iframe {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.side-panel-iframe:hover {
+  scrollbar-color: rgba(144, 147, 153, 0.3) transparent;
+}
+
+
+/* =========================================
+   深色主题适配：右侧大卡片的高级发光与边框
+   ========================================= */
+[data-theme="dark"] .side-panel {
+  /* 稍微提亮边框，增强物理边缘感 */
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  /* 核心修改：使用半透明白色产生边缘泛光 (Outer Glow) */
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.04), 
+              0 2px 10px rgba(255, 255, 255, 0.03) !important;
+}
+
+
+[data-theme="midnight"] .side-panel {
+  border-color: rgba(14, 165, 233, 0.3) !important; 
+  /* 核心修改：底层深海蓝 + 表层白光泛晕 */
+  box-shadow: 0 8px 32px rgba(2, 132, 199, 0.15), 
+              0 0 15px rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-theme="neon"] .side-panel {
+  border-color: rgba(106, 69, 209, 0.6) !important; 
+  /* 核心修改：霓虹底色 + 亮白光晕，彻底拉开与背景的层次 */
+  box-shadow: 0 8px 32px rgba(101, 0, 255, 0.25), 
+              0 0 20px rgba(255, 255, 255, 0.08),
+              0 0 10px rgba(255, 45, 149, 0.2) !important;
+}
+
+
+/* =========================================
+   输入框底部状态栏 (模型与扩展指示器)
+   ========================================= */
+
+/* 微调输入框自身的底边距，让出空间给状态栏 */
+.input-box-transparent .el-textarea__inner {
+  padding: 8px 16px 6px 16px !important; /* 将底部的 padding 缩小 */
+}
+
+/* 底部状态栏容器 */
+.input-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px 16px; /* 补足底部呼吸空间，与左右对齐 */
+  background: transparent;
+  user-select: none;
+}
+
+/* 状态胶囊按钮 */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: rgba(128, 128, 128, 0.06); /* 极弱的毛玻璃底色 */
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px; /* 胶囊圆角 */
+  font-size: 11px;
+  color: var(--el-text-color);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 180px; /* 限制过长模型名撑破布局 */
+}
+
+/* 胶囊内的图标 */
+.status-pill i {
+  font-size: 12px;
+  opacity: 0.8;
+  transition: transform 0.2s;
+}
+
+/* 胶囊内的文字 (超长截断) */
+.status-pill .pill-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* 悬停时的交互反馈 */
+.status-pill:hover {
+  /* 混入主题主色，适配亮暗模式 */
+  background-color: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--el-color-primary) 40%, transparent);
+  color: var(--el-color-primary);
+  transform: translateY(-1px);
+}
+
+.status-pill:hover i {
+  opacity: 1;
+}
+
+/* 点击时的反馈 */
+.status-pill:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+/* 适配移动端时稍微紧凑一点 */
+@media (max-width: 768px) {
+  .input-status-bar {
+    padding: 0 12px 10px 12px;
+  }
+  .status-pill {
+    max-width: 120px;
+    padding: 4px 8px;
+  }
+}
+
+/* 确保 el-dropdown 不会破坏 flex 布局对齐 */
+.status-pill-dropdown {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 移除 el-dropdown 被点击时默认产生的边框/外发光 */
+.status-pill-dropdown:focus-visible,
+.status-pill-dropdown:focus {
+  outline: none !important;
+}
+
+/* 在多胶囊条同时出现时，允许状态栏内的内容横向滚动而不换行（防过长溢出） */
+.input-status-bar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  /* 隐藏滚动条让视觉更清爽 */
+  scrollbar-width: none; 
+}
+.input-status-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* =========================================
+   全局 El-Dropdown 下拉菜单主题适配 (终极卡片化版)
+   ========================================= */
+
+/* 1. 最外层弹出层容器 (Popper) - 核心物理外壳 */
+.el-popper.el-dropdown__popper {
+  /* 卡片底色，使用毛玻璃效果，增加现代感 */
+  background: var(--el-bg-color-overlay, var(--el-bg-color)) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  
+  /* 🌟 核心：更大的圆角 (16px) 和更强的悬浮阴影 */
+  border: 1px solid var(--el-border-color-lighter) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  
+  padding: 0 !important; 
+  overflow: visible !important;
+}
+
+/* 2. 内部菜单列表 (Menu) */
+.el-dropdown-menu {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  /* 给内部选项留出充裕的呼吸空间，形成 "大圆角包小圆角" 的美感 */
+  padding: 8px !important;
+  border-radius: 16px !important;
+}
+
+/* 3. 单个选项 (Menu Item) */
+.el-dropdown-menu__item {
+  color: var(--el-text-color-primary) !important;
+  /* 内部选项采用 10px 圆角胶囊 */
+  border-radius: 10px !important;
+  margin: 2px 0 !important;
+  padding: 10px 16px !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 选项悬停/聚焦 (Hover) */
+.el-dropdown-menu__item:hover,
+.el-dropdown-menu__item:focus {
+  background-color: color-mix(in srgb, var(--el-color-primary) 12%, transparent) !important;
+  color: var(--el-color-primary) !important;
+  /* 保持原地不动，确保左右留白绝对对称 */
+  transform: none !important; 
+}
+
+/* 被禁用的选项 */
+.el-dropdown-menu__item.is-disabled {
+  color: var(--el-text-color-placeholder) !important;
+  background-color: transparent !important;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 4. 修复指示箭头 (Arrow) - 让箭头颜色跟上卡片的外壳 */
+.el-popper.is-light .el-popper__arrow::before {
+  background: var(--el-bg-color-overlay, var(--el-bg-color)) !important;
+  border-color: var(--el-border-color-lighter) !important;
+}
+
+/* =========================================
+   三个深色主题的深度优化 (纯净物理阴影，无发光)
+   ========================================= */
+
+/* [Dark] 石墨黑主题 */
+[data-theme="dark"] .el-popper.el-dropdown__popper {
+  background: #1e1e1e !important; 
+  border-color: #383835 !important; /* 柔和的深灰边框 */
+  /* 纯黑深邃阴影，无多余光晕 */
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme="dark"] .el-popper.is-light .el-popper__arrow::before {
+  background: #1e1e1e !important;
+  border-color: #383835 !important;
+}
+
+/* [Midnight] 午夜海洋主题 */
+[data-theme="midnight"] .el-popper.el-dropdown__popper {
+  background: #1e293b !important; 
+  border-color: #334155 !important; /* 匹配午夜主题的灰蓝边框 */
+  /* 纯黑深邃阴影 */
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme="midnight"] .el-popper.is-light .el-popper__arrow::before {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+/* [Neon] 多巴胺/霓虹主题 (仅保留色彩边框，去除外围光晕) */
+[data-theme="neon"] .el-popper.el-dropdown__popper {
+  background: #2d1b5b !important; 
+  border-color: #6a45d1 !important; /* 保留其标志性的紫色物理边框 */
+  /* 纯黑深邃阴影，去除紫粉色发光 */
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+[data-theme="neon"] .el-popper.is-light .el-popper__arrow::before {
+  background: #2d1b5b !important;
+  border-color: #6a45d1 !important;
+}
+
+/* =========================================
+   移动端输入框悬浮优化 & 按住说话 (PTT) 模式
+   ========================================= */
+
+/* 1. 移动端输入框悬浮效果 (覆盖之前的极致贴边) */
+@media (max-width: 768px) {
+  .input-container {
+    /* 左右留出 12px，底部留出 15px，形成呼吸悬浮感 */
+    padding: 0 12px 15px 12px !important; 
+  }
+  .unified-input-wrapper {
+    /* 恢复较大圆角，增强实体感 */
+    border-radius: 20px !important; 
+    /* 强化悬浮投影，将其与聊天背景彻底剥离 */
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 
+                0 4px 12px rgba(0, 0, 0, 0.08) !important;
+    border: 1px solid var(--el-border-color-lighter) !important;
+  }
+  
+  /* 确保底部的状态栏边距适配悬浮卡片 */
+  .input-status-bar {
+    padding: 0 12px 10px 12px !important;
+  }
+}
+
+/* 2. 左下角：语音 / 键盘 切换按钮 */
+.voice-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  margin-right: 4px; /* 与右侧的模型胶囊稍微隔开 */
+}
+
+.voice-toggle-btn:hover {
+  background-color: rgba(128, 128, 128, 0.1);
+  color: var(--el-color-primary);
+}
+
+.voice-toggle-btn:active {
+  transform: scale(0.9);
+}
+
+.voice-toggle-btn i {
+  font-size: 16px;
+}
+
+/* =========================================
+   无缝按住说话模式 (Seamless PTT)
+   ========================================= */
+
+/* 1. 外层容器：占满输入框原本的位置 */
+.ptt-seamless-wrapper {
+  width: 100%;
+  height: 100%;
+  min-height: 48px; /* 保持和输入框差不多的高度 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 2. 点击区域：完全透明，无边框，融为一体 */
+.ptt-seamless-area {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  cursor: pointer;
+  
+  /* 字体样式 */
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary); /* 默认灰色，像 placeholder */
+  letter-spacing: 1px;
+  
+  /* 关键：去背景、去边框 */
+  background: transparent;
+  border: none;
+  border-radius: inherit; /* 跟随父级圆角 */
+  
+  /* 防止触摸时选中文本 */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  
+  transition: all 0.2s ease;
+}
+
+/* 3. 按下状态：背景微变，文字变色 */
+.ptt-seamless-area.is-recording {
+  /* 背景变成淡淡的主色调，而不是深色按钮 */
+  background-color: var(--el-color-primary-light-9); 
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+/* 4. (可选) 简单的声波动画条，增加录音时的动感 */
+.recording-wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 20px;
+  margin-bottom: 4px;
+}
+
+.recording-wave span {
+  width: 3px;
+  height: 100%;
+  background-color: var(--el-color-primary);
+  border-radius: 2px;
+  animation: wave-stretch 0.8s ease-in-out infinite;
+}
+
+.recording-wave span:nth-child(1) { animation-delay: 0.0s; height: 40%; }
+.recording-wave span:nth-child(2) { animation-delay: 0.1s; height: 70%; }
+.recording-wave span:nth-child(3) { animation-delay: 0.2s; height: 100%; }
+.recording-wave span:nth-child(4) { animation-delay: 0.1s; height: 70%; }
+.recording-wave span:nth-child(5) { animation-delay: 0.0s; height: 40%; }
+
+@keyframes wave-stretch {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
+  50% { transform: scaleY(1.0); opacity: 1; }
+}
+
+/* 适配暗黑模式 */
+[data-theme="dark"] .ptt-seamless-area.is-recording {
+  background-color: rgba(var(--el-color-primary-rgb), 0.15);
 }

@@ -1,9 +1,9 @@
 {
   "name": "super-agent-party",
-  "version": "v0.3.8",
-  "description": "超级智能体派对v0.3.8 | 轻松链接一切!",
+  "version": "v0.3.9",
+  "description": "超级智能体派对v0.3.9 | 轻松链接一切!",
   "main": "main.js",
-  "asar": true, 
+  "asar": true,
   "scripts": {
     "start": "node start.js",
     "dev": "node start.js",
@@ -61,6 +61,11 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "node_modules/npm/",
+        "to": "npm",
+        "filter": ["**/*"]
       }
     ],
     "linux": {
@@ -128,7 +133,7 @@
       "uninstallDisplayName": "${productName}",
       "createDesktopShortcut": true,
       "differentialPackage": true,
-      "perMachine": false 
+      "perMachine": false
     }
   },
   "devDependencies": {
@@ -142,6 +147,7 @@
     "electron-dl": "3.5.0",
     "electron-updater": "^6.6.2",
     "form-data": "^4.0.4",
+    "npm": "^11.11.0",
     "osc": "^2.4.5"
   }
 }

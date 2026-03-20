@@ -103,7 +103,7 @@ let vue_data = {
       base_url: '',
       api_key: '',
       temperature: 0.7,  // 默认温度值
-      max_tokens: 4096,    // 默认最大输出长度
+      max_tokens: 8192,    // 默认最大输出长度
       max_rounds: 0,    // 默认最大轮数
       selectedProvider: null,
       top_p: 1,
@@ -302,7 +302,7 @@ let vue_data = {
       enabled: false,
       engine: 'tavily',
       crawler: 'jina',
-      when: 'before_thinking',
+      when: 'after_thinking',
       duckduckgo_max_results: 10, // 默认值
       searxng_url: `http://127.0.0.1:8080`,
       searxng_max_results: 10, // 默认值
@@ -337,6 +337,7 @@ let vue_data = {
     },
     CLISettings: {
       enabled: false,
+      visibilityScope: 'workspace',
       engine: 'local',
       cc_path: '',
     },
@@ -425,7 +426,7 @@ let vue_data = {
     },
     knowledgeBases: [],
     KBSettings: {
-      when: 'before_thinking',
+      when: 'after_thinking',
       is_rerank: false,
       selectedProvider: null,
       model: '',
@@ -750,7 +751,6 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": true},
       {"name": "expandButton", "enabled": true},
       {"name": "fileButton", "enabled": true},
-      {"name": "imageButton", "enabled": true},
       {"name": "reasonerButton", "enabled": true},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -783,7 +783,6 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": true},
       {"name": "expandButton", "enabled": true},
       {"name": "fileButton", "enabled": true},
-      {"name": "imageButton", "enabled": true},
       {"name": "reasonerButton", "enabled": true},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -816,7 +815,6 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": false},
       {"name": "expandButton", "enabled": false},
       {"name": "fileButton", "enabled": false},
-      {"name": "imageButton", "enabled": false},
       {"name": "reasonerButton", "enabled": false},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -1255,7 +1253,7 @@ let vue_data = {
       { id: 'document', title: 'knowledgeBase', icon: 'fa-solid fa-book' },
       { id: 'sticker', title: 'sticker/image', icon: 'fa-solid fa-face-smile'},
       { id: 'interpreter', title: 'interpreter', icon: 'fa-solid fa-code'},
-      { id: 'CLI', title: 'CLItool', icon: 'fa-solid fa-terminal'},
+      { id: 'CLI', title: 'CLItool', icon: 'fa-solid fa-computer'},
       { id: 'HA', title: 'homeAssistant', icon: 'fa-solid fa-house'},
       { id: 'chromeMCP', title: 'browserControl', icon: 'fa-solid fa-compass' },
       { id: 'sql', title: 'sqlControl', icon: 'fa-solid fa-database' },
@@ -1580,6 +1578,7 @@ let vue_data = {
     newMemory: {
       id: null,
       name: '',
+      infer: false,
       providerId: null,
       model: '',
       base_url: '',
@@ -1940,10 +1939,8 @@ main();`,
     uvInstalling: false,
     uvProgress: 0,
     uvTimer: null,
-    gitInstalled: false,
-    gitInstalling: false,
-    gitProgress: 0,
-    gitTimer: null,
+    dockerInstalled: false, 
+    dockerInstalling: false,
     isReadInterruption: false,
     readSettings: {
       delay:2000
@@ -2011,5 +2008,22 @@ main();`,
     showBehaviorDialog: false,     // 控制弹窗显示
     currentBehaviorIndex: -1,      // 当前编辑的索引，-1 表示新增
     tempBehavior: null,            // 临时编辑对象，避免直接修改原数据
-    minLimit: { h: 0, m: 1, s: 0 } 
+    minLimit: { h: 0, m: 1, s: 0 },
+    activeSideView: 'list', // 'list' | 'tasks' | 'extension'
+    taskList: [],
+    taskRefreshTimer: null,
+    showCreateTaskDialog: false,
+    isCreatingTask: false,
+    newTaskForm: {
+        title: '',
+        description: '',
+        agent_type: 'default'
+    },
+    showTaskResultDialog: false,
+    selectedTaskResult: '',
+    selectedTaskTitle: '',
+    viewingTaskDetail: null,
+    isDragging: false, // 新增状态
+    isPttMode: false,      // 控制输入框是否在【按住说话】模式
+    isPttRecording: false, // 控制是否正在录制
 };
