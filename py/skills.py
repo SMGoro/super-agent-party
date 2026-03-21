@@ -620,15 +620,25 @@ async def delete_skill(skill_id: str):
 
 @router.get("/project-status")
 async def get_project_skills_status(path: str):
-    """查询指定项目已开启了哪些技能"""
+    """查询指定项目已开启了哪些技能，并返回具体元数据"""
     if not path or not os.path.exists(path):
-        return {"installed_ids": []}
+        return {"installed_ids": [], "project_skills": []}
     
     project_skills_dir = Path(path) / ".agent" / "skills"
     if not project_skills_dir.exists():
-        return {"installed_ids": []}
+        return {"installed_ids": [], "project_skills": []}
     
-    return {"installed_ids": [item.name for item in project_skills_dir.iterdir() if item.is_dir()]}
+    installed_ids = []
+    project_skills = []
+    
+    for item in project_skills_dir.iterdir():
+        if item.is_dir() and not item.name.startswith('.'):
+            installed_ids.append(item.name)
+            # 解析项目目录里的元数据
+            skill_meta = get_skill_metadata(item, item.name)
+            project_skills.append(skill_meta)
+            
+    return {"installed_ids": installed_ids, "project_skills": project_skills}
 
 @router.post("/sync")
 async def sync_skill_to_project(req: SkillSyncRequest):
@@ -640,21 +650,32 @@ async def sync_skill_to_project(req: SkillSyncRequest):
     project_skills_dir = Path(req.project_path) / ".agent" / "skills"
     target_path = project_skills_dir / req.skill_id
 
+    # 1. 同步到项目
     if req.action == "install":
         if not global_skill_path.exists():
             raise HTTPException(status_code=404, detail="全局技能不存在，请先安装到系统")
-        
         project_skills_dir.mkdir(parents=True, exist_ok=True)
         robust_rmtree(target_path)
         shutil.copytree(global_skill_path, target_path)
         return {"status": "success", "message": f"技能 {req.skill_id} 已同步至项目"}
 
+    # 2. 从项目移除
     elif req.action == "remove":
         if target_path.exists():
             robust_rmtree(target_path)
         return {"status": "success", "message": f"技能 {req.skill_id} 已从项目移除"}
     
-    raise HTTPException(status_code=400, detail="无效的操作类型，仅支持 'install' 或 'remove'")
+    # 3. 反向同步回全局 (新增!)
+    elif req.action == "sync_to_global":
+        if not target_path.exists():
+            raise HTTPException(status_code=404, detail="项目技能不存在，无法同步到全局")
+        # 确保全局目录存在
+        Path(SKILLS_DIR).mkdir(parents=True, exist_ok=True)
+        robust_rmtree(global_skill_path)
+        shutil.copytree(target_path, global_skill_path)
+        return {"status": "success", "message": f"技能 {req.skill_id} 已反向同步至全局"}
+    
+    raise HTTPException(status_code=400, detail="无效的操作类型，支持 'install', 'remove', 'sync_to_global'")
 
 @router.get("/get_path")
 async def get_skills_path():

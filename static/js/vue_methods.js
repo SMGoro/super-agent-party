@@ -1327,6 +1327,7 @@ let vue_methods = {
           this.toolsSettings = data.data.tools || this.toolsSettings;
           this.llmTools = data.data.llmTools || this.llmTools;
           this.reasonerSettings = data.data.reasoner || this.reasonerSettings;
+          this.fastSettings = data.data.fast || this.fastSettings;
           this.visionSettings = data.data.vision || this.visionSettings;
           this.webSearchSettings = data.data.webSearch || this.webSearchSettings;
           this.codeSettings = data.data.codeSettings || this.codeSettings;
@@ -1392,6 +1393,7 @@ let vue_methods = {
           this.toolsSettings = data.data.tools || this.toolsSettings;
           this.llmTools = data.data.llmTools || this.llmTools;
           this.reasonerSettings = data.data.reasoner || this.reasonerSettings;
+          this.fastSettings = data.data.fast || this.fastSettings;
           this.visionSettings = data.data.vision || this.visionSettings;
           this.webSearchSettings = data.data.webSearch || this.webSearchSettings;
           this.codeSettings = data.data.codeSettings || this.codeSettings;
@@ -1559,9 +1561,21 @@ let vue_methods = {
       };
     },
 
-    async handleKeyDown(event) {
-      if (event?.repeat) return;
+  async handleKeyDown(event) {
+      // 过滤长按按键产生的连续触发（这行非常关键，保证按住时只触发一次）
+      if (event?.repeat) return; 
       if (event.isComposing || event.keyCode === 229) return;
+
+      // ==========================================
+      // 【新增/修改】键盘按住：触发 PTT 录音
+      // ==========================================
+      if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod === "keyTriggered") {
+        event.preventDefault(); // 阻止默认行为（比如空格键会导致页面滚动或输入空格，Tab会切换焦点）
+        await this.handlePttPress(event); // 直接复用 UI 按下时的逻辑
+        return; 
+      }
+
+      // 以下为你原有的快捷键逻辑
       if (event.code === 'Space' && event.shiftKey) {
         event.preventDefault();   // 防止页面滚动
         if (
@@ -1572,7 +1586,8 @@ let vue_methods = {
         }
         return;
       }
-     const isTextArea = event.target.tagName === 'TEXTAREA';
+      
+      const isTextArea = event.target.tagName === 'TEXTAREA';
 
       if (event.key === 'Enter' && (this.activeMenu === 'home' || this.activeMenu ==='ai-browser')) {
         // 只有当焦点确实在 textarea 内部时才处理
@@ -1587,21 +1602,18 @@ let vue_methods = {
             }
         }
       }
-      if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod == "keyTriggered") {
-        event.preventDefault();
-        this.asrSettings.enabled = false;
-        await this.toggleASR();
-      }
     },
+
     async handleKeyUp(event) {
       if (event?.repeat) return;
-      if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod == "keyTriggered") {
+
+      // ==========================================
+      // 【新增/修改】键盘松开：停止 PTT 录音并发送
+      // ==========================================
+      if (event?.key === this.asrSettings.hotkey && this.asrSettings.interactionMethod === "keyTriggered") {
         event.preventDefault();
-        this.asrSettings.enabled = true;
-        // 等待2秒后关闭ASR
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await this.toggleASR();
-        await this.sendMessage();
+        await this.handlePttRelease(event); // 直接复用 UI 松开时的逻辑
+        return;
       }  
     },
     escapeHtml(unsafe) {
@@ -1672,19 +1684,19 @@ let vue_methods = {
             this.isReadInterruption = true;
         }
 
+        if (this.currentAudio){
+            this.currentAudio.pause();
+            this.currentAudio = null;
+        }
+        this.stopAllAudioPlayback();
+        this.TTSrunning = false;
+
+        if (this.vrmOnline && this.ttsWebSocket) {
+            this.ttsWebSocket.send(JSON.stringify({ type: 'ttsStarted', data: {} }));
+        }
+
         this.isTyping = true;
         this.startTimer();
-
-        // 如果开启了打断，停止当前播放
-        if (this.ttsSettings.enabledInterruption) {
-            if (this.currentAudio){
-                this.currentAudio.pause();
-                this.currentAudio = null;
-                this.stopGenerate();
-                this.stopAllAudioPlayback();
-            }
-            this.TTSrunning = false;
-        }
 
         if (typeof this.sendTTSStatusToVRM === 'function') {
             this.sendTTSStatusToVRM('ttsStarted', {});
@@ -1910,21 +1922,26 @@ let vue_methods = {
                 }
             });
 
-            // ID 修复逻辑 (保持原样)
-            const sanitized = [];
+            // ID 修复逻辑 (保持原样 + 补充兜底防止 missing field id)
+            const sanitized =[];
             for (let i = 0; i < rawMessages.length; i++) {
                 const current = rawMessages[i];
                 if (current.role === 'tool') {
                     let prev = sanitized.length > 0 ? sanitized[sanitized.length - 1] : null;
                     if (!prev || prev.role !== 'assistant') {
-                        prev = { role: 'assistant', content: null, tool_calls: [] };
+                        prev = { role: 'assistant', content: null, tool_calls:[] };
                         sanitized.push(prev);
                     }
-                    if (!prev.tool_calls) prev.tool_calls = [];
-                    const hasMatchingId = prev.tool_calls.some(tc => tc.id === current.tool_call_id);
+                    if (!prev.tool_calls) prev.tool_calls =[];
+                    
+                    // 兜底生成 ID，防止 current.tool_call_id 为 undefined 时引发后端 missing field "id" 报错
+                    const safeToolCallId = current.tool_call_id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                    current.tool_call_id = safeToolCallId;
+
+                    const hasMatchingId = prev.tool_calls.some(tc => tc.id === safeToolCallId);
                     if (!hasMatchingId) {
                         prev.tool_calls.push({
-                            id: current.tool_call_id,
+                            id: safeToolCallId,
                             type: 'function',
                             function: { name: current.name || 'unknown_tool', arguments: "{}" }
                         });
@@ -1959,7 +1976,7 @@ let vue_methods = {
                 content: '',
                 pure_content: '', 
                 backend_content: [{ role: 'assistant', content: '' }],
-                isOmni: this.settings.enableOmniTTS, 
+                isOmni: this.settings.enableOmniTTS || this.fastSettings.enableOmniTTS, 
                 omniAudioChunks: [], 
                 ttsChunks: [],        
                 chunks_voice: [],     
@@ -2007,7 +2024,24 @@ let vue_methods = {
                 signal: this.abortController.signal 
             });
             
-            if (!response.ok) throw new Error("Network response was not ok");
+            if (!response.ok) {
+                let errText = await response.text();
+                try {
+                    const errObj = JSON.parse(errText);
+                    errText = errObj.error?.message || errText;
+                } catch(e) {}
+                throw new Error(errText);
+            }
+            
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                let errText = await response.text();
+                try {
+                    const errObj = JSON.parse(errText);
+                    errText = errObj.error?.message || errText;
+                } catch(e) {}
+                throw new Error(errText);
+            }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -2154,6 +2188,9 @@ let vue_methods = {
                                     if (pendingCall) {
                                         toolCallId = pendingCall.id;
                                         pendingCall.resolved = true; // 标记为已解决，下次同名调用会找下一个
+                                    } else {
+                                        // 兜底生成 ID，防止向 backend_content 写入 undefined
+                                        toolCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                                     }
                                 }
                                 // 如果后端提供了 tool_call_id，也需要标记对应的栈项为 resolved
@@ -2411,9 +2448,30 @@ let vue_methods = {
             console.error(error);
             if (error.name !== 'AbortError') {
                 showNotification(error.message, 'error');
+                
+                // 【满足需求】：后端返回错误时，助手消息填入占位文本 "response error"
+                if (currentMsg) {
+                    const fallbackText = 'response error';
+                    if (!currentMsg.pure_content && currentMsg.backend_content.length <= 1) {
+                        currentMsg.content = fallbackText;
+                        currentMsg.pure_content = fallbackText;
+                        currentMsg.backend_content = [{ role: 'assistant', content: fallbackText }];
+                    } else {
+                        currentMsg.content += `\n\n<div class="highlight-block-error">${fallbackText}</div>`;
+                        
+                        // 移除最后一个 assistant 块里可能未完成的 tool_calls，防止破坏后续 API 的上下文结构导致二次报错
+                        const lastBackend = currentMsg.backend_content[currentMsg.backend_content.length - 1];
+                        if (lastBackend && lastBackend.role === 'assistant' && lastBackend.tool_calls) {
+                            delete lastBackend.tool_calls;
+                        }
+                        
+                        currentMsg.backend_content.push({ role: 'assistant', content: fallbackText });
+                    }
+                }
             }
             if (audioResolve) audioResolve();
         } finally {
+
             this.isSending = false;
             this.isTyping = false;
             this.saveConversations();
@@ -2664,108 +2722,95 @@ let vue_methods = {
     },
 
     async playPCMChunk(b64, currentText = '', message = null) {
-      this.isOmniPlaying = true;
-      try {
-        // 1. 确保 AudioContext 已启动（浏览器安全策略要求）
-        if (!this.audioCtx) {
-          this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (this.audioCtx.state === 'suspended') {
-          await this.audioCtx.resume();
+        this.isOmniPlaying = true;
+        if (message) {
+            message.isPlaying = true;
+            if (message.omniDuration === undefined) message.omniDuration = 0;
+            if (message.omniCurrentTime === undefined) message.omniCurrentTime = 0;
+            if (!message.generationFinished) message.omniAudioChunks.push(b64);
         }
 
-        // 2. 解码 Base64 PCM 数据 (16-bit, 24000Hz)
-        const raw = atob(b64);
-        const pcm16 = new Int16Array(raw.length / 2);
-        for (let i = 0; i < raw.length; i += 2) {
-          // PCM 小端序转换
-          pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
-        }
+        try {
+            if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
 
-        // 3. 转换为 Web Audio 缓冲 (Float32Array)
-        const sampleRate = 24000;
-        const buf = this.audioCtx.createBuffer(1, pcm16.length, sampleRate);
-        const floatData = buf.getChannelData(0);
-        for (let i = 0; i < pcm16.length; i++) {
-          // 归一化到 [-1, 1] 范围
-          floatData[i] = pcm16[i] / 32768; 
-        }
-
-        // 4. 排程管理：计算当前块应该在什么时候开始播放
-        const now = this.audioCtx.currentTime;
-        // 如果累积的排程时间落后于当前时间，则从当前时间开始
-        if (this.audioStartTime < now) {
-          this.audioStartTime = now;
-        }
-
-        // 5. 创建音频源节点
-        const src = this.audioCtx.createBufferSource();
-        src.buffer = buf;
-
-        // 【关键修复 1】将当前节点加入全局管理数组，以便 stopAllAudioPlayback 可以强制停止它
-        if (!this.activeSources) this.activeSources = [];
-        this.activeSources.push(src);
-
-        // 6. VRM 同步：将音频和文字通过 WebSocket 发送给 VRM 模型
-        if (this.vrmOnline) {
-          this.sendTTSStatusToVRM('omniStreaming', {
-            audioData: b64,
-            text: currentText,
-            sampleRate: sampleRate,
-            timestamp: Date.now()
-          });
-        }
-
-        // 7. 音量控制节点
-        const gainNode = this.audioCtx.createGain();
-        // 关键逻辑：如果 VRM 在线，本地主界面静音（或极小声），由 VRM 界面发声
-        gainNode.gain.value = this.vrmOnline ? 0.000001 : 1.0;
-
-        src.connect(gainNode);
-        gainNode.connect(this.audioCtx.destination);
-
-        // 8. 绑定进度更新与结束回调
-        const chunkDuration = buf.duration;
-
-        src.onended = () => {
-          // 【关键修复 2】播放结束（或被强制 stop）后，从数组中移除该节点，防止内存泄漏
-          if (this.activeSources) {
-            this.activeSources = this.activeSources.filter(s => s !== src);
-          }
-
-          // 只有在消息仍处于播放状态时才更新进度条（防止手动停止后进度还在跳）
-          if (message && message.isOmni && message.isPlaying) {
-            message.omniCurrentTime += chunkDuration;
-
-            // 播放结束判定：如果当前进度接近总时长
-            if (message.omniCurrentTime >= (message.omniDuration || 0) - 0.05) {
-              message.isPlaying = false;
-              message.omniCurrentTime = message.omniDuration; // 进度条吸附到终点
-              
-              // 通知 VRM 播放彻底结束，重置表情
-              this.sendTTSStatusToVRM('allChunksCompleted', {});
-              this.isOmniPlaying = false;
-              console.log('Playback finished for message:', message.id);
+            // 解码数据
+            const raw = atob(b64);
+            const pcm16 = new Int16Array(raw.length / 2);
+            for (let i = 0; i < raw.length; i += 2) {
+                pcm16[i >> 1] = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
             }
-          }
-          
-          // 显式断开节点，帮助垃圾回收
-          try {
-            src.disconnect();
-            gainNode.disconnect();
-          } catch (e) {
-            // 忽略断开连接时的潜在错误
-          }
-        };
 
-        // 9. 启动播放并更新下一段的起始时间
-        src.start(this.audioStartTime);
-        this.audioStartTime += buf.duration;
+            const sampleRate = 24000;
+            const buf = this.audioCtx.createBuffer(1, pcm16.length, sampleRate);
+            const floatData = buf.getChannelData(0);
+            for (let i = 0; i < pcm16.length; i++) floatData[i] = pcm16[i] / 32768;
 
-      } catch (error) {
-        console.error('Error in playPCMChunk:', error);
-        if (message) message.isPlaying = false;
-      }
+            const chunkDuration = buf.duration;
+            if (message && message.isOmni && !message.generationFinished) {
+                message.omniDuration += chunkDuration;
+            }
+
+            // ======= 【核心修改：利用二进制同步到 VRM】 =======
+            if (this.vrmOnline && this.ttsWebSocket) {
+                const pcmUint8 = new Uint8Array(raw.length);
+                for(let i=0; i<raw.length; i++) pcmUint8[i] = raw.charCodeAt(i);
+                
+                this.sendBinaryToVRM({
+                    type: 'omni_chunk',
+                    text: currentText, // 传入当前文本
+                    sampleRate: sampleRate
+                }, pcmUint8.buffer);
+            }
+            // ===============================================
+
+            const now = this.audioCtx.currentTime;
+            if (this.audioStartTime < now) this.audioStartTime = now;
+
+            const src = this.audioCtx.createBufferSource();
+            src.buffer = buf;
+            if (!this.activeSources) this.activeSources = [];
+            this.activeSources.push(src);
+
+            const gainNode = this.audioCtx.createGain();
+            gainNode.gain.value = this.vrmOnline ? 0.000001 : 1.0;
+
+            src.connect(gainNode);
+            gainNode.connect(this.audioCtx.destination);
+
+            src.onended = () => {
+                if (this.activeSources) this.activeSources = this.activeSources.filter(s => s !== src);
+                if (message && message.isOmni && !src.isForceStopped) {
+                    message.omniCurrentTime += chunkDuration;
+                    if (message.omniCurrentTime > message.omniDuration) message.omniCurrentTime = message.omniDuration;
+
+                    if (message.generationFinished && this.activeSources.length === 0) {
+                        message.isPlaying = false;
+                        message.omniCurrentTime = message.omniDuration;
+                        if (this.vrmOnline) this.sendTTSStatusToVRM('allChunksCompleted', {});
+                        this.isOmniPlaying = false;
+                    }
+                }
+                try { src.disconnect(); gainNode.disconnect(); } catch (e) {}
+            };
+
+            src.start(this.audioStartTime);
+            this.audioStartTime += buf.duration;
+        } catch (error) {
+            console.error('Error in playPCMChunk:', error);
+            if (message) message.isPlaying = false;
+        }
+    },
+    // --- [4] 辅助函数：二进制打包打包器 ---
+    sendBinaryToVRM(metadata, audioArrayBuffer) {
+        if (!this.ttsWebSocket || this.ttsWebSocket.readyState !== WebSocket.OPEN) return;
+        const metadataBytes = new TextEncoder().encode(JSON.stringify(metadata));
+        const totalBuffer = new Uint8Array(4 + metadataBytes.byteLength + audioArrayBuffer.byteLength);
+        const view = new DataView(totalBuffer.buffer);
+        view.setUint32(0, metadataBytes.byteLength, true); // JSON长度
+        totalBuffer.set(metadataBytes, 4);
+        totalBuffer.set(new Uint8Array(audioArrayBuffer), 4 + metadataBytes.byteLength);
+        this.ttsWebSocket.send(totalBuffer);
     },
 
     async translateMessage(index) {
@@ -2929,6 +2974,7 @@ let vue_methods = {
           llmTools: this.llmTools,
           conversationId: this.conversationId,
           reasoner: this.reasonerSettings,
+          fast: this.fastSettings,
           isBtnCollapse: this.isBtnCollapse,
           vision: this.visionSettings,
           webSearch: this.webSearchSettings, 
@@ -3704,6 +3750,18 @@ let vue_methods = {
       }
     },
 
+    async selectFastProvider(providerId) {
+      const provider = this.modelProviders.find(p => p.id === providerId);
+      console.log(provider)
+      if (provider) {
+        console.log("provider")
+        this.fastSettings.model = provider.modelId;
+        this.fastSettings.base_url = provider.url;
+        this.fastSettings.api_key = provider.apiKey;
+        await this.autoSaveSettings();
+      }
+    },
+
     // Claude code 供应商选择
     async selectCCProvider(providerId) {
       const provider = this.modelProviders.find(p => p.id === providerId);
@@ -3848,6 +3906,12 @@ let vue_methods = {
         this.selectMainProvider(this.settings.selectedProvider);
       }
     },
+    handleFastProviderVisibleChange(visible) {
+      if (!visible) {
+        this.selectFastProvider(this.fastSettings.selectedProvider);
+      }
+    },
+
     handleCCProviderVisibleChange(visible) {
       if (!visible) {
         this.selectCCProvider(this.ccSettings.selectedProvider);
@@ -7394,17 +7458,44 @@ handleCreateSlackSeparator(val) {
     },
   // 1. 按下：开始录音
   async handlePttPress(event) {
-    // 【修复核心】手动阻止默认事件，解决 _withMods 报错
+    this.stopAllAudioPlayback(); // 停止所有正在播放的音频
+    
+    // 手动阻止默认事件，解决 _withMods 报错
     if (event && event.preventDefault) {
-      // 允许触摸滚动，但阻止长按弹出菜单等怪异行为
       if (event.type !== 'touchstart') {
         event.preventDefault();
       }
     }
 
     if (this.isPttRecording || this.isProcessingPtt) return;
-    
     this.isPttRecording = true;
+
+    // ==========================================
+    // 分支 A: Web Speech API 模式 (直接复用你现有的 initWebSpeechAPI)
+    // ==========================================
+    if (this.asrSettings.engine === 'webSpeech') {
+      // 如果还没有初始化识别对象，则进行初始化
+      if (!this.recognition) {
+        const success = this.initWebSpeechAPI();
+        if (!success) {
+          this.isPttRecording = false;
+          return;
+        }
+      }
+      
+      try {
+        this.recognition.start();
+        if (navigator.vibrate) navigator.vibrate(50);
+      } catch (e) {
+        // 捕获“已经启动”的错误，避免控制台报错
+        console.warn("Web Speech already started:", e);
+      }
+      return; // ⚠️ 关键：直接跳出，不执行下方的 MediaRecorder 逻辑
+    }
+
+    // ==========================================
+    // 分支 B: 其他 ASR 模式 (二进制流模式：Sherpa/FunASR/OpenAI)
+    // ==========================================
     this.audioChunks = []; // 重置数据桶
 
     try {
@@ -7430,21 +7521,56 @@ handleCreateSlackSeparator(val) {
 
     } catch (error) {
       console.error("PTT Start Error:", error);
-      showNotification(this.t('micPermissionDenied'), 'error');
+      // 如果定义了 showNotification 则调用，否则用 alert 兜底
+      if (typeof showNotification === 'function') {
+        showNotification(this.t('micPermissionDenied'), 'error');
+      }
       this.isPttRecording = false;
     }
   },
 
   // 2. 松开：停止录音 -> 转码 -> 发送
   async handlePttRelease(event) {
-    // 【修复核心】手动阻止默认事件
+    // 手动阻止默认事件
     if (event && event.preventDefault && event.type !== 'touchend') {
        event.preventDefault();
     }
 
-    if (!this.isPttRecording || !this.pttMediaRecorder) return;
-
+    if (!this.isPttRecording) return;
     this.isPttRecording = false;
+
+    // ==========================================
+    // 分支 A: Web Speech API 模式
+    // ==========================================
+    if (this.asrSettings.engine === 'webSpeech') {
+      if (this.recognition) {
+        // 【核心修复】：创建一个一次性的监听器，确保在文字识别彻底完成后发送
+        const sendAfterRecognition = () => {
+          // 移除监听器，避免下次重复触发
+          this.recognition.removeEventListener('end', sendAfterRecognition);
+          
+          // 给一点点延迟（100ms），确保 handleASRResult 已经把最后的文字更新到 userInput
+          setTimeout(() => {
+            if (this.userInput && this.userInput.trim() !== '') {
+              this.sendMessage(); // 触发发送逻辑
+            }
+          }, 100);
+        };
+
+        // 绑定一次性结束监听
+        this.recognition.addEventListener('end', sendAfterRecognition);
+        
+        this.recognition.stop(); // 停止识别
+        if (navigator.vibrate) navigator.vibrate(30);
+      }
+      return; 
+    }
+
+    // ==========================================
+    // 分支 B: 其他 ASR 模式 (二进制流停止逻辑)
+    // ==========================================
+    if (!this.pttMediaRecorder) return;
+
     this.isProcessingPtt = true;
 
     // 停止录制
@@ -7460,12 +7586,12 @@ handleCreateSlackSeparator(val) {
     
     if (navigator.vibrate) navigator.vibrate(30);
 
-    // 等待录制彻底结束
+    // 等待录制彻底结束并合并数据
     await new Promise(resolve => {
       this.pttMediaRecorder.onstop = () => resolve();
     });
 
-    // 处理音频
+    // 处理音频逻辑 (原有的 processAndSendPttAudio)
     await this.processAndSendPttAudio();
     
     this.isProcessingPtt = false;
@@ -7843,81 +7969,56 @@ handleCreateSlackSeparator(val) {
       this.elapsedTime = Date.now() - this.startTime;
     },
     async processTTSChunk(message, index) {
-      const chunk = message.ttsChunks[index];
-      const voice = message.chunks_voice[index];
-      let remainingText = chunk;
-      let chunk_text = remainingText;
-      let chunk_expressions = [];
-      if (chunk.indexOf('<') !== -1){
-        const tagReg = /<[^>]+>/g;
-        chunk_expressions = (chunk.match(tagReg) || []).map(t => t.slice(1, -1)); 
-        chunk_text = chunk.replace(tagReg, '').trim();
-      }
-      console.log(`Processing TTS chunk ${index}:`, chunk_text ,"\nvoice:" ,voice,"\nchunk_expressions:", chunk_expressions);
-      
-      try {
-        if (voice=='silence'){
-          console.log(`TTS chunk ${index} is silence`);
-          message.audioChunks[index] = { 
-            url: null, 
-            expressions: chunk_expressions, // 添加表情
-            text: chunk_text,
-            index
-          };
-          this.cur_audioDatas[index]= null;
-          this.checkAudioPlayback();
-        }else{
-          const response = await fetch(`/tts`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ttsSettings: this.ttsSettings,text: chunk_text, index, voice})
-          });
+        const chunk = message.ttsChunks[index];
+        const voice = message.chunks_voice[index];
+        let chunk_text = chunk;
+        let chunk_expressions = [];
 
-          if (response.ok) {
-            const audioBlob = await response.blob();
-            
-            // 本地播放 blob URL
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
-            message.audioChunks[index] = { 
-              url: audioUrl, 
-              expressions: chunk_expressions, // 添加表情
-              text: chunk_text,
-              index 
-            };
-            if (index == 0){
-              // 结束计时并打印时间
-              this.stopTimer();
-              console.log(`TTS chunk ${index} processed in ${this.elapsedTime}ms`);
-            }
-            // 转换为 Base64
-            const base64 = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload  = () => resolve(reader.result.split(',')[1]); // 去掉 data:*
-              reader.onerror = reject;
-              reader.readAsDataURL(audioBlob);
-            });
-            const audioDataUrl = `data:${audioBlob.type};base64,${base64}`;
-            this.cur_audioDatas[index]= audioDataUrl;
-            console.log(`TTS chunk ${index} processed`);
-            this.checkAudioPlayback();
-          } else {
-            console.error(`TTS failed for chunk ${index}`);
-            message.audioChunks[index] = { 
-              url: null, 
-              expressions: chunk_expressions, // 添加表情
-              text: chunk_text,
-              index
-            };
-            this.cur_audioDatas[index]= null;
-            this.checkAudioPlayback();
-          }
+        if (chunk.indexOf('<') !== -1) {
+            const tagReg = /<[^>]+>/g;
+            chunk_expressions = (chunk.match(tagReg) || []).map(t => t.slice(1, -1));
+            chunk_text = chunk.replace(tagReg, '').trim();
         }
 
-      } catch (error) {
-        console.error(`Error processing TTS chunk ${index}:`, error);
-        this.TTSrunning= false;
-      }
+        try {
+            if (voice === 'silence') {
+                // 静音块走文本通道发指令
+                const cmd = JSON.stringify({
+                    type: 'startSpeaking',
+                    data: { chunkIndex: index, text: chunk_text, voice: 'silence', expressions: chunk_expressions }
+                });
+                if (this.ttsWebSocket && this.vrmOnline) this.ttsWebSocket.send(cmd);
+                message.audioChunks[index] = { url: null, expressions: chunk_expressions, text: chunk_text, index };
+                this.checkAudioPlayback();
+            } else {
+                const response = await fetch(`/tts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ttsSettings: this.ttsSettings, text: chunk_text, index, voice })
+                });
+
+                if (response.ok) {
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    // --- 二进制打包发送 ---
+                    const audioBuffer = await audioBlob.arrayBuffer();
+                    const metadata = {
+                        type: 'audio_chunk',
+                        chunkIndex: index,
+                        text: chunk_text,
+                        expressions: chunk_expressions,
+                        mimeType: audioBlob.type
+                    };
+                    this.sendBinaryToVRM(metadata, audioBuffer);
+
+                    message.audioChunks[index] = { url: audioUrl, expressions: chunk_expressions, text: chunk_text, index };
+                    this.checkAudioPlayback();
+                }
+            }
+        } catch (error) {
+            console.error(`TTS Chunk ${index} error:`, error);
+        }
     },
 
     // 音频播放进程
@@ -8155,9 +8256,12 @@ handleCreateSlackSeparator(val) {
         this.currentReadAudio.pause();
         this.currentReadAudio = null;
       }
+      
       // 3. 【核心修复】停止所有 Web Audio API 的 Omni 节点
       if (this.activeSources && this.activeSources.length > 0) {
         this.activeSources.forEach(src => {
+          // ✨ 新增：给节点打上被强杀的标记，防止 onended 扰乱进度条
+          src.isForceStopped = true; 
           try {
             src.stop(); // 立即停止播放
           } catch (e) {
@@ -8167,16 +8271,14 @@ handleCreateSlackSeparator(val) {
         // 清空数组
         this.activeSources = [];
       }
+      
+      this.isOmniPlaying = false; // ✨ 新增：重置全局播放状态
       this.audioStartTime = 0; 
+      
       // 4. 重置所有消息状态
       this.messages.forEach(message => {
         message.isPlaying = false;
       });
-
-      // 5. 也可以选择暂停 AudioContext (可选，更彻底)
-      // if (this.audioCtx && this.audioCtx.state === 'running') {
-      //   this.audioCtx.suspend();
-      // }
 
       // 6. 发送停止信号到VRM
       this.sendTTSStatusToVRM('stopSpeaking', {});
@@ -14914,20 +15016,120 @@ isSkillInProject(skillId) {
   return this.skillsInProject && this.skillsInProject.includes(skillId);
 },
 
-// 获取当前项目下的技能状态
-async fetchProjectSkillsStatus() {
-  if (!this.CLISettings.cc_path) {
-    this.skillsInProject = [];
-    return;
-  }
-  try {
-    const res = await fetch(`/api/skills/project-status?path=${encodeURIComponent(this.CLISettings.cc_path)}`);
-    const data = await res.json();
-    this.skillsInProject = data.installed_ids || [];
-  } catch (e) {
-    console.error("获取项目技能状态失败", e);
-  }
-},
+    // 1. 升级获取项目状态：顺便保存详细信息
+    async fetchProjectSkillsStatus() {
+      if (!this.CLISettings.cc_path) {
+        this.skillsInProject = [];
+        this.projectSkillsDetails = [];
+        return;
+      }
+      try {
+        const res = await fetch(`/api/skills/project-status?path=${encodeURIComponent(this.CLISettings.cc_path)}`);
+        if (res.ok) {
+          const data = await res.json();
+          this.skillsInProject = data.installed_ids || [];
+          this.projectSkillsDetails = data.project_skills || []; // 存入详情
+        }
+      } catch (e) {
+        console.error("获取项目技能状态失败", e);
+      }
+    },
+
+    // 2. 反向同步：从项目 -> 全局
+    async syncToGlobal(skillId) {
+      try {
+        const response = await fetch('/api/skills/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skill_id: skillId, project_path: this.CLISettings.cc_path, action: 'sync_to_global' })
+        });
+        const data = await response.json();
+        if (response.ok && data.status === 'success') {
+          showNotification('Skill synced to Global', 'success');
+          this.fetchSkills(); // 刷新全局状态即可
+        } else {
+          throw new Error(data.detail || 'Sync failed');
+        }
+      } catch (e) {
+        showNotification(e.message, 'error');
+      }
+    },
+
+    // 3. 正向同步：从全局 -> 项目 (原逻辑略微简化)
+    async syncToProject(skillId) {
+      if (!this.CLISettings.cc_path) return;
+      try {
+        const response = await fetch('/api/skills/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skill_id: skillId, project_path: this.CLISettings.cc_path, action: 'install' })
+        });
+        if (response.ok) {
+          showNotification('Skill synced to Workspace', 'success');
+          this.fetchProjectSkillsStatus(); // 刷新项目状态
+        } else {
+          throw new Error('Sync failed');
+        }
+      } catch (e) {
+        showNotification(e.message, 'error');
+      }
+    },
+
+    // 4. 从全局删除（智能提示）
+    async removeGlobalSkill(skill) {
+      const execDelete = async () => {
+        try {
+          const response = await fetch(`/api/skills/${encodeURIComponent(skill.id)}`, { method: 'DELETE' });
+          if (response.ok) {
+            showNotification('Removed globally', 'success');
+            await this.fetchSkills(); 
+          } else {
+            throw new Error('Remove failed');
+          }
+        } catch (e) {
+          showNotification(e.message, 'error');
+        }
+      };
+
+      // 核心判断：如果项目里也没有了，说明这是彻底删除，必须警告！
+      if (!skill.isProject) {
+        this.$confirm(this.t('deleteSkillConfirm'), this.t('warning'), { type: 'warning' })
+          .then(execDelete).catch(() => {});
+      } else {
+        // 项目里还有，属于安全操作，静默删除
+        execDelete();
+      }
+    },
+
+    // 5. 从项目删除（智能提示）
+    async removeProjectSkill(skill) {
+      const execDelete = async () => {
+        try {
+          const response = await fetch('/api/skills/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skill.id, project_path: this.CLISettings.cc_path, action: 'remove' })
+          });
+          if (response.ok) {
+            showNotification('Removed from Workspace', 'success');
+            await this.fetchProjectSkillsStatus(); 
+          } else {
+            throw new Error('Remove failed');
+          }
+        } catch (e) {
+          showNotification(e.message, 'error');
+        }
+      };
+
+      // 核心判断：如果全局里也没有了，说明这是彻底删除，必须警告！
+      if (!skill.isGlobal) {
+        this.$confirm('此操作将彻底删除该技能文件，是否继续？', 'Warning', { type: 'warning' })
+          .then(execDelete).catch(() => {});
+      } else {
+        // 全局里还有，属于安全操作，静默删除
+        execDelete();
+      }
+    },
 
 // 切换技能同步状态
 async toggleSkillInProject(skillId, isInstall) {

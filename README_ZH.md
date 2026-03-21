@@ -25,10 +25,10 @@
 
 ### 🚀 **一款拥有无限可能的AI桌面伴侣！**
 
-#### VRM桌宠：支持上传自定义VRM模型，打造专属桌面伴侣
+#### VRM桌宠：支持上传自定义VRM模型、动作、3D场景，打造专属桌面伴侣
 ![image](doc/image/img-1/vrm.jpeg)
 
-#### 任务中心：让你的AI智能体可以在后台执行任何高级任务，自动控制电脑帮你干活
+#### 任务中心：让你的AI智能体可以在后台执行任何高级任务，自动控制电脑帮你干活，支持 MCP 和 Agent Skills
 ![image](doc/image/img-1/task.jpeg)
 
 #### 多角色群聊：支持酒馆角色卡，支持长期记忆，你可以同时和多个角色一起聊天！
@@ -37,13 +37,13 @@
 #### 即时通讯机器人：支持一键部署到QQ、飞书、钉钉、Telegram、Discord、Slack
 ![image](doc/image/img-1/im.jpeg)
 
-#### 直播机器人：支持一键部署到B站、YouTube、twitch
+#### 直播机器人：支持一键部署到B站、YouTube、twitch，支持360度全景直播
 ![image](doc/image/img-1/yt.jpeg)
 
 #### AI浏览器：让你的AI智能体拥有自己的浏览器，支持自动控制
 ![image](doc/image/img-1/browser.jpeg)
 
-#### 扩展系统：支持安装扩展，和自己创造新的扩展，下图为galgame扩展
+#### 扩展系统：支持安装扩展，和自己创造新的扩展，下图为galgame扩展，扩展均支持独立窗口或者侧边栏两种方式打开
 ![image](doc/image/img-1/ext.jpeg)
 
 #### 开发者友好：开放openai API接口、MCP接口，可以将智能体对外转接
@@ -55,23 +55,23 @@
 
 ### windows整合包（推荐！免安装源码版本，支持一键同步到仓库最新版本，无需等待桌面版打包）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-win-v0.3.8.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-win-v0.3.8.7z)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/super-agent-party-win-v0.3.9.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.9/super-agent-party-win-v0.3.9.7z)
 
 
 ⭐注意！你可以双击`一键更新(update).bat`更新软件，也可以双击`一键启动(start).bat`启动软件。操作系统需要是**Windows 10/11、Window Server 2025**或者后续版本！
 
 ### windows桌面版安装
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-Setup-0.3.8.exe)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-Setup-0.3.8.exe)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/Super-Agent-Party-Setup-0.3.9.exe)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.9/Super-Agent-Party-Setup-0.3.9.exe)
 
 ⭐注意！安装时选择仅为当前用户安装，否则启动时需要管理员权限。操作系统需要是**Windows 10/11、Window Server 2025**或者后续版本！
 
 ### MacOS整合包（目前只支持M芯片，适合开发者，同样是免安装源码版本，支持一键同步到仓库最新版本，无需等待桌面版打包）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/super-agent-party-mac-v0.3.8.7z)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/super-agent-party-mac-v0.3.8.7z)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/super-agent-party-mac-v0.3.9.7z)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.9/super-agent-party-mac-v0.3.9.7z)
 
 ⭐注意！你可以在终端使用`一键更新(update).sh`更新软件，也可以在终端使用`一键启动(start).sh`启动软件。在使用前，记得给文件加权限！
 
@@ -84,8 +84,8 @@
 
 ### MacOS桌面版安装（目前只支持M芯片）
 
-  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Mac.dmg)
-  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.8-hot-fix/Super-Agent-Party-0.3.8-Mac.dmg)
+  👉 [国际用户点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/Super-Agent-Party-0.3.9-Mac.dmg)
+  👉 [中国用户点击下载](https://modelscope.cn/models/ailm32442/super-agent-party-portable/resolve/master/v0.3.9/Super-Agent-Party-0.3.9-Mac.dmg)
 
 ⭐注意！下载后将dmg文件的app文件拖入`/Applications`目录下，然后打开终端，执行以下命令并输入root密码，从而移除从网络下载附加的Quarantine属性：
 
@@ -101,11 +101,11 @@
 
 `.AppImage` 是一种无需安装、即开即用的 Linux 应用格式。适用于大多数 Linux 发行版。
 
-  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.AppImage)
+  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/Super-Agent-Party-0.3.9-Linux.AppImage)
 
 #### 2. 使用 `.deb` 包安装（适用于 Ubuntu / Debian 系统）
 
-  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.8/Super-Agent-Party-0.3.8-Linux.deb)
+  👉 [点击下载](https://github.com/heshengtao/super-agent-party/releases/download/v0.3.9/Super-Agent-Party-0.3.9-Linux.deb)
 
 ### docker部署（该版本桌宠只能通过浏览器查看）
 

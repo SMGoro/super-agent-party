@@ -6913,6 +6913,11 @@ hr.footnotes-sep {
   white-space: nowrap;
 }
 
+.omni-slider {
+  width: 150px !important;
+  min-width: 150px !important;
+}
+
 /* =========================================
    Advanced Pro Notification (Top-Right Toast)
    ========================================= */
@@ -8331,7 +8336,7 @@ hr.footnotes-sep {
 .banner-text p {
   margin: 2px 0 0 0 !important;
   font-size: 12px !important;
-  color: var(--el-text-color-secondary) !important;
+  color: var(--text-color) !important;
   line-height: 1.2;
 }
 
@@ -9524,4 +9529,185 @@ hr.footnotes-sep {
 /* 适配暗黑模式 */
 [data-theme="dark"] .ptt-seamless-area.is-recording {
   background-color: rgba(var(--el-color-primary-rgb), 0.15);
+}
+
+/* 桌面端全局录音悬浮层 */
+.desktop-recording-overlay {
+  position: fixed;
+  top: 40%; /* 浮动在屏幕中间偏上一点 */
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  pointer-events: none; /* 防止遮挡鼠标点击 */
+  animation: fadeIn 0.2s ease-out;
+}
+
+.desktop-recording-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+  backdrop-filter: blur(8px);
+  padding: 30px 40px;
+  border-radius: 20px;
+  color: var(--el-text-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.desktop-recording-content .mic-icon {
+  font-size: 40px;
+  margin-bottom: 15px;
+  color: var(--el-primary-color); /* 主题色 */
+}
+
+.desktop-recording-content .ptt-text {
+  margin-top: 15px;
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+
+/* 确保波纹动画在桌面提示框里正常显示 (如果你已经全局定义了，这段可以省略) */
+.desktop-recording-content .recording-wave {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+}
+
+.desktop-recording-content .recording-wave span {
+  display: inline-block;
+  width: 4px;
+  height: 100%;
+  background-color: #409eff;
+  border-radius: 2px;
+  animation: wave 1s infinite ease-in-out;
+}
+
+.desktop-recording-content .recording-wave span:nth-child(1) { animation-delay: 0.0s; }
+.desktop-recording-content .recording-wave span:nth-child(2) { animation-delay: 0.1s; }
+.desktop-recording-content .recording-wave span:nth-child(3) { animation-delay: 0.2s; }
+.desktop-recording-content .recording-wave span:nth-child(4) { animation-delay: 0.3s; }
+.desktop-recording-content .recording-wave span:nth-child(5) { animation-delay: 0.4s; }
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, -40%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* =========================================
+   Skill Cards: Location Management Footer
+   ========================================= */
+
+/* 消除原 provider-card 底部 padding 带来的影响，使底部状态栏贴边 */
+.skill-card {
+  padding-bottom: 0 !important; 
+  overflow: hidden; /* 确保底部圆角不会被状态栏破坏 */
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-content-wrapper {
+  flex: 1;
+  padding: 0 0 16px 0;
+}
+
+.skill-desc {
+  font-size: 13px; 
+  color: var(--el-text-color-regular); 
+  margin-bottom: 8px;
+  line-height: 1.5;
+  height: 38px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 底部状态管理栏外层 */
+.skill-locations-bar {
+  display: flex;
+  align-items: stretch;
+  margin: auto -1.25rem 0 -1.25rem; /* 抵消父级 padding，紧贴卡片底部和左右边缘 */
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* 左右两侧的独立面板 */
+.location-pane {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 当该区域存在内容时，给出极其微弱的成功色混合背景 (完美适配多巴胺/暗色) */
+.location-pane.is-active {
+  background-color: color-mix(in srgb, var(--el-color-success) 4%, transparent);
+}
+
+/* 禁用状态变灰 */
+.location-pane.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* 分割线 */
+.pane-divider {
+  width: 1px;
+  background-color: var(--el-border-color-lighter);
+}
+
+/* 区域标题 (如 Global / Project) */
+.pane-title {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 状态和操作按钮同行 */
+.pane-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 24px; /* 固定高度防止按钮导致跳动 */
+}
+
+/* 状态文字指示器 */
+.status-indicator {
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-indicator.success { color: var(--el-color-success); }
+.status-indicator.pending { color: var(--el-text-color-placeholder); font-weight: 400; }
+.status-indicator.disabled { color: var(--el-color-danger); font-size: 11px; }
+
+/* 专门优化底部操作图标按钮，继承你的无边框风格 */
+.action-icon-btn {
+  margin: 0 !important;
+  padding: 4px !important;
+  height: 24px !important;
+  width: 24px !important;
+  font-size: 13px !important;
+  border-radius: 6px !important;
+}
+.action-icon-btn:hover {
+  background-color: var(--el-fill-color) !important;
+  transform: scale(1.1);
 }

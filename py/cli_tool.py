@@ -821,62 +821,45 @@ from typing import Tuple
 
 def validate_bash_command(command: str, cwd: str, mode: str = "default") -> Tuple[bool, str]:
     """
-    安全校验策略（增强版）：
-    1. 严格禁止路径遍历（../）
-    2. 禁止访问敏感系统目录
-    3. 允许正常的文件操作和相对路径
+    安全校验策略（Windows 优化版）：
+    1. 移除了过于暴力的 '..' 正则拦截，允许正常的相对路径传参
+    2. 严格禁止绝对路径越权（访问 C盘根目录、Windows目录等）
+    3. 依靠底层执行时的 cwd 限制和专用文件工具来保障安全
     """
     
-    # ===== 1. 路径遍历防御 (核心修复) =====
-    # 解析：
-    # (?:\s|^|/)  -> 前面必须是 空格、开头、或斜杠 (防止匹配到 valid..file 这种文件名)
-    # \.\.        -> 也就是 ".."
-    # (?:/|\s|$)  -> 后面必须是 斜杠、空格、或结尾 (防止匹配到 ..valid 这种文件名)
-    # 结果：能拦截 "../", "/..", " .. ", "ls .."，但不会误伤 "echo loading..."
-    traversal_pattern = r'(?:\s|^|/)\.\.(?:/|\s|$)'
-    
-    if re.search(traversal_pattern, command):
-        return False, "Path traversal detected (usage of '..' is blocked to keep agent in workspace)"
-
-    # ===== 2. 绝对路径与敏感目录防御 =====
-    # 常见敏感目录前缀
+    # ===== 1. 绝对路径与敏感目录防御 =====
     sensitive_roots = [
         r'/etc', r'/var', r'/root', r'/bin', r'/sbin', r'/usr',  # Linux
         r'C:\\Windows', r'C:\\Program Files', r'C:\\Users'       # Windows
     ]
     
-    # 检查是否直接操作了敏感路径
     for root in sensitive_roots:
-        # 匹配 空格+路径 或 开头+路径
-        # 例如: "cat /etc/passwd" 或 "/etc/init.d/..."
         if re.search(r'(?:\s|^)' + root, command, re.IGNORECASE):
             return False, f"Access to system directory '{root}' is blocked"
 
-    # 针对 cd 命令的额外保护：禁止 cd /... (除非是 /workspace 或 /tmp)
-    # 拦截: cd /etc, cd /
-    # 放行: cd ., cd subfolder, cd /workspace
+    # 禁止直接 cd 到根目录或其他盘符
     if re.search(r'\bcd\s+/(?!(workspace|tmp|dev/null))', command, re.IGNORECASE):
-            return False, "Changing directory to outside workspace is blocked"
+        return False, "Changing directory to outside workspace is blocked"
+    if re.search(r'\bcd\s+[a-zA-Z]:\\', command, re.IGNORECASE):
+        return False, "Changing Windows drive directly is blocked"
 
-    # ===== 3. 毁灭性操作（保持原样）=====
+    # ===== 2. 毁灭性操作（保持原样）=====
     destructive_patterns = [
         (r'rm\s+-rf\s*/', "Recursive delete root"),                
         (r'mkfs\.[a-z]+', "Filesystem format"),                    
         (r'dd\s+if=.*of=/dev/[a-z]', "Direct device write"),       
         (r'>?\s*/dev/(sda|hd|nvme|mmcblk)', "Block device access"),
-        (r':\(\)\{\s*:\|:&?\s*\};\s*:', "Fork bomb"), # 新增 Fork bomb 防御
+        (r':\(\)\{\s*:\|:&?\s*\};\s*:', "Fork bomb"), 
     ]
     
     for pattern, reason in destructive_patterns:
         if re.search(pattern, command, re.IGNORECASE):
             return False, f"Destructive operation blocked: {reason}"
     
-    # ===== 4. 风险操作（非 YOLO 模式拦截）=====
+    # ===== 3. 风险操作 =====
     if mode != "yolo":
         risk_patterns = [
-            # 允许 wget/curl，但禁止直接管道给 shell 执行 (如 curl | sh)
             (r'(curl|wget).*\|\s*(sh|bash|zsh|python|perl|php)', "Remote execution via pipe"),
-            # 禁止访问环境变量 HOME，防止泄露主机用户目录
             (r'\$\{?HOME\}?', "HOME env variable usage"),
             (r'~\s*/', "Home directory access via ~"),
         ]
@@ -906,7 +889,7 @@ async def read_stream(stream, *, is_error: bool = False):
         yield f"{prefix}{decoded}"
 
 
-async def bash_tool_local(command: str, background: bool = False) -> str | AsyncIterator[str]:
+async def shell_tool_local(command: str, background: bool = False) -> str | AsyncIterator[str]:
     """[Local] 执行命令，支持后台"""
     settings = await load_settings()
     cwd = settings.get("CLISettings", {}).get("cc_path")
@@ -1010,6 +993,7 @@ async def read_file_tool_local(path: str) -> str:
         if not target.exists() or not target.is_file():
             return f"[Error] File not found or not a file: {path}"
 
+        # 修复 Bug：移除 rb 模式下的 encoding 参数
         try:
             with open(target, 'rb') as f_bin:
                 if b'\0' in f_bin.read(1024):
@@ -1043,8 +1027,9 @@ async def read_file_tool_local(path: str) -> str:
             output.append(f"💡 [Next Step Hint] The file is large. Use 'read_file_range_local' to read lines {len(lines)+1} to {len(lines)+500}, or 'tail_file_local' to view the end.")
             
         return "\n".join(output)
-    except Exception as e: return f"[Error] Read failed: {str(e)}"
-
+    except Exception as e: 
+        return f"[Error] Read failed: {str(e)}"
+    
 async def read_file_range_tool_local(path: str, start_line: int, end_line: int) -> str:
     """[Local] 精准读取文件指定行范围"""
     try:
@@ -1165,7 +1150,7 @@ async def search_files_tool_local(pattern: str, path: str = ".") -> str:
         # 判断文件是否为二进制 (读取前 1024 字节检查 NULL)
         def is_binary(file_path):
             try:
-                with open(file_path, 'rb') as f:
+                with open(file_path, 'rb',encoding='utf-8') as f:
                     chunk = f.read(1024)
                     return b'\0' in chunk
             except:
@@ -1996,8 +1981,8 @@ LOCAL_TOOLS_REGISTRY = {
     # --- 基础设施 ---
     "bash_local": {
         "type": "function", "function": {
-            "name": "bash_tool_local", 
-            "description": "Run local command.",
+            "name": "shell_tool_local", 
+            "description": "Run local command.Please note the environment in which you are currently executing the command.",
             "parameters": {
                 "type": "object", 
                 "properties": {

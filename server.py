@@ -341,7 +341,7 @@ from fastapi import status
 from fastapi.responses import JSONResponse, StreamingResponse,Response
 import uuid
 import time
-from typing import Any, AsyncIterator, List, Dict,Optional, Tuple
+from typing import Any, AsyncIterator, List, Dict,Optional, Tuple, Union
 import shortuuid
 from py.mcp_clients import McpClient
 from contextlib import asynccontextmanager
@@ -361,12 +361,18 @@ os.environ["no_proxy"] = "localhost,127.0.0.1"
 local_timezone = None
 settings = None
 client = None
+fast_client = None 
 reasoner_client = None
 HA_client = None
 ChromeMCP_client = None
 sql_client = None
 mcp_client_list = {}
 locales = {}
+
+global_http_client = None  # 用于共享底层的 TCP 连接池
+openai_tts_clients_cache = {}  # 缓存 OpenAI TTS Client
+tetos_speakers_cache = {}      # 缓存 Tetos Speaker 对象
+openai_asr_clients_cache = {}
 _TOOL_HOOKS = {}
 ALLOWED_EXTENSIONS = [
   # 办公文档
@@ -482,11 +488,26 @@ def content_new(message, role, content):
 
 configure_host_port(args.host, args.port)
 
+def get_client_class(config, provider_id):
+    if not config or 'modelProviders' not in config:
+        return AsyncOpenAI
+    vendor = 'OpenAI'
+    for provider in config['modelProviders']:
+        if provider['id'] == provider_id:
+            vendor = provider['vendor']
+            break
+    # 假设你已经导入了 DifyOpenAIAsync 和 AsyncOpenAI
+    return DifyOpenAIAsync if vendor == 'Dify' else AsyncOpenAI
+
 from py.node_runner import node_mgr
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _copy_default_skills()
+    global global_http_client # 声明全局变量
+    # 1. 初始化一个全局的、带连接池的 HTTP 客户端
+    timeout_config = httpx.Timeout(None, connect=10.0)
+    global_http_client = httpx.AsyncClient(timeout=timeout_config)
     # 1. 准备所有独立的初始化任务
     from py.get_setting import init_db, init_covs_db
     from tzlocal import get_localzone
@@ -510,7 +531,7 @@ async def lifespan(app: FastAPI):
     
     # 3. 解包结果
     # init_db 和 init_covs 没有返回值(None)
-    global settings, client, reasoner_client, mcp_client_list, local_timezone, logger, locales
+    global settings, client, reasoner_client, fast_client, mcp_client_list, local_timezone, logger, locales
     _, _, locales, settings, local_timezone = results
     
     # 创建带时间戳的日志文件路径
@@ -539,27 +560,27 @@ async def lifespan(app: FastAPI):
         logger.error(f"尝试启动sherpa失败: {e}")
         pass
 
-    vendor = 'OpenAI'
-    for modelProvider in settings['modelProviders']: 
-        if modelProvider['id'] == settings['selectedProvider']:
-            vendor = modelProvider['vendor']
-            break
-    client_class = AsyncOpenAI
-    if vendor == 'Dify':
-        client_class = DifyOpenAIAsync
-    reasoner_vendor = 'OpenAI'
-    for modelProvider in settings['modelProviders']: 
-        if modelProvider['id'] == settings['reasoner']['selectedProvider']:
-            reasoner_vendor = modelProvider['vendor']
-            break
-    reasoner_client_class = AsyncOpenAI
-    if reasoner_vendor == 'Dify':
-        reasoner_client_class = DifyOpenAIAsync
     if settings:
-        client = client_class(api_key=settings['api_key'], base_url=settings['base_url'])
-        reasoner_client = reasoner_client_class(api_key=settings['reasoner']['api_key'], base_url=settings['reasoner']['base_url'])
+        # 1. 初始化主模型 Client
+        c_class = get_client_class(settings, settings.get('selectedProvider'))
+        client = c_class(api_key=settings.get('api_key', ''), base_url=settings.get('base_url') or "https://api.openai.com/v1")
+        
+        # 2. 初始化推理模型 Client
+        r_class = get_client_class(settings, settings.get('reasoner', {}).get('selectedProvider'))
+        reasoner_client = r_class(api_key=settings.get('reasoner', {}).get('api_key', ''), base_url=settings.get('reasoner', {}).get('base_url') or "https://api.openai.com/v1")
+        
+        # 3. 初始化快速模型 Client
+        fast_cfg = settings.get('fast', {})
+        if fast_cfg.get('enabled'):
+            f_provider = fast_cfg.get('selectedProvider', settings.get('selectedProvider'))
+            f_class = get_client_class(settings, f_provider)
+            fast_client = f_class(
+                api_key=fast_cfg.get('api_key') or settings.get('api_key', ''),
+                base_url=fast_cfg.get('base_url') or settings.get('base_url') or "https://api.openai.com/v1"
+            )
+
+        # 设置代理
         if settings["systemSettings"]["proxy"] and settings["systemSettings"]["proxyMode"] == "manual":
-            # 设置代理环境变量
             os.environ['http_proxy'] = settings["systemSettings"]["proxy"].strip()
             os.environ['https_proxy'] = settings["systemSettings"]["proxy"].strip()
         elif settings["systemSettings"]["proxyMode"] == "system":
@@ -569,8 +590,10 @@ async def lifespan(app: FastAPI):
             os.environ['http_proxy'] = ""
             os.environ['https_proxy'] = ""
     else:
-        client = client_class()
-        reasoner_client = reasoner_client_class()
+        client = AsyncOpenAI()
+        reasoner_client = AsyncOpenAI()
+        fast_client = None
+        
     mcp_init_tasks = []
 
     async def init_mcp_with_timeout(
@@ -701,6 +724,8 @@ async def lifespan(app: FastAPI):
             await node_mgr.stop(ext_id)
         except Exception as e:
             print(f"Error stopping {ext_id}: {e}")
+    if global_http_client:
+        await global_http_client.aclose()
     print("All Node processes terminated.")
 
 # WebSocket端点增加连接管理
@@ -888,7 +913,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
     from py.cli_tool import (
-        bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
+        shell_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
         list_files_tool_local,     # 本地文件列表
         read_file_tool_local,      # 本地文件读取
         read_file_range_tool_local, # <--- 新增导入
@@ -1002,7 +1027,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
-        "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
+        "shell_tool_local": shell_tool_local,                     # 本地 bash 执行
         "list_files_tool_local": list_files_tool_local,         # 本地文件列表
         "read_file_tool_local": read_file_tool_local,           # 本地文件读取
         "read_file_range_tool_local": read_file_range_tool_local, # <--- 映射新工具
@@ -1030,7 +1055,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict) -> st
         "edit_file_tool",
         "edit_file_patch_tool",   
         "todo_write_tool",        
-        "bash_tool_local",
+        "shell_tool_local",
         "edit_file_tool_local",
         "edit_file_patch_tool_local",
         "todo_write_tool_local",
@@ -1392,7 +1417,7 @@ def get_system_context() -> str:
 ⚠️ 重要提示：
 1. {path_hint}
 2. {command_hint}
-3. 执行 bash_tool_local 时，命令必须符合当前系统的语法规范
+3. 执行 shell_tool_local 时，命令必须符合当前系统的语法规范
 4. 路径分隔符：Windows 使用反斜杠(\\)，Unix 使用正斜杠(/)
 5. 如果需要使用网络端口，请尽可能选择不常用的端口，避免冲突，例如：10000 以上的端口
 6. 请尽量使用相对路径，避免使用绝对路径，以免在跨平台时出现问题
@@ -1495,7 +1520,26 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     
     permissionMode = env_settings.get("permissionMode", "default")
     
-    if cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and engine in ["ds", "local"]:
+    if cwd and Path(cwd).exists() and cli_settings.get("enabled", False):
+        permission_message = ""
+        # 权限模式提示（原有逻辑，但修复了变量名）
+        if permissionMode != "plan" and permissionMode != "cowork":
+            permission_message = "你当前处于执行模式，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
+            content_append(request.messages, 'system', permission_message)
+        elif permissionMode == "cowork":
+            if not request.is_sub_agent:
+                permission_message += "你当前处于协作模式，create_subtask工具可以帮你完成几乎任何任务（比如查资料、写代码、生成报告等），当你遇到难题时，可以尝试把它分解成一个个小任务，交给create_subtask工具去完成！"
+                content_append(request.messages, 'system', permission_message)
+            else:
+                permission_message = "你当前处于执行模式，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
+                content_append(request.messages, 'system', permission_message)
+        else:
+            permission_message = "你当前处于计划模式，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
+            content_append(request.messages, 'system', permission_message)
+
+    if permissionMode == "cowork" and not request.is_sub_agent:
+        pass
+    elif cwd and Path(cwd).exists() and cli_settings.get("enabled", False) and engine in ["ds", "local"]:
         
         if engine == "local":
             # 在本地环境下，首先注入系统环境信息
@@ -1646,30 +1690,8 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
                 content_append(request.messages, 'system', skills_message)
         except Exception as e:
             print(f"[Skill Loader] 扫描技能失败: {e}")
-        permission_message = ""
-        # 权限模式提示（原有逻辑，但修复了变量名）
-        if permissionMode != "plan":
-            permission_message = "你当前处于执行模式，你可以自由地使用所有工具，但请注意不要滥用权限！如果有更安全的工具，请不要直接使用bash命令！"
-            content_append(request.messages, 'system', permission_message)
-        elif permissionMode == "cowork":
-            if not request.is_sub_agent:
-                permission_message += "你当前处于协作模式，对于需要**调用工具**完成的**任何事情**，你都倾向于将任何任务改写成一个或者多个简单子任务，**交给create_subtask工具执行**，这些子智能体将在后台异步执行这些任务，当你创建任务后，**请不要查询这些任务的结果**，因为它们可能还在执行中，请当用户询问时再查询任务进度即可!当你需要调用工具时，尽可能的使用子任务来执行，这样可以避免直接调用工具阻塞对话！"
-                content_append(request.messages, 'system', permission_message)
-            else:
-                pass
-        else:
-            permission_message = "你当前处于计划模式，请尽可能只使用只读工具了解当前项目，使用自然语言描述你的需求和计划，并等待用户确认后再执行！"
-            content_append(request.messages, 'system', permission_message)
 
-    if settings["HASettings"]["enabled"]:
-        HA_devices = await HA_client.call_tool("GetLiveContext", {})
-        HA_message = f"\n\n以下是home assistant连接的设备信息：{HA_devices}\n\n"
-        content_append(request.messages, 'system', HA_message)
-    if settings['sqlSettings']['enabled']:
-        sql_status = await sql_client.call_tool("all_table_names", {})
-        sql_message = f"\n\n以下是当前数据库all_table_names工具的返回结果：{sql_status}\n\n"
-        content_append(request.messages, 'system', sql_message)
-    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot:
+    if request.messages[-1]['role'] == 'system' and settings['tools']['autoBehavior']['enabled'] and not request.is_app_bot and not request.is_sub_agent:
         language_message = f"\n\n当你看到被插入到对话之间的系统消息，这是自主行为系统向你发送的消息，例如用户主动或者要求你设置了一些定时任务或者延时任务，当你看到自主行为系统向你发送的消息时，说明这些任务到了需要被执行的节点，例如：用户要你三点或五分钟后提醒开会的事情，然后当你看到一个被插入的“提醒用户开会”的系统消息，你需要立刻提醒用户开会，以此类推\n\n"
         content_append(request.messages, 'system', language_message)
 
@@ -1760,7 +1782,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
 如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！
 
-<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！
+<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！比如：<silence>![图片名](图片URL)</silence>\n\n
 
 注意！你最好只使用你正在扮演的角色音色和旁白音色，不要使用其他角色音色，除非你明确知道你在做什么！\n\n"""
                 
@@ -1770,7 +1792,7 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
 
 如果没有什么需要静音的文字，也没有必要强行使用<silence></silence>标签，因为这样会导致语音合成速度变慢！
 
-<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！"""
+<silence></silence>标签最好用于图片的markdown语法、网页链接等不适合语音合成的部分，并且<silence></silence>标签必须另起一行，并且独占一行！<silence></silence>标签与图片的markdown语法之间不能有空格和回车，否则会导致解析失败！比如：<silence>![图片名](图片URL)</silence>\n\n"""
             content_prepend(request.messages, 'system', tts_messages)
     if settings['vision']['desktopVision'] and not request.is_app_bot  and not request.is_sub_agent:
         desktop_message = "\n\n用户与你对话时，如果发了图片给你，有可能是给你发当前的桌面截图。\n\n"
@@ -2142,210 +2164,212 @@ def get_drs_stage_system_message(DRS_STAGE,user_prompt,full_content):
 async def generate_stream_response(client, reasoner_client, request: ChatRequest, settings: dict, 
                                    fastapi_base_url, enable_thinking, enable_deep_research, 
                                    enable_web_search, async_tools_id):
-    from mem0 import Memory
-    global mcp_client_list, HA_client, ChromeMCP_client, sql_client
-    
-    DRS_STAGE = 1
-    if len(request.messages) > 2:
-        DRS_STAGE = 2
+    try:
+        from mem0 import Memory
+        global mcp_client_list, HA_client, ChromeMCP_client, sql_client
         
-    max_rounds = settings.get("max_rounds", 0)
-
-    if max_rounds > 0 and request.messages:
-        def get_role(msg):
-            return msg.get("role") if isinstance(msg, dict) else msg.role
-        
-        def has_tool_calls(msg):
-            """检查assistant消息是否包含工具调用"""
-            if get_role(msg) != "assistant":
-                return False
-            if isinstance(msg, dict):
-                return bool(msg.get("tool_calls"))
-            return bool(getattr(msg, "tool_calls", None))
-        
-        def get_tool_call_id(msg):
-            """获取tool消息的tool_call_id"""
-            if isinstance(msg, dict):
-                return msg.get("tool_call_id")
-            return getattr(msg, "tool_call_id", None)
-
-        system_messages = []
-        chat_messages = request.messages
-
-        # 1. 分离system消息
-        if get_role(chat_messages[0]) == "system":
-            system_messages = [chat_messages[0]]
-            chat_messages = chat_messages[1:]
-
-        # 2. 从后向前截断，确保工具调用链完整
-        retain_count = max_rounds * 2 + 1  # user-assistant 对，+1 给可能的pending user
-        
-        if len(chat_messages) > retain_count:
-            # 从 retain_count 位置开始，向前扫描确保边界合法
-            start_idx = len(chat_messages) - retain_count
+        DRS_STAGE = 1
+        if len(request.messages) > 2:
+            DRS_STAGE = 2
             
-            # 边界检查1: 不能以 tool 或 assistant(with tool_calls) 开始
-            # 如果 start_idx 指向的是需要前文支撑的消息，继续前移
-            while start_idx > 0:
-                current_msg = chat_messages[start_idx]
-                current_role = get_role(current_msg)
-                
-                # 情况A: 不能以 tool 开始（tool必须有前置的assistant tool_calls）
-                if current_role == "tool":
-                    start_idx -= 1
-                    continue
-                    
-                # 情况B: 不能以带tool_calls的assistant开始（必须有前置user）
-                if has_tool_calls(current_msg):
-                    start_idx -= 1
-                    continue
-                    
-                # 情况C: 不能以普通assistant开始（必须有前置user）
-                if current_role == "assistant":
-                    start_idx -= 1
-                    continue
-                    
-                # 现在 start_idx 指向的是 user，检查是否完整
-                break
+        max_rounds = settings.get("max_rounds", 0)
+
+        if max_rounds > 0 and request.messages:
+            def get_role(msg):
+                return msg.get("role") if isinstance(msg, dict) else msg.role
             
-            # 边界检查2: 确保工具调用链完整（tool必须有对应的assistant）
-            # 向前扫描，收集所有需要保留的tool响应
-            i = start_idx
-            while i < len(chat_messages):
-                msg = chat_messages[i]
-                if has_tool_calls(msg):
-                    # 这个assistant调用了工具，确保后面有对应的tool响应
-                    assistant_tool_ids = set()
-                    if isinstance(msg, dict):
-                        for tc in msg.get("tool_calls", []):
-                            assistant_tool_ids.add(tc.get("id") if isinstance(tc, dict) else tc.id)
-                    else:
-                        for tc in getattr(msg, "tool_calls", []):
-                            assistant_tool_ids.add(getattr(tc, "id", None))
-                    
-                    # 检查后续消息中是否有对应的tool响应
-                    j = i + 1
-                    found_tools = set()
-                    while j < len(chat_messages) and get_role(chat_messages[j]) == "tool":
-                        found_tools.add(get_tool_call_id(chat_messages[j]))
-                        j += 1
-                    
-                    # 如果tool响应不全，需要把start_idx前移包含完整的链
-                    # 简化处理：如果截断导致工具链断裂，保留整个链
-                    missing_tools = assistant_tool_ids - found_tools
-                    if missing_tools and i > start_idx:
-                        # 这个assistant的tool响应被截断了，需要前移start_idx
-                        # 实际上这种情况不应该发生，因为我们是从前向后截断
-                        pass
-                        
-                i += 1
+            def has_tool_calls(msg):
+                """检查assistant消息是否包含工具调用"""
+                if get_role(msg) != "assistant":
+                    return False
+                if isinstance(msg, dict):
+                    return bool(msg.get("tool_calls"))
+                return bool(getattr(msg, "tool_calls", None))
             
-            chat_messages = chat_messages[start_idx:]
-            
-            # 最终保险：确保以user开始
-            while chat_messages and get_role(chat_messages[0]) != "user":
+            def get_tool_call_id(msg):
+                """获取tool消息的tool_call_id"""
+                if isinstance(msg, dict):
+                    return msg.get("tool_call_id")
+                return getattr(msg, "tool_call_id", None)
+
+            system_messages = []
+            chat_messages = request.messages
+
+            # 1. 分离system消息
+            if get_role(chat_messages[0]) == "system":
+                system_messages = [chat_messages[0]]
                 chat_messages = chat_messages[1:]
 
-        request.messages = system_messages + chat_messages
+            # 2. 从后向前截断，确保工具调用链完整
+            retain_count = max_rounds * 2 + 1  # user-assistant 对，+1 给可能的pending user
+            
+            if len(chat_messages) > retain_count:
+                # 从 retain_count 位置开始，向前扫描确保边界合法
+                start_idx = len(chat_messages) - retain_count
+                
+                # 边界检查1: 不能以 tool 或 assistant(with tool_calls) 开始
+                # 如果 start_idx 指向的是需要前文支撑的消息，继续前移
+                while start_idx > 0:
+                    current_msg = chat_messages[start_idx]
+                    current_role = get_role(current_msg)
+                    
+                    # 情况A: 不能以 tool 开始（tool必须有前置的assistant tool_calls）
+                    if current_role == "tool":
+                        start_idx -= 1
+                        continue
+                        
+                    # 情况B: 不能以带tool_calls的assistant开始（必须有前置user）
+                    if has_tool_calls(current_msg):
+                        start_idx -= 1
+                        continue
+                        
+                    # 情况C: 不能以普通assistant开始（必须有前置user）
+                    if current_role == "assistant":
+                        start_idx -= 1
+                        continue
+                        
+                    # 现在 start_idx 指向的是 user，检查是否完整
+                    break
+                
+                # 边界检查2: 确保工具调用链完整（tool必须有对应的assistant）
+                # 向前扫描，收集所有需要保留的tool响应
+                i = start_idx
+                while i < len(chat_messages):
+                    msg = chat_messages[i]
+                    if has_tool_calls(msg):
+                        # 这个assistant调用了工具，确保后面有对应的tool响应
+                        assistant_tool_ids = set()
+                        if isinstance(msg, dict):
+                            for tc in msg.get("tool_calls", []):
+                                assistant_tool_ids.add(tc.get("id") if isinstance(tc, dict) else tc.id)
+                        else:
+                            for tc in getattr(msg, "tool_calls", []):
+                                assistant_tool_ids.add(getattr(tc, "id", None))
+                        
+                        # 检查后续消息中是否有对应的tool响应
+                        j = i + 1
+                        found_tools = set()
+                        while j < len(chat_messages) and get_role(chat_messages[j]) == "tool":
+                            found_tools.add(get_tool_call_id(chat_messages[j]))
+                            j += 1
+                        
+                        # 如果tool响应不全，需要把start_idx前移包含完整的链
+                        # 简化处理：如果截断导致工具链断裂，保留整个链
+                        missing_tools = assistant_tool_ids - found_tools
+                        if missing_tools and i > start_idx:
+                            # 这个assistant的tool响应被截断了，需要前移start_idx
+                            # 实际上这种情况不应该发生，因为我们是从前向后截断
+                            pass
+                            
+                    i += 1
+                
+                chat_messages = chat_messages[start_idx:]
+                
+                # 最终保险：确保以user开始
+                while chat_messages and get_role(chat_messages[0]) != "user":
+                    chat_messages = chat_messages[1:]
 
-    images = await images_in_messages(request.messages,fastapi_base_url)
-    request.messages = await message_without_images(request.messages)
-    from py.load_files import get_files_content,file_tool,image_tool
-    from py.web_search import (
-        DDGsearch_async, 
-        searxng_async, 
-        Tavily_search_async,
-        Bing_search_async,
-        Google_search_async,
-        Brave_search_async,
-        Exa_search_async,
-        Serper_search_async,
-        bochaai_search_async,
-        duckduckgo_tool, 
-        searxng_tool, 
-        tavily_tool, 
-        bing_tool,
-        google_tool,
-        brave_tool,
-        exa_tool,
-        serper_tool,
-        bochaai_tool,
-        jina_crawler_tool, 
-        simple_fetch_tool,
-        Crawl4Ai_tool,
-        firecrawl_tool,
-        markdown_new_tool,
-    )
-    from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
-    from py.agent_tool import get_agent_tool
-    from py.a2a_tool import get_a2a_tool
-    from py.llm_tool import get_llm_tool
-    from py.pollinations import pollinations_image_tool,openai_image_tool,openai_chat_image_tool
-    from py.code_interpreter import e2b_code_tool,local_run_code_tool
-    from py.utility_tools import (
-        time_tool, 
-        weather_tool,
-        location_tool,
-        timer_weather_tool,
-        wikipedia_summary_tool,
-        wikipedia_section_tool,
-        arxiv_tool 
-    ) 
-    from py.autoBehavior import auto_behavior_tool
-    from py.cli_tool import claude_code_tool,qwen_code_tool,get_tools_for_mode,get_local_tools_for_mode
-    from py.cdp_tool import all_cdp_tools
-    from py.random_topic import random_topics_tools
+            request.messages = system_messages + chat_messages
 
-    from py.task_tools import (
-        create_subtask_tool,
-        query_tasks_tool,
-        cancel_subtask_tool,
-        finish_task_tool,
-    )
+        images = await images_in_messages(request.messages,fastapi_base_url)
+        request.messages = await message_without_images(request.messages)
+        from py.load_files import get_files_content,file_tool,image_tool
+        from py.web_search import (
+            DDGsearch_async, 
+            searxng_async, 
+            Tavily_search_async,
+            Bing_search_async,
+            Google_search_async,
+            Brave_search_async,
+            Exa_search_async,
+            Serper_search_async,
+            bochaai_search_async,
+            duckduckgo_tool, 
+            searxng_tool, 
+            tavily_tool, 
+            bing_tool,
+            google_tool,
+            brave_tool,
+            exa_tool,
+            serper_tool,
+            bochaai_tool,
+            jina_crawler_tool, 
+            simple_fetch_tool,
+            Crawl4Ai_tool,
+            firecrawl_tool,
+            markdown_new_tool,
+        )
+        from py.know_base import kb_tool,query_knowledge_base,rerank_knowledge_base
+        from py.agent_tool import get_agent_tool
+        from py.a2a_tool import get_a2a_tool
+        from py.llm_tool import get_llm_tool
+        from py.pollinations import pollinations_image_tool,openai_image_tool,openai_chat_image_tool
+        from py.code_interpreter import e2b_code_tool,local_run_code_tool
+        from py.utility_tools import (
+            time_tool, 
+            weather_tool,
+            location_tool,
+            timer_weather_tool,
+            wikipedia_summary_tool,
+            wikipedia_section_tool,
+            arxiv_tool 
+        ) 
+        from py.autoBehavior import auto_behavior_tool
+        from py.cli_tool import claude_code_tool,qwen_code_tool,get_tools_for_mode,get_local_tools_for_mode
+        from py.cdp_tool import all_cdp_tools
+        from py.random_topic import random_topics_tools
 
-    m0 = None
-    memoryId = None
-    if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
-        memoryId = settings["memorySettings"]["selectedMemory"]
-        cur_memory = None
-        for memory in settings["memories"]:
-            if memory["id"] == memoryId:
-                cur_memory = memory
-                break
-        if cur_memory and cur_memory["providerId"]:
-            print("长期记忆启用")
-            config={
-                "embedder": {
-                    "provider": 'openai',
-                    "config": {
-                        "model": cur_memory['model'],
-                        "api_key": cur_memory['api_key'],
-                        "openai_base_url":cur_memory["base_url"],
-                        "embedding_dims":cur_memory.get("embedding_dims", 1024)
+        from py.task_tools import (
+            create_subtask_tool,
+            query_tasks_tool,
+            cancel_subtask_tool,
+            finish_task_tool,
+        )
+
+        m0 = None
+        memoryId = None
+        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
+            memoryId = settings["memorySettings"]["selectedMemory"]
+            cur_memory = None
+            for memory in settings["memories"]:
+                if memory["id"] == memoryId:
+                    cur_memory = memory
+                    break
+            if cur_memory and cur_memory["providerId"]:
+                print("长期记忆启用")
+                config={
+                    "embedder": {
+                        "provider": 'openai',
+                        "config": {
+                            "model": cur_memory['model'],
+                            "api_key": cur_memory['api_key'],
+                            "openai_base_url":cur_memory["base_url"],
+                            "embedding_dims":cur_memory.get("embedding_dims", 1024)
+                        },
                     },
-                },
-                "llm": {
-                    "provider": 'openai',
-                    "config": {
-                        "model": settings['model'],
-                        "api_key": settings['api_key'],
-                        "openai_base_url":settings["base_url"]
-                    }
-                },
-                "vector_store": {
-                    "provider": "faiss",
-                    "config": {
-                        "collection_name": "agent-party",
-                        "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
-                        "distance_strategy": "euclidean",
-                        "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
+                    "llm": {
+                        "provider": 'openai',
+                        "config": {
+                            "model": settings['model'],
+                            "api_key": settings['api_key'],
+                            "openai_base_url":settings["base_url"]
+                        }
+                    },
+                    "vector_store": {
+                        "provider": "faiss",
+                        "config": {
+                            "collection_name": "agent-party",
+                            "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
+                            "distance_strategy": "euclidean",
+                            "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
+                        }
                     }
                 }
-            }
-            m0 = Memory.from_config(config)
-    open_tag = "<think>"
-    close_tag = "</think>"
-    try:
+                m0 = Memory.from_config(config)
+                print("长期记忆配置加载完成")
+        open_tag = "<think>"
+        close_tag = "</think>"
+
         tools = request.tools or []
         if mcp_client_list:
             for server_name, mcp_client in mcp_client_list.items():
@@ -2479,103 +2503,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                         },
                     }
                     tools.append(comfyui_tool)
-        # ==================== 获取权限模式 ====================
-        cli_settings = settings.get("CLISettings", {})
-        engine = cli_settings.get("engine", "")
         
-        # 根据环境类型获取权限模式
-        if engine == "local":
-            env_settings = settings.get("localEnvSettings", {})
-        elif engine == "ds":
-            env_settings = settings.get("dsSettings", {})
-        elif engine == "cc":
-            env_settings = settings.get("ccSettings", {})
-        elif engine == "qc":
-            env_settings = settings.get("qcSettings", {})
-        else:
-            env_settings = {}
-        
-        permission_mode = env_settings.get("permissionMode", "default")
-        if permission_mode == "cowork" and settings['CLISettings']['enabled'] and not request.is_sub_agent:
-            tools.append(create_subtask_tool)
-            tools.append(query_tasks_tool)
-            tools.append(cancel_subtask_tool)
-
-        if request.is_sub_agent:
-            tools.append(finish_task_tool)
-        # 如果是子智能体调用，或者指定了工具过滤规则
-        if request.is_sub_agent or request.enable_tools or request.disable_tools:
-            original_tool_count = len(tools)
-            
-            # 1. Enable Tools 过滤（白名单模式）
-            if request.enable_tools and len(request.enable_tools) > 0:
-                # 只保留白名单中的工具
-                filtered_tools = []
-                enable_set = set(request.enable_tools)
-                
-                for tool in tools:
-                    tool_name = tool.get("function", {}).get("name", "")
-                    if tool_name in enable_set:
-                        filtered_tools.append(tool)
-                
-                tools = filtered_tools
-                print(f"[Tool Filter] Enable mode: {original_tool_count} -> {len(tools)} tools (enabled: {request.enable_tools})")
-            
-            # 2. Disable Tools 过滤（黑名单模式）
-            elif request.disable_tools and len(request.disable_tools) > 0:
-                # 移除黑名单中的工具
-                disable_set = set(request.disable_tools)
-                filtered_tools = []
-                
-                for tool in tools:
-                    tool_name = tool.get("function", {}).get("name", "")
-                    if tool_name not in disable_set:
-                        filtered_tools.append(tool)
-                
-                tools = filtered_tools
-                print(f"[Tool Filter] Disable mode: {original_tool_count} -> {len(tools)} tools (disabled: {request.disable_tools})")
-            
-            # 3. 子智能体默认策略（如果没有指定 enable/disable）
-            elif request.is_sub_agent:
-                # 子智能体默认只保留安全的工具，移除高风险操作
-                SUBAGENT_BLOCKED_TOOLS = [
-                    # 阻止子智能体执行系统命令
-                    "claude_code_async",
-                    "qwen_code_async",
-                    
-                    # 阻止子智能体管理进程/端口
-                    "manage_processes_tool",
-                    "docker_manage_ports_tool",
-                    "local_net_tool",
-                    
-                    # 阻止子智能体创建子任务（防止递归）
-                    "create_subtask",
-                    
-                    # 阻止高风险的浏览器操作
-                    "new_page",
-                    "close_page",
-                    "evaluate_script",
-                    
-                    # 阻止子智能体使用 Agent 调用（防止复杂的嵌套）
-                    "agent_tool_call",
-                    "todo_write_tool",
-                ]
-                
-                filtered_tools = []
-                blocked_count = 0
-                
-                for tool in tools:
-                    tool_name = tool.get("function", {}).get("name", "")
-                    if tool_name not in SUBAGENT_BLOCKED_TOOLS:
-                        filtered_tools.append(tool)
-                    else:
-                        blocked_count += 1
-                
-                tools = filtered_tools
-                print(f"[SubAgent Safety] Blocked {blocked_count} dangerous tools: {original_tool_count} -> {len(tools)} tools")
-    
-
-        print(tools)
         source_prompt = ""
         if request.fileLinks:
             print("fileLinks",request.fileLinks)
@@ -2706,7 +2634,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             extra_params = {item['name']: item['value'] for item in extra_params}
         else:
             extra_params = {}
-        async def stream_generator(user_prompt,DRS_STAGE):
+        async def stream_generator(user_prompt,DRS_STAGE,tools):
             # ---------- 统一 SSE 封装 ----------
             def make_sse(tool_data: dict) -> str:
                 chunk = {
@@ -2724,7 +2652,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                     extra['max_completion_tokens'] = request.max_tokens or settings['max_tokens']
                 else:
                     extra['max_tokens'] = request.max_tokens or settings['max_tokens']
-                if settings.get('enableOmniTTS',False):
+                if settings.get('enableOmniTTS',False) and not request.is_sub_agent:
                     extra['modalities'] = ["text", "audio"]
                     extra['audio'] ={"voice": settings.get('omniVoice',"Cherry"), "format": "wav"}
                 if reasoner_vendor == 'OpenAI':
@@ -2957,6 +2885,106 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                             tools.append(markdown_new_tool)
                 if kb_list:
                     tools.append(kb_tool)
+
+                # ==================== 获取权限模式 ====================
+                cli_settings = settings.get("CLISettings", {})
+                engine = cli_settings.get("engine", "")
+                
+                # 根据环境类型获取权限模式
+                if engine == "local":
+                    env_settings = settings.get("localEnvSettings", {})
+                elif engine == "ds":
+                    env_settings = settings.get("dsSettings", {})
+                elif engine == "cc":
+                    env_settings = settings.get("ccSettings", {})
+                elif engine == "qc":
+                    env_settings = settings.get("qcSettings", {})
+                else:
+                    env_settings = {}
+                
+                permission_mode = env_settings.get("permissionMode", "default")
+                if permission_mode == "cowork" and settings['CLISettings']['enabled'] and not request.is_sub_agent:
+                    tools = []
+                    tools.append(create_subtask_tool)
+                    tools.append(query_tasks_tool)
+                    tools.append(cancel_subtask_tool)
+
+                if request.is_sub_agent:
+                    tools.append(finish_task_tool)
+                # 如果是子智能体调用，或者指定了工具过滤规则
+                if request.is_sub_agent or request.enable_tools or request.disable_tools:
+                    original_tool_count = len(tools)
+                    
+                    # 1. Enable Tools 过滤（白名单模式）
+                    if request.enable_tools and len(request.enable_tools) > 0:
+                        # 只保留白名单中的工具
+                        filtered_tools = []
+                        enable_set = set(request.enable_tools)
+                        
+                        for tool in tools:
+                            tool_name = tool.get("function", {}).get("name", "")
+                            if tool_name in enable_set:
+                                filtered_tools.append(tool)
+                        
+                        tools = filtered_tools
+                        print(f"[Tool Filter] Enable mode: {original_tool_count} -> {len(tools)} tools (enabled: {request.enable_tools})")
+                    
+                    # 2. Disable Tools 过滤（黑名单模式）
+                    elif request.disable_tools and len(request.disable_tools) > 0:
+                        # 移除黑名单中的工具
+                        disable_set = set(request.disable_tools)
+                        filtered_tools = []
+                        
+                        for tool in tools:
+                            tool_name = tool.get("function", {}).get("name", "")
+                            if tool_name not in disable_set:
+                                filtered_tools.append(tool)
+                        
+                        tools = filtered_tools
+                        print(f"[Tool Filter] Disable mode: {original_tool_count} -> {len(tools)} tools (disabled: {request.disable_tools})")
+                    
+                    # 3. 子智能体默认策略（如果没有指定 enable/disable）
+                    elif request.is_sub_agent:
+                        # 子智能体默认只保留安全的工具，移除高风险操作
+                        SUBAGENT_BLOCKED_TOOLS = [
+                            # 阻止子智能体执行系统命令
+                            "claude_code_async",
+                            "qwen_code_async",
+                            
+                            # 阻止子智能体管理进程/端口
+                            "manage_processes_tool",
+                            "docker_manage_ports_tool",
+                            "local_net_tool",
+                            
+                            # 阻止子智能体创建子任务（防止递归）
+                            "create_subtask",
+                            
+                            # 阻止高风险的浏览器操作
+                            "new_page",
+                            "close_page",
+                            "evaluate_script",
+                            
+                            # 阻止子智能体使用 Agent 调用（防止复杂的嵌套）
+                            "agent_tool_call",
+                            "todo_write_tool",
+                        ]
+                        
+                        filtered_tools = []
+                        blocked_count = 0
+                        
+                        for tool in tools:
+                            tool_name = tool.get("function", {}).get("name", "")
+                            if tool_name not in SUBAGENT_BLOCKED_TOOLS:
+                                filtered_tools.append(tool)
+                            else:
+                                blocked_count += 1
+                        
+                        tools = filtered_tools
+                        print(f"[SubAgent Safety] Blocked {blocked_count} dangerous tools: {original_tool_count} -> {len(tools)} tools")
+            
+
+                print(tools)
+
                 if settings['tools']['deepsearch']['enabled'] or enable_deep_research: 
                     deepsearch_messages = copy.deepcopy(request.messages)
                     content_append(deepsearch_messages, 'user',  "\n\n将用户提出的问题或给出的当前任务拆分成多个步骤，每一个步骤用一句简短的话概括即可，无需回答或执行这些内容，直接返回总结即可，但不能省略问题或任务的细节。如果用户输入的只是闲聊或者不包含任务和问题，直接把用户输入重复输出一遍即可。如果是非常简单的问题，也可以只给出一个步骤即可。一般情况下都是需要拆分成多个步骤的。")
@@ -3618,6 +3646,15 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                                 "reasoning_content": "",
                             }
                         )
+
+                        # 【核心修复】：如果工具返回的是审批请求，立即跳出循环，结束当前流，等待前端手动调用恢复
+                        if isinstance(results, str) and '"approval_required"' in results:
+                            try:
+                                parsed_res = json.loads(results)
+                                if parsed_res.get("type") == "approval_required":
+                                    break  # 立即跳出 while 循环，不再进行下一轮 LLM 推理
+                            except Exception:
+                                pass
                     # 如果启用推理模型
                     if settings['reasoner']['enabled'] or enable_thinking:
                         if tools:
@@ -4067,7 +4104,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 return
         
         return StreamingResponse(
-            stream_generator(user_prompt, DRS_STAGE),
+            stream_generator(user_prompt, DRS_STAGE, tools),
             media_type="text/event-stream",
             headers={
                 "Content-Type": "text/event-stream",
@@ -5110,7 +5147,7 @@ async def execute_tool_manually(request: Request):
 
     # 新增：本地环境 CLI 工具（假设保存在 py/local_cli_tool.py）
     from py.cli_tool import (
-        bash_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
+        shell_tool_local,           # 本地 bash 执行（对应 docker_sandbox_async）
         list_files_tool_local,     # 本地文件列表
         read_file_tool_local,      # 本地文件读取
         read_file_range_tool_local, # <--- 新增导入
@@ -5224,7 +5261,7 @@ async def execute_tool_manually(request: Request):
         "read_skill_tool": read_skill_tool,
         
         # 本地环境工具（新增）- 与 Docker 版本功能相同但操作本地文件系统
-        "bash_tool_local": bash_tool_local,                     # 本地 bash 执行
+        "shell_tool_local": shell_tool_local,                     # 本地 bash 执行
         "list_files_tool_local": list_files_tool_local,         # 本地文件列表
         "read_file_tool_local": read_file_tool_local,           # 本地文件读取
         "read_file_range_tool_local": read_file_range_tool_local, # <--- 映射新工具
@@ -5400,26 +5437,21 @@ async def fetch_provider_models(request: ProviderModelRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/chat/completions", operation_id="chat_with_agent_party")
-async def chat_endpoint(request: ChatRequest,fastapi_request: Request):
+async def chat_endpoint(request: ChatRequest, fastapi_request: Request):
     """
     用来与agent party中的模型聊天
-    messages: 必填项，聊天记录，包括role和content
-    model: 可选项，默认使用 'super-model'，可以用get_models()获取所有可用的模型
-    stream: 可选项，默认为False，是否启用流式响应
-    enable_thinking: 默认为False，是否启用思考模式
-    enable_deep_research: 默认为False，是否启用深度研究模式
-    enable_web_search: 默认为False，是否启用网络搜索
     """
     fastapi_base_url = str(fastapi_request.base_url)
-    global client, settings,reasoner_client,mcp_client_list
+    # 【注意】引入全局 fast_client
+    global client, reasoner_client, fast_client, settings, mcp_client_list
+    
     raw_model = request.model or 'super-model'
     override_memory_id = None
     
     if raw_model.startswith("memory/"):
-        parts = raw_model.split('/', 2) # 分解为 ['memory', 'id', 'rest']
+        parts = raw_model.split('/', 2) 
         if len(parts) >= 2:
             override_memory_id = parts[1]
-            # 如果有第三部分，则是实际的模型/Agent名；否则默认为 super-model
             request.model = parts[2] if len(parts) > 2 else 'super-model'
             print(f"检测到动态 Memory ID: {override_memory_id}, 目标模型更新为: {request.model}")
     
@@ -5428,64 +5460,133 @@ async def chat_endpoint(request: ChatRequest,fastapi_request: Request):
     enable_deep_research = request.enable_deep_research or False
     enable_web_search = request.enable_web_search or False
     async_tools_id = request.asyncToolsID or None
+
     if model == 'super-model':
         current_settings = await load_settings()
+        
+        # 【修改点1】创建当前请求的专属配置，避免污染全局
+        request_settings = current_settings.copy()
+        active_client = client  # 默认使用主模型
+        
+        if current_settings['fast']['enabled'] and not request.is_sub_agent:
+            fast_cfg = current_settings['fast']
+            use_fast_model = False
+            
+            if fast_cfg.get('triggerMode') == 'always':
+                use_fast_model = True
+            elif fast_cfg.get('triggerMode') == 'conditional':
+                last_user_text = ""
+                has_image = False
+                for msg in reversed(request.messages):
+                    if msg.get('role') == 'user':
+                        content = msg.get('content')
+                        if isinstance(content, str):
+                            last_user_text = content
+                        elif isinstance(content, list):
+                            texts = []
+                            for item in content:
+                                if item.get('type') == 'text':
+                                    texts.append(item.get('text', ''))
+                                elif item.get('type') == 'image_url':
+                                    has_image = True
+                            last_user_text = "".join(texts)
+                        break
+                
+                has_files = bool(request.fileLinks) 
+                condition_pass = True
+                
+                max_len = fast_cfg.get('conditionMaxLen', 0)
+                if max_len > 0 and len(last_user_text) > max_len:
+                    condition_pass = False
+                if condition_pass and fast_cfg.get('conditionNoNewline', False):
+                    if '\n' in last_user_text:
+                        condition_pass = False
+                if condition_pass and fast_cfg.get('conditionNoFiles', True):
+                    if has_image or has_files:
+                        condition_pass = False
+                        
+                if condition_pass:
+                    use_fast_model = True
+
+            if use_fast_model:
+                exclude_keys = ['enabled', 'triggerMode', 'conditionMaxLen', 'conditionNoNewline', 'conditionNoFiles']
+                fast_config = {k: v for k, v in fast_cfg.items() if k not in exclude_keys}
+                
+                # 更新专属配置，不影响 current_settings
+                request_settings.update(fast_config)
+                
+                # 【修改点2】动态检查并更新快速模型的 Client (仅配置被修改时触发)
+                old_fast_cfg = settings.get('fast', {}) if settings else {}
+                if (fast_client is None 
+                    or fast_cfg.get('api_key') != old_fast_cfg.get('api_key') 
+                    or fast_cfg.get('base_url') != old_fast_cfg.get('base_url')):
+                    
+                    f_provider = fast_cfg.get('selectedProvider', current_settings.get('selectedProvider'))
+                    f_class = get_client_class(current_settings, f_provider)
+                    fast_client = f_class(
+                        api_key=fast_cfg.get('api_key') or current_settings.get('api_key'),
+                        base_url=fast_cfg.get('base_url') or current_settings.get('base_url') or "https://api.openai.com/v1"
+                    )
+                
+                # 当前请求切花为快速 Client
+                active_client = fast_client
+
         if override_memory_id:
-            current_settings["memorySettings"]["is_memory"] = True
-            current_settings["memorySettings"]["selectedMemory"] = override_memory_id
+            request_settings["memorySettings"]["is_memory"] = True
+            request_settings["memorySettings"]["selectedMemory"] = override_memory_id
+            
         if len(current_settings['modelProviders']) <= 0:
-            return JSONResponse(
-                status_code=500,
-                content={"error": {"message": await t("NoModelProvidersConfigured"), "type": "server_error", "code": 500}}
-            )
-        vendor = 'OpenAI'
-        for modelProvider in current_settings['modelProviders']: 
-            if modelProvider['id'] == current_settings['selectedProvider']:
-                vendor = modelProvider['vendor']
-                break
-        client_class = AsyncOpenAI
-        if vendor == 'Dify':
-            client_class = DifyOpenAIAsync
-        reasoner_vendor = 'OpenAI'
-        for modelProvider in current_settings['modelProviders']: 
-            if modelProvider['id'] == current_settings['reasoner']['selectedProvider']:
-                reasoner_vendor = modelProvider['vendor']
-                break
-        reasoner_client_class = AsyncOpenAI
-        if reasoner_vendor == 'Dify':
-            reasoner_client_class = DifyOpenAIAsync
-        # 动态更新客户端配置
+            return JSONResponse(status_code=500, content={"error": {"message": await t("NoModelProvidersConfigured"), "type": "server_error", "code": 500}})
+
+        # 【修改点3】动态更新主模型 Client (仅主配置修改时)
         if (current_settings['api_key'] != settings['api_key'] 
-            or current_settings['base_url'] != settings['base_url']):
-            client = client_class(
+            or current_settings['base_url'] != settings['base_url']
+            or client is None):
+            c_class = get_client_class(current_settings, current_settings['selectedProvider'])
+            client = c_class(
                 api_key=current_settings['api_key'],
                 base_url=current_settings['base_url'] or "https://api.openai.com/v1",
             )
+            # 如果当前没有触发快速模型，需要确保 active_client 指向最新的主 client
+            if active_client != fast_client:
+                active_client = client
+
+        # 动态更新推理模型 Client
         if (current_settings['reasoner']['api_key'] != settings['reasoner']['api_key'] 
-            or current_settings['reasoner']['base_url'] != settings['reasoner']['base_url']):
-            reasoner_client = reasoner_client_class(
+            or current_settings['reasoner']['base_url'] != settings['reasoner']['base_url']
+            or reasoner_client is None):
+            r_class = get_client_class(current_settings, current_settings['reasoner']['selectedProvider'])
+            reasoner_client = r_class(
                 api_key=current_settings['reasoner']['api_key'],
                 base_url=current_settings['reasoner']['base_url'] or "https://api.openai.com/v1",
             )
-        # 将"system_prompt"插入到request.messages[0].content中
-        if current_settings['system_prompt']:
-            content_prepend(request.messages, 'system', current_settings['system_prompt'] + "\n\n")
+
+        print('model:', request_settings['model'])
+        
+        # 将"system_prompt"插入到request.messages[0].content中 (注意这里使用的是 request_settings)
+        if request_settings['system_prompt']:
+            content_prepend(request.messages, 'system', request_settings['system_prompt'] + "\n\n")
+            
+        # 【核心修正】因为之前我们没污染 current_settings，所以这里的比较才是真实的配置对比
         if current_settings != settings:
             settings = current_settings
+            
         try:
+            # 传入 active_client (0延迟切换) 和 request_settings
             if request.stream:
-                return await generate_stream_response(client,reasoner_client, request, settings,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search,async_tools_id)
-            return await generate_complete_response(client,reasoner_client, request, settings,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search)
+                return await generate_stream_response(active_client, reasoner_client, request, request_settings, fastapi_base_url, enable_thinking, enable_deep_research, enable_web_search, async_tools_id)
+            return await generate_complete_response(active_client, reasoner_client, request, request_settings, fastapi_base_url, enable_thinking, enable_deep_research, enable_web_search)
         except asyncio.CancelledError:
-            # 处理客户端中断连接的情况
             print("Client disconnected")
             raise
         except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={"error": {"message": str(e), "type": "server_error", "code": 500}}
-            )
+            return JSONResponse(status_code=500, content={"error": {"message": str(e), "type": "server_error", "code": 500}})
+            
     else:
+        # ===== Agent 部分逻辑 ===== 
+        # (因为 agent_settings 每次请求都是从本地 json.load 创建的新字典，
+        # 所以它天生就不会产生你主模型遇到的“全局污染”问题，这里的代码可以基本保留原样)
+        
         current_settings = await load_settings()
         agentSettings = current_settings['agents'].get(model, {})
         if not agentSettings:
@@ -5494,53 +5595,78 @@ async def chat_endpoint(request: ChatRequest,fastapi_request: Request):
                     agentSettings = current_settings['agents'][agentId]
                     break
         if not agentSettings:
-            return JSONResponse(
-                status_code=404,
-                content={"error": {"message": f"Agent {model} not found", "type": "not_found", "code": 404}}
-            )
+            return JSONResponse(status_code=404, content={"error": {"message": f"Agent {model} not found", "type": "not_found", "code": 404}})
+            
+        # 每次读取文件生成新的 agent_settings 字典
         if agentSettings['config_path']:
             with open(agentSettings['config_path'], 'r' , encoding='utf-8') as f:
                 agent_settings = json.load(f)
-            # 将"system_prompt"插入到request.messages[0].content中
             if agentSettings['system_prompt']:
                 content_prepend(request.messages, 'user', agentSettings['system_prompt'] + "\n\n")
-        vendor = 'OpenAI'
-        for modelProvider in agent_settings['modelProviders']: 
-            if modelProvider['id'] == agent_settings['selectedProvider']:
-                vendor = modelProvider['vendor']
-                break
-        client_class = AsyncOpenAI
-        if vendor == 'Dify':
-            client_class = DifyOpenAIAsync
-        reasoner_vendor = 'OpenAI'
-        for modelProvider in agent_settings['modelProviders']: 
-            if modelProvider['id'] == agent_settings['reasoner']['selectedProvider']:
-                reasoner_vendor = modelProvider['vendor']
-                break
-        reasoner_client_class = AsyncOpenAI
-        if reasoner_vendor == 'Dify':
-            reasoner_client_class = DifyOpenAIAsync
-        agent_client = client_class(
-            api_key=agent_settings['api_key'],
-            base_url=agent_settings['base_url'] or "https://api.openai.com/v1",
+        
+        if agent_settings['fast']['enabled'] and not request.is_sub_agent:
+            fast_cfg = agent_settings['fast']
+            use_fast_model = False
+            
+            if fast_cfg.get('triggerMode') == 'always':
+                use_fast_model = True
+            elif fast_cfg.get('triggerMode') == 'conditional':
+                last_user_text = ""
+                has_image = False
+                for msg in reversed(request.messages):
+                    if msg.get('role') == 'user':
+                        content = msg.get('content')
+                        if isinstance(content, str):
+                            last_user_text = content
+                        elif isinstance(content, list):
+                            texts = []
+                            for item in content:
+                                if item.get('type') == 'text':
+                                    texts.append(item.get('text', ''))
+                                elif item.get('type') == 'image_url':
+                                    has_image = True
+                            last_user_text = "".join(texts)
+                        break
+                
+                has_files = bool(request.fileLinks)
+                condition_pass = True
+                max_len = fast_cfg.get('conditionMaxLen', 0)
+                if max_len > 0 and len(last_user_text) > max_len: condition_pass = False
+                if condition_pass and fast_cfg.get('conditionNoNewline', False):
+                    if '\n' in last_user_text: condition_pass = False
+                if condition_pass and fast_cfg.get('conditionNoFiles', True):
+                    if has_image or has_files: condition_pass = False
+                        
+                if condition_pass:
+                    use_fast_model = True
+
+            if use_fast_model:
+                exclude_keys = ['enabled', 'triggerMode', 'conditionMaxLen', 'conditionNoNewline', 'conditionNoFiles']
+                fast_config = {k: v for k, v in fast_cfg.items() if k not in exclude_keys}
+                agent_settings.update(fast_config) # Agent 这里更新无所谓，因为它是局部变量
+                
+        # 顺便用上刚才写的辅助函数简化代码
+        a_client_class = get_client_class(agent_settings, agent_settings.get('selectedProvider'))
+        agent_client = a_client_class(
+            api_key=agent_settings.get('api_key', ''),
+            base_url=agent_settings.get('base_url') or "https://api.openai.com/v1"
         )
-        agent_reasoner_client = reasoner_client_class(
-            api_key=agent_settings['reasoner']['api_key'],
-            base_url=agent_settings['reasoner']['base_url'] or "https://api.openai.com/v1",
+        
+        ar_client_class = get_client_class(agent_settings, agent_settings.get('reasoner', {}).get('selectedProvider'))
+        agent_reasoner_client = ar_client_class(
+            api_key=agent_settings.get('reasoner', {}).get('api_key', ''),
+            base_url=agent_settings.get('reasoner', {}).get('base_url') or "https://api.openai.com/v1"
         )
+        
         try:
             if request.stream:
-                return await generate_stream_response(agent_client,agent_reasoner_client, request, agent_settings,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search,async_tools_id)
-            return await generate_complete_response(agent_client,agent_reasoner_client, request, agent_settings,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search)
+                return await generate_stream_response(agent_client, agent_reasoner_client, request, agent_settings, fastapi_base_url, enable_thinking, enable_deep_research, enable_web_search, async_tools_id)
+            return await generate_complete_response(agent_client, agent_reasoner_client, request, agent_settings, fastapi_base_url, enable_thinking, enable_deep_research, enable_web_search)
         except asyncio.CancelledError:
-            # 处理客户端中断连接的情况
             print("Client disconnected")
             raise
         except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={"error": {"message": str(e), "type": "server_error", "code": 500}}
-            )
+            return JSONResponse(status_code=500, content={"error": {"message": str(e), "type": "server_error", "code": 500}})
 
 @app.post("/simple_chat")
 async def simple_chat_endpoint(request: ChatRequest):
@@ -6216,12 +6342,15 @@ async def asr_transcription(
     HTTP版本的ASR接口
     支持多种音频格式，根据配置自动选择ASR引擎
     """
+    # 声明使用全局缓存
+    global openai_asr_clients_cache, settings
+
     try:
-        # 读取上传的音频文件
+        # 1. 读取上传的音频文件
         audio_bytes = await audio.read()
         print(f"Received audio file: {audio.filename}, size: {len(audio_bytes)} bytes")
         
-        # 自动检测格式（如果用户没有指定）
+        # 2. 自动检测格式
         if format == "auto":
             if audio.filename:
                 file_ext = audio.filename.split('.')[-1].lower()
@@ -6229,23 +6358,40 @@ async def asr_transcription(
             else:
                 format = 'wav'
         
-        # 加载设置
-        settings = await load_settings()
-        asr_settings = settings.get('asrSettings', {})
+        # 3. 加载设置 (为了性能，可以直接使用全局变量 settings，或者重新加载)
+        current_settings = await load_settings()
+        asr_settings = current_settings.get('asrSettings', {})
         asr_engine = asr_settings.get('engine', 'openai')
         
         result = ""
         
+        # ==========================================
+        # ASR 引擎分支：OpenAI (Whisper)
+        # ==========================================
         if asr_engine == "openai":
-            # OpenAI ASR
-            print("Using OpenAI ASR engine")
-            audio_file = BytesIO(audio_bytes)
-            audio_file.name = f"audio.{format}"
+            api_key = asr_settings.get('api_key', '')
+            base_url = asr_settings.get('base_url', '') or "https://api.openai.com/v1"
             
-            client = AsyncOpenAI(
-                api_key=asr_settings.get('api_key', ''),
-                base_url=asr_settings.get('base_url', '') or "https://api.openai.com/v1"
-            )
+            if not api_key:
+                raise HTTPException(status_code=400, detail="OpenAI ASR API密钥未配置")
+
+            # --- 核心改进：使用缓存的客户端 ---
+            cache_key = (api_key, base_url)
+            if cache_key not in openai_asr_clients_cache:
+                print(f"Initializing new OpenAI ASR Client for: {base_url}")
+                openai_asr_clients_cache[cache_key] = AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=base_url
+                )
+            client = openai_asr_clients_cache[cache_key]
+            # --------------------------------
+
+            print(f"Using OpenAI ASR engine ({asr_settings.get('model', 'whisper-1')})")
+            
+            # 包装音频数据
+            audio_file = BytesIO(audio_bytes)
+            # OpenAI SDK 要求文件必须有特定的名字后缀来判断类型
+            audio_file.name = f"audio.{format}"
             
             response = await client.audio.transcriptions.create(
                 file=audio_file,
@@ -6253,15 +6399,21 @@ async def asr_transcription(
             )
             result = response.text
             
+        # ==========================================
+        # ASR 引擎分支：FunASR
+        # ==========================================
         elif asr_engine == "funasr":
-            # FunASR（强制使用离线模式）
             print("Using FunASR engine (offline mode)")
+            # 假设 funasr_recognize_offline 内部已处理好性能问题
             result = await funasr_recognize_offline(audio_bytes, asr_settings)
             
+        # ==========================================
+        # ASR 引擎分支：Sherpa (本地)
+        # ==========================================
         elif asr_engine == "sherpa":
             from py.sherpa_asr import sherpa_recognize
-            # Sherpa ASR
             print("Using Sherpa ASR engine")
+            # Sherpa 通常是本地模型推理，损耗在于 CPU/GPU，不在连接建立
             result = await sherpa_recognize(audio_bytes)
         
         else:
@@ -6274,11 +6426,11 @@ async def asr_transcription(
                 }
             )
         
-        # 返回识别结果
+        # 4. 返回识别结果
         return JSONResponse(
             content={
                 "success": True,
-                "text": result.strip(),
+                "text": result.strip() if result else "",
                 "engine": asr_engine,
                 "format": format
             }
@@ -6286,6 +6438,8 @@ async def asr_transcription(
         
     except Exception as e:
         print(f"ASR HTTP interface error: {e}")
+        import traceback
+        traceback.print_exc()
         
         return JSONResponse(
             status_code=500,
@@ -6448,155 +6602,102 @@ class TTSConnectionManager:
     def __init__(self):
         self.main_connections: List[WebSocket] = []
         self.vrm_connections: List[WebSocket] = []
-        self.audio_cache: Dict[str, bytes] = {}  # 缓存音频数据
-        
+
     async def connect_main(self, websocket: WebSocket):
         await websocket.accept()
         self.main_connections.append(websocket)
         logging.info(f"Main interface connected. Total: {len(self.main_connections)}")
-        
+
     async def connect_vrm(self, websocket: WebSocket):
         await websocket.accept()
         self.vrm_connections.append(websocket)
         logging.info(f"VRM interface connected. Total: {len(self.vrm_connections)}")
-        
+
     def disconnect_main(self, websocket: WebSocket):
         if websocket in self.main_connections:
             self.main_connections.remove(websocket)
-            logging.info(f"Main interface disconnected. Total: {len(self.main_connections)}")
-            
+
     def disconnect_vrm(self, websocket: WebSocket):
         if websocket in self.vrm_connections:
             self.vrm_connections.remove(websocket)
-            logging.info(f"VRM interface disconnected. Total: {len(self.vrm_connections)}")
-    
-    async def broadcast_to_vrm(self, message: dict):
-        """广播消息到所有VRM连接"""
-        if self.vrm_connections:
-            message_str = json.dumps(message)
-            disconnected = []
-            
-            for connection in self.vrm_connections:
-                try:
-                    await connection.send_text(message_str)
-                except:
-                    disconnected.append(connection)
-            
-            # 清理断开的连接
-            for conn in disconnected:
-                self.disconnect_vrm(conn)
-    
-    async def send_to_main(self, message: dict):
-        """发送消息到主界面"""
-        if self.main_connections:
-            message_str = json.dumps(message)
-            disconnected = []
-            
-            for connection in self.main_connections:
-                try:
-                    await connection.send_text(message_str)
-                except:
-                    disconnected.append(connection)
-            
-            # 清理断开的连接
-            for conn in disconnected:
-                self.disconnect_main(conn)
-    
-    def cache_audio(self, audio_id: str, audio_data: bytes):
-        """缓存音频数据"""
-        self.audio_cache[audio_id] = audio_data
-        
-    def get_cached_audio(self, audio_id: str) -> bytes:
-        """获取缓存的音频数据"""
-        return self.audio_cache.get(audio_id)
 
-# 创建连接管理器实例
+    async def broadcast_to_vrm(self, message: Union[str, bytes]):
+        """核心：同时支持字符串 JSON 和二进制 Blob 透传"""
+        if not self.vrm_connections:
+            return
+        disconnected = []
+        for connection in self.vrm_connections:
+            try:
+                if isinstance(message, bytes):
+                    await connection.send_bytes(message)
+                else:
+                    await connection.send_text(message)
+            except:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect_vrm(conn)
+
+    async def send_to_main(self, message: str):
+        if not self.main_connections:
+            return
+        disconnected = []
+        for connection in self.main_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect_main(conn)
+
 tts_manager = TTSConnectionManager()
+
+async def broadcast_to_vrm(self, message: Union[str, bytes]):
+    if not self.vrm_connections:
+        return
+    disconnected = []
+    for connection in self.vrm_connections:
+        try:
+            if isinstance(message, bytes):
+                await connection.send_bytes(message)
+            else:
+                await connection.send_text(message)
+        except:
+            disconnected.append(connection)
+    for conn in disconnected:
+        self.disconnect_vrm(conn)
 
 @app.websocket("/ws/tts")
 async def tts_websocket_endpoint(websocket: WebSocket):
-    """主界面的WebSocket连接"""
     await tts_manager.connect_main(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            logging.info(f"Received from main: {message['type']}")
-            
-            # 如果消息包含音频URL，需要特殊处理
-            if message['type'] == 'startSpeaking' and 'audioUrl' in message['data']:
-                # 获取音频数据并转换为base64
-                audio_url = message['data']['audioUrl']
-                chunk_index = message['data']['chunkIndex']
-                expressions = message['data']['expressions']
-                # 生成音频ID
-                audio_id = f"chunk_{chunk_index}_{message['data'].get('timestamp', '')}"
-                
-                # 修改消息，使用音频ID而不是URL
-                message['data']['audioId'] = audio_id
-                message['data']['useBase64'] = True
-                
-                # 如果有缓存的音频数据，直接发送
-                cached_audio = tts_manager.get_cached_audio(audio_id)
-                if cached_audio:
-                    message['data']['audioData'] = base64.b64encode(cached_audio).decode('utf-8')
-            
-            # 转发到所有VRM连接
-            await tts_manager.broadcast_to_vrm({
-                'type': message['type'],
-                'data': message['data'],
-                'timestamp': message.get('timestamp', None)
-            })
-            
+            msg = await websocket.receive()
+            # 透传所有数据，无论是 bytes 还是 text
+            if "bytes" in msg:
+                await tts_manager.broadcast_to_vrm(msg["bytes"])
+            elif "text" in msg:
+                await tts_manager.broadcast_to_vrm(msg["text"])
     except WebSocketDisconnect:
-        tts_manager.disconnect_main(websocket)
-    except Exception as e:
-        logging.error(f"WebSocket error in main connection: {e}")
         tts_manager.disconnect_main(websocket)
 
 @app.websocket("/ws/vrm")
 async def vrm_websocket_endpoint(websocket: WebSocket):
-    """VRM界面的WebSocket连接"""
+    """VRM 窗口 WebSocket：接收主窗口发来的数据"""
     await tts_manager.connect_vrm(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            logging.info(f"Received from VRM: {message['type']}")
-            
-            # 处理VRM请求音频数据
-            if message['type'] == 'requestAudioData':
-                audio_id = message['data']['audioId']
-                expressions = message['data']['expressions']
-                text = message['data']['text']
-                cached_audio = tts_manager.get_cached_audio(audio_id)
-                
-                if cached_audio:
-                    await websocket.send_text(json.dumps({
-                        'type': 'audioData',
-                        'data': {
-                            'audioId': audio_id,
-                            'audioData': base64.b64encode(cached_audio).decode('utf-8'),
-                            'expressions':expressions,
-                            'text':text
-                        }
-                    }))
-            
-            # 可以处理VRM发送的状态信息
-            elif message['type'] == 'animationComplete':
-                await tts_manager.send_to_main({
-                    'type': 'vrmAnimationComplete',
-                    'data': message['data']
-                })
-            
+            msg = await websocket.receive()
+            if "text" in msg:
+                # 处理来自 VRM 的反馈（如 requestAudioData 或 animationComplete）
+                data = json.loads(msg["text"])
+                if data.get('type') == 'animationComplete':
+                    await tts_manager.send_to_main(msg["text"])
+            # VRM 窗口通常不主动给主窗口发二进制，所以这里暂不处理 bytes
     except WebSocketDisconnect:
         tts_manager.disconnect_vrm(websocket)
     except Exception as e:
-        logging.error(f"WebSocket error in VRM connection: {e}")
+        logging.error(f"WS error in VRM: {e}")
         tts_manager.disconnect_vrm(websocket)
-
 
 @app.get("/tts/status")
 async def get_tts_status():
@@ -6611,33 +6712,36 @@ async def get_tts_status():
 @app.post("/tts")
 async def text_to_speech(request: Request):
     import edge_tts
+    import subprocess
+    
+    # 声明全局缓存和客户端
+    global global_http_client, openai_tts_clients_cache, tetos_speakers_cache
+
     try:
         data = await request.json()
-        text = data['text']
-        if text == "":
+        text = data.get('text', '')
+        if not text:
             return JSONResponse(status_code=400, content={"error": "Text is empty"})
         
         # 移动端专用：强制使用opus格式
         mobile_optimized = data.get('mobile_optimized', False)
         target_format = "opus" if mobile_optimized else data.get('format', 'mp3')
         
-        new_voice = data.get('voice','default')
-        tts_settings = data['ttsSettings']
-        if new_voice in tts_settings['newtts'] and new_voice!='default':
-            # 获取新声音的配置
+        new_voice = data.get('voice', 'default')
+        tts_settings = data.get('ttsSettings', {})
+        
+        # 处理声音配置继承逻辑
+        if new_voice in tts_settings.get('newtts', {}) and new_voice != 'default':
             voice_settings = tts_settings['newtts'][new_voice]
             parent_settings = tts_settings
             
-            # 从父配置继承关键字段（只继承非空值）
             inherited_fields = ['api_key', 'base_url', 'model', 'selectedProvider', 'vendor']
             for field in inherited_fields:
-                # 只在子配置中不存在或为空，且父配置中有非空值时继承
                 child_value = voice_settings.get(field, '')
                 parent_value = parent_settings.get(field, '')
                 if not child_value and parent_value:
                     voice_settings[field] = parent_value
             
-            # 如果有selectedProvider但仍缺少api_key，从modelProviders中查找
             selected_provider_id = voice_settings.get('selectedProvider')
             if selected_provider_id and not voice_settings.get('api_key'):
                 model_providers = parent_settings.get('modelProviders', [])
@@ -6648,777 +6752,331 @@ async def text_to_speech(request: Request):
                         voice_settings['model'] = provider.get('modelId', '')
                         voice_settings['vendor'] = provider.get('vendor', '')
                         break
-            
             tts_settings = voice_settings
-        index = data['index']
+
+        index = data.get('index', 0)
         tts_engine = tts_settings.get('engine', 'edgetts')
                 
         print(f"TTS请求 - 引擎: {tts_engine}, 格式: {target_format}, 移动端优化: {mobile_optimized}")
                 
+        # ==========================================
+        # 1. EdgeTTS 引擎
+        # ==========================================
         if tts_engine == 'edgetts':
             edgettsLanguage = tts_settings.get('edgettsLanguage', 'zh-CN')
             edgettsVoice = tts_settings.get('edgettsVoice', 'XiaoyiNeural')
             rate = tts_settings.get('edgettsRate', 1.0)
             full_voice_name = f"{edgettsLanguage}-{edgettsVoice}"
             
-            # 飞书优化：稍微降低语速
             if mobile_optimized:
                 rate = min(rate * 0.95, 1.1)
             
             rate_text = "+0%"
             if rate >= 1.0:
-                rate_pent = (rate - 1.0) * 100
-                rate_text = f"+{int(rate_pent)}%"
+                rate_text = f"+{int((rate - 1.0) * 100)}%"
             elif rate < 1.0:
-                rate_pent = (1.0 - rate) * 100
-                rate_text = f"-{int(rate_pent)}%"
+                rate_text = f"-{int((1.0 - rate) * 100)}%"
             
             async def generate_audio():
                 communicate = edge_tts.Communicate(text, full_voice_name, rate=rate_text)
-                
                 if target_format == "opus":
-                    # 需要转换为opus，收集完整数据
                     audio_chunks = []
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             audio_chunks.append(chunk["data"])
                     
                     full_audio = b''.join(audio_chunks)
-                    
-                    # 【修复点 2】放入线程池 + 解包元组
                     convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
-                    if isinstance(convert_result, tuple):
-                        opus_audio = convert_result[0]
-                    else:
-                        opus_audio = convert_result
+                    opus_audio = convert_result[0] if isinstance(convert_result, tuple) else convert_result
                     
-                    # 分块返回opus数据
                     chunk_size = 4096
                     for i in range(0, len(opus_audio), chunk_size):
                         yield opus_audio[i:i + chunk_size]
                 else:
-                    # 真流式
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             yield chunk["data"]
 
-            # 设置正确的媒体类型和文件名
-            if target_format == "opus":
-                media_type = "audio/ogg"  # opus通常包装在ogg容器中
-                filename = f"tts_{index}.opus"
-            else:
-                media_type = "audio/mpeg"  # EdgeTTS默认返回mp3
-                filename = f"tts_{index}.mp3"
+            media_type = "audio/ogg" if target_format == "opus" else "audio/mpeg"
+            filename = f"tts_{index}.opus" if target_format == "opus" else f"tts_{index}.mp3"
             
             return StreamingResponse(
                 generate_audio(),
                 media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
+                headers={"Content-Disposition": f"inline; filename={filename}", "X-Audio-Index": str(index), "X-Audio-Format": target_format}
             )
 
+        # ==========================================
+        # 2. CustomTTS 引擎 (使用全局连接池)
+        # ==========================================
         elif tts_engine == 'customTTS':
-            # 从 tts_settings 中获取用户配置的键名，如果未配置，则使用默认值
             key_text = tts_settings.get('customTTSKeyText', 'text')
             key_speaker = tts_settings.get('customTTSKeySpeaker', 'speaker')
             key_speed = tts_settings.get('customTTSKeySpeed', 'speed')
-
-            # 获取用户配置的 speaker 和 speed 的值
             speaker_value = tts_settings.get('customTTSspeaker', '')
             speed_value = tts_settings.get('customTTSspeed', 1.0)
             
-            # 移动端优化
             if mobile_optimized:
                 speed_value = min(speed_value * 0.95, 1.2)
 
-            # 使用用户配置的键名构建 params
-            params = {
-                key_text: text,
-                key_speaker: speaker_value,
-                key_speed: speed_value,
-            }
-            
-            custom_tts_servers_list = tts_settings.get('customTTSserver', 'http://127.0.0.1:9880').split('\n')
-            custom_tts_servers_list = [server for server in custom_tts_servers_list if server.strip()]
-            custom_tt_server = custom_tts_servers_list[index % len(custom_tts_servers_list)]
-            
-            # 获取流式配置
+            params = {key_text: text, key_speaker: speaker_value, key_speed: speed_value}
+            servers = [s for s in tts_settings.get('customTTSserver', 'http://127.0.0.1:9880').split('\n') if s.strip()]
+            custom_tt_server = servers[index % len(servers)]
             custom_streaming = tts_settings.get('customStream', False)
             
             async def generate_audio():
-                safe_tts_url = sanitize_url(
-                    input_url=custom_tt_server,
-                    default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
-                    endpoint=""  # 因为 TTS URL 通常已经包含了路径
-                )
-                timeout_config = httpx.Timeout(None, connect=10.0) 
-                async with httpx.AsyncClient(timeout=timeout_config) as client:
-                    try:
-                        async with client.stream("GET", safe_tts_url, params=params) as response:
-                            response.raise_for_status()
+                safe_url = sanitize_url(input_url=custom_tt_server, default_base="http://127.0.0.1:9880", endpoint="")
+                try:
+                    # 使用全局客户端，无需 async with httpx.AsyncClient()
+                    async with global_http_client.stream("GET", safe_url, params=params) as response:
+                        response.raise_for_status()
+                        if custom_streaming:
+                            async for chunk in response.aiter_bytes():
+                                yield chunk
+                        else:
+                            audio_data = await response.aread()
+                            if target_format == "opus":
+                                convert_result = await asyncio.to_thread(convert_to_opus_simple, audio_data)
+                                audio_data = convert_result[0] if isinstance(convert_result, tuple) else convert_result
                             
-                            if custom_streaming:
-                                # 流式模式：直接返回数据，假设服务端能返回正确格式
-                                async for chunk in response.aiter_bytes():
-                                    if chunk:
-                                        yield chunk
-                            else:
-                                # 非流式模式：收集完整数据，进行格式转换
-                                audio_chunks = []
-                                async for chunk in response.aiter_bytes():
-                                    if chunk:
-                                        audio_chunks.append(chunk)
-                                
-                                full_audio = b''.join(audio_chunks)
-                                
-                                # 转换为opus
-                                if target_format == "opus":
-                                    # 【修复点 3】放入线程池 + 解包元组
-                                    convert_result = await asyncio.to_thread(convert_to_opus_simple, full_audio)
-                                    if isinstance(convert_result, tuple):
-                                        opus_audio = convert_result[0]
-                                    else:
-                                        opus_audio = convert_result
-                                        
-                                    chunk_size = 4096
-                                    for i in range(0, len(opus_audio), chunk_size):
-                                        yield opus_audio[i:i + chunk_size]
-                                else:
-                                    chunk_size = 4096
-                                    for i in range(0, len(full_audio), chunk_size):
-                                        yield full_audio[i:i + chunk_size]
-                                        
-                    except httpx.RequestError as e:
-                        raise HTTPException(status_code=502, detail=f"Custom TTS 连接失败: {str(e)}")
+                            chunk_size = 4096
+                            for i in range(0, len(audio_data), chunk_size):
+                                yield audio_data[i:i + chunk_size]
+                except Exception as e:
+                    raise HTTPException(status_code=502, detail=f"Custom TTS 连接失败: {str(e)}")
 
-            # 根据流式模式和目标格式设置媒体类型和文件名
-            if custom_streaming:
-                # 流式模式：假设返回的格式与目标格式一致
-                if target_format == "opus":
-                    media_type = "audio/ogg"
-                    filename = f"tts_{index}.opus"
-                else:
-                    # 默认假设是wav格式
-                    media_type = "audio/wav"
-                    filename = f"tts_{index}.wav"
-            else:
-                # 非流式模式：保持原有逻辑
-                if target_format == "opus":
-                    media_type = "audio/ogg"
-                    filename = f"tts_{index}.opus"
-                else:
-                    media_type = "audio/wav"
-                    filename = f"tts_{index}.wav"
+            media_type = "audio/ogg" if target_format == "opus" else "audio/wav"
+            filename = f"tts_{index}.opus" if target_format == "opus" else f"tts_{index}.wav"
+            return StreamingResponse(generate_audio(), media_type=media_type, headers={"Content-Disposition": f"inline; filename={filename}", "X-Audio-Index": str(index)})
 
-            return StreamingResponse(
-                generate_audio(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
-
+        # ==========================================
+        # 3. GSV 引擎 (使用全局连接池)
+        # ==========================================
         elif tts_engine == 'GSV':
-            # GSV生成ogg格式，检查是否可以直接作为opus使用
             audio_path = os.path.join(UPLOAD_FILES_DIR, tts_settings.get('gsvRefAudioPath', ''))
-            if not os.path.exists(audio_path):
-                audio_path = tts_settings.get('gsvRefAudioPath', '')
+            if not os.path.exists(audio_path): audio_path = tts_settings.get('gsvRefAudioPath', '')
 
             gsv_params = {
-                "text": text,
-                "text_lang": tts_settings.get('gsvTextLang', 'zh'),
-                "ref_audio_path": audio_path,
-                "prompt_lang": tts_settings.get('gsvPromptLang', 'zh'),
-                "prompt_text": tts_settings.get('gsvPromptText', ''),
-                "speed_factor": tts_settings.get('gsvRate', 1.0),
-                "sample_steps": tts_settings.get('gsvSample_steps', 4),
-                "streaming_mode": True,
-                "text_split_method": "cut0",
-                "media_type": "ogg",
-                "batch_size": 1,
-                "seed": 42,
+                "text": text, "text_lang": tts_settings.get('gsvTextLang', 'zh'),
+                "ref_audio_path": audio_path, "prompt_lang": tts_settings.get('gsvPromptLang', 'zh'),
+                "prompt_text": tts_settings.get('gsvPromptText', ''), "speed_factor": tts_settings.get('gsvRate', 1.0),
+                "sample_steps": tts_settings.get('gsvSample_steps', 4), "streaming_mode": True,
+                "media_type": "ogg", "batch_size": 1, "seed": 42,
             }
+            if mobile_optimized: gsv_params["speed_factor"] = min(gsv_params["speed_factor"] * 0.95, 1.1)
             
-            if mobile_optimized:
-                gsv_params["speed_factor"] = min(gsv_params["speed_factor"] * 0.95, 1.1)
-            
-            gsvServer_list = tts_settings.get('gsvServer', 'http://127.0.0.1:9880').split('\n')
-            gsvServer_list = [server for server in gsvServer_list if server.strip()]
-            gsvServer = gsvServer_list[index % len(gsvServer_list)]
+            servers = [s for s in tts_settings.get('gsvServer', 'http://127.0.0.1:9880').split('\n') if s.strip()]
+            gsvServer = servers[index % len(servers)]
                 
             async def generate_audio():
-                safe_tts_url = sanitize_url(
-                    input_url=gsvServer,
-                    default_base="http://127.0.0.1:9880", # 这里填你代码里原本的默认 TTS 地址
-                    endpoint="/tts"  # 因为 TTS URL 通常已经包含了路径
-                )
-                timeout_config = httpx.Timeout(None, connect=10.0) 
-                async with httpx.AsyncClient(timeout=timeout_config) as client:
-                    try:
-                        async with client.stream("POST", safe_tts_url, json=gsv_params) as response:
-                            response.raise_for_status()
-                            # 直接流式返回，不管目标格式（假设GSV的ogg内部是opus编码）
-                            async for chunk in response.aiter_bytes():
-                                if chunk:
-                                    yield chunk
-                                
-                    except httpx.HTTPStatusError as e:
-                        error_detail = f"GSV服务错误: {e.response.status_code}"
-                        raise HTTPException(status_code=502, detail=error_detail)
+                safe_url = sanitize_url(input_url=gsvServer, default_base="http://127.0.0.1:9880", endpoint="/tts")
+                try:
+                    async with global_http_client.stream("POST", safe_url, json=gsv_params) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            yield chunk
+                except Exception as e:
+                    raise HTTPException(status_code=502, detail=f"GSV服务错误: {str(e)}")
             
-            # 统一使用ogg媒体类型，但文件名根据目标格式调整
-            media_type = "audio/ogg"
-            filename = f"tts_{index}.opus" if target_format == "opus" else f"tts_{index}.ogg"
-            
-            return StreamingResponse(
-                generate_audio(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
-            
+            return StreamingResponse(generate_audio(), media_type="audio/ogg", headers={"Content-Disposition": f"inline; filename=tts_{index}.opus"})
+
+        # ==========================================
+        # 4. 火山引擎 (使用全局连接池)
+        # ==========================================
         elif tts_engine == 'volcengine':
-            # ==========================================
-            # 火山引擎 (Volcengine) TTS
-            # ==========================================
-            import json
-            import base64
-            
-            # 1. 获取配置
             volc_app_id = tts_settings.get('volcAppId', '')
             volc_access_key = tts_settings.get('volcAccessKey', '')
-            # 这里的 Resource ID 通常是 'volc_tts_release'，或者是特定的部署ID
             volc_resource_id = tts_settings.get('volcResourceId', 'volc_tts_release') 
             volc_voice = tts_settings.get('volcVoice', 'zh_female_cancan_mars_bigtts')
             volc_rate = float(tts_settings.get('volcRate', 1.0))
+            if mobile_optimized: volc_rate = min(volc_rate * 0.95, 1.2)
             
-            # 移动端优化：火山的语速范围通常在 [0.2, 3.0] 之间，1.0为正常
-            if mobile_optimized:
-                volc_rate = min(volc_rate * 0.95, 1.2)
-            
-            # 2. 构造请求
             url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
-            headers = {
-                "X-Api-App-Id": volc_app_id,
-                "X-Api-Access-Key": volc_access_key,
-                "X-Api-Resource-Id": volc_resource_id,
-                "Content-Type": "application/json",
-                "Connection": "keep-alive"
-            }
-            
-            # 构造 payload
-            # 注意：speed_ratio 是在 req_params 下，不同模型可能支持程度不同，标准V3支持
+            headers = {"X-Api-App-Id": volc_app_id, "X-Api-Access-Key": volc_access_key, "X-Api-Resource-Id": volc_resource_id, "Content-Type": "application/json"}
             payload = {
-                "user": {
-                    "uid": "123456" # 这里的uid可以是任意标识
-                },
+                "user": {"uid": "123456"},
                 "req_params": {
-                    "text": text,
-                    "speaker": volc_voice,
-                    "speed_ratio": volc_rate, 
-                    "audio_params": {
-                        "format": "mp3", # 火山默认输出 mp3 或 pcm，这里选 mp3
-                        "sample_rate": 24000,
-                    },
-                    # 避免 Markdown 符号被朗读出来
+                    "text": text, "speaker": volc_voice, "speed_ratio": volc_rate, 
+                    "audio_params": {"format": "mp3", "sample_rate": 24000},
                     "additions": "{\"disable_markdown_filter\":true}" 
                 }
             }
 
             async def generate_audio():
-                timeout_config = httpx.Timeout(None, connect=10.0)
-                async with httpx.AsyncClient(timeout=timeout_config) as client:
-                    try:
-                        async with client.stream("POST", url, headers=headers, json=payload) as response:
-                            if response.status_code != 200:
-                                error_content = await response.aread()
-                                print(f"[Volcengine Error] Status: {response.status_code}, Body: {error_content}")
-                                raise HTTPException(status_code=502, detail=f"火山引擎返回错误: {response.status_code}")
-
-                            # 准备收集器（如果需要转 opus）
-                            collected_audio = bytearray()
-                            
-                            # httpx 的 aiter_lines 对应 requests 的 iter_lines
-                            async for line in response.aiter_lines():
-                                if not line:
-                                    continue
-                                try:
-                                    data = json.loads(line)
-                                except json.JSONDecodeError:
-                                    continue
-
-                                # 处理错误码
-                                if data.get("code", 0) != 0 and data.get("code", 0) != 20000000:
-                                    # 忽略结束标识 20000000，报告其他错误
-                                    print(f"[Volcengine Error Packet] {data}")
-                                    continue
-                                
-                                if "data" in data and data["data"]:
-                                    chunk_audio = base64.b64decode(data["data"])
-                                    
-                                    if target_format == "opus":
-                                        # 如果需要转 opus，必须先收集所有 mp3 数据
-                                        collected_audio.extend(chunk_audio)
-                                    else:
-                                        # 不需要转换，直接流式输出 mp3
-                                        yield chunk_audio
-                            
-                            # 循环结束后，如果是 opus 模式，进行转换
-                            if target_format == "opus" and len(collected_audio) > 0:
-                                # 【复用既有的转换函数】放入线程池 + 解包元组
-                                convert_result = await asyncio.to_thread(convert_to_opus_simple, bytes(collected_audio))
-                                if isinstance(convert_result, tuple):
-                                    opus_audio = convert_result[0]
-                                else:
-                                    opus_audio = convert_result
-                                
-                                # 分块返回
-                                chunk_size = 4096
-                                for i in range(0, len(opus_audio), chunk_size):
-                                    yield opus_audio[i:i + chunk_size]
-
-                    except httpx.RequestError as e:
-                        print(f"[Volcengine Network Error] {str(e)}")
-                        raise HTTPException(status_code=502, detail=f"火山引擎连接失败: {str(e)}")
-
-            # 设置响应头
-            if target_format == "opus":
-                media_type = "audio/ogg"
-                filename = f"tts_{index}.opus"
-            else:
-                media_type = "audio/mpeg"
-                filename = f"tts_{index}.mp3"
-
-            return StreamingResponse(
-                generate_audio(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
-
-        elif tts_engine == 'openai':
-            # OpenAI TTS处理
-            openai_config = {
-                'api_key': tts_settings.get('api_key', ''),
-                'model': tts_settings.get('model', 'tts-1'),
-                'voice': tts_settings.get('openaiVoice', 'alloy'),
-                'speed': tts_settings.get('openaiSpeed', 1.0),
-                'base_url': tts_settings.get('base_url', 'https://api.openai.com/v1'),
-                'prompt_text': tts_settings.get('gsvPromptText', ''),
-                'ref_audio': tts_settings.get('gsvRefAudioPath', ''),
-                'streaming': tts_settings.get('openaiStream', False)
-            }
-            
-            if not openai_config['api_key']:
-                raise HTTPException(status_code=400, detail="OpenAI API密钥未配置")
-            
-            speed = float(openai_config['speed'])
-            if mobile_optimized:
-                speed = min(speed * 0.95, 1.2)
-            
-            speed = max(0.25, min(4.0, speed))
-
-            async def generate_audio():
                 try:
-                    client = AsyncOpenAI(
-                        api_key=openai_config['api_key'],
-                        base_url=openai_config['base_url']
-                    )
-                    
-                    # 根据目标格式设置response_format
-                    response_format = target_format if target_format in ['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'] else 'mp3'
-                    
-                    # 准备请求参数
-                    request_params = {
-                        'model': openai_config['model'],
-                        'input': text,
-                        'speed': speed,
-                        'response_format': response_format
-                    }
-                    
-                    # 处理参考音频
-                    if openai_config['ref_audio']:
-                        audio_file_path = os.path.join(UPLOAD_FILES_DIR, openai_config['ref_audio'])
-                        with open(audio_file_path, "rb") as audio_file:
-                            audio_data = audio_file.read()
-                        audio_type = Path(audio_file_path).suffix[1:]
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                        audio_uri = f"data:audio/{audio_type};base64,{audio_base64}"
+                    async with global_http_client.stream("POST", url, headers=headers, json=payload) as response:
+                        response.raise_for_status()
+                        collected_audio = bytearray()
+                        async for line in response.aiter_lines():
+                            if not line: continue
+                            data = json.loads(line)
+                            if data.get("code", 0) != 0 and data.get("code", 0) != 20000000: continue
+                            if "data" in data and data["data"]:
+                                chunk_audio = base64.b64decode(data["data"])
+                                if target_format == "opus": collected_audio.extend(chunk_audio)
+                                else: yield chunk_audio
                         
-                        request_params['voice'] = None
-                        request_params['extra_body'] = {
-                            "references": [{"text": openai_config['prompt_text'], "audio": audio_uri}]
-                        }
-                    else:
-                        request_params['voice'] = openai_config['voice']
-                    
-                    # 根据流式设置选择调用方式
-                    if openai_config['streaming']:
-                        # 流式模式 - 真正的流式，无需格式转换
-                        async with client.audio.speech.with_streaming_response.create(**request_params) as response:
-                            async for chunk in response.iter_bytes(chunk_size=4096):
-                                yield chunk
-                                await asyncio.sleep(0)
-                    else:
-                        # 非流式模式
-                        response = await client.audio.speech.create(**request_params)
-                        content = await response.aread()
-                        
-                        # 分块返回
-                        chunk_size = 4096
-                        for i in range(0, len(content), chunk_size):
-                            yield content[i:i + chunk_size]
-                            await asyncio.sleep(0)
-                                
+                        if target_format == "opus" and collected_audio:
+                            res = await asyncio.to_thread(convert_to_opus_simple, bytes(collected_audio))
+                            final = res[0] if isinstance(res, tuple) else res
+                            for i in range(0, len(final), 4096): yield final[i:i + 4096]
                 except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"OpenAI TTS错误: {str(e)}")
-            
-            # 根据目标格式设置媒体类型和文件名
-            if target_format == "opus":
-                media_type = "audio/ogg"  # opus通常用ogg容器
-                filename = f"tts_{index}.opus"
-            elif target_format == "wav":
-                media_type = "audio/wav"
-                filename = f"tts_{index}.wav"
-            elif target_format == "aac":
-                media_type = "audio/aac"
-                filename = f"tts_{index}.aac"
-            elif target_format == "flac":
-                media_type = "audio/flac"
-                filename = f"tts_{index}.flac"
-            else:  # mp3 或其他
-                media_type = "audio/mpeg"
-                filename = f"tts_{index}.mp3"
-            
-            return StreamingResponse(
-                generate_audio(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
-        elif tts_engine == 'systemtts':
-            import subprocess
-            import uuid
-            # 注意：pyttsx3 不要在全局导入，防止在 Mac 上干扰主线程
+                    raise HTTPException(status_code=502, detail=f"火山引擎错误: {str(e)}")
 
-            # ==========================================
-            # System TTS (Cross-Platform) 引擎
-            # ==========================================
+            media_type = "audio/ogg" if target_format == "opus" else "audio/mpeg"
+            return StreamingResponse(generate_audio(), media_type=media_type)
+
+        # ==========================================
+        # 5. OpenAI TTS (使用实例缓存)
+        # ==========================================
+        elif tts_engine == 'openai':
+            api_key = tts_settings.get('api_key', '')
+            base_url = tts_settings.get('base_url', 'https://api.openai.com/v1')
+            if not api_key: raise HTTPException(status_code=400, detail="API密钥未配置")
             
-            # 1. 获取配置参数
-            system_voice_name = tts_settings.get('systemVoiceName', None)
-            system_rate = tts_settings.get('systemRate', 200)
+            # 获取或创建缓存的客户端
+            cache_key = (api_key, base_url)
+            if cache_key not in openai_tts_clients_cache:
+                openai_tts_clients_cache[cache_key] = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            client = openai_tts_clients_cache[cache_key]
+
+            speed = float(tts_settings.get('openaiSpeed', 1.0))
+            if mobile_optimized: speed = min(speed * 0.95, 1.2)
             
-            # 移动端优化：适当降低语速
-            if mobile_optimized:
-                system_rate = int(system_rate * 0.95)
-            
-            # 2. 定义同步合成函数 (将在线程池中运行)
-            def sync_generate_wav(input_text: str, voice_name: str, rate: int, req_index: int) -> bytes:
-                """
-                跨平台同步合成：
-                - Windows/Linux: 使用 pyttsx3
-                - macOS: 使用系统原生 'say' 命令 (避开 Cocoa 线程限制)
-                """
-                unique_suffix = uuid.uuid4().hex[:8]
-                temp_file = f"temp_tts_{req_index}_{unique_suffix}.wav"
-                # 假设 TOOL_TEMP_DIR 是你全局定义的临时目录，如果没有请改为 "." 或 os.getcwd()
-                temp_filename = os.path.join(TOOL_TEMP_DIR, temp_file)
+            async def generate_audio():
+                response_format = target_format if target_format in ['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'] else 'mp3'
+                params = {'model': tts_settings.get('model', 'tts-1'), 'input': text, 'speed': max(0.25, min(4.0, speed)), 'response_format': response_format}
                 
+                ref_audio = tts_settings.get('gsvRefAudioPath', '')
+                if ref_audio:
+                    audio_file_path = os.path.join(UPLOAD_FILES_DIR, ref_audio)
+                    audio_base64 = base64.b64encode(open(audio_file_path, "rb").read()).decode('utf-8')
+                    params['extra_body'] = {"references": [{"text": tts_settings.get('gsvPromptText', ''), "audio": f"data:audio/{Path(audio_file_path).suffix[1:]};base64,{audio_base64}"}]}
+                else:
+                    params['voice'] = tts_settings.get('openaiVoice', 'alloy')
+
+                if tts_settings.get('openaiStream', False):
+                    async with client.audio.speech.with_streaming_response.create(**params) as response:
+                        async for chunk in response.iter_bytes(chunk_size=4096): yield chunk
+                else:
+                    response = await client.audio.speech.create(**params)
+                    content = await response.aread()
+                    for i in range(0, len(content), 4096): yield content[i:i + 4096]
+
+            media_map = {"opus": "audio/ogg", "wav": "audio/wav", "aac": "audio/aac", "flac": "audio/flac"}
+            return StreamingResponse(generate_audio(), media_type=media_map.get(target_format, "audio/mpeg"))
+
+        # ==========================================
+        # 6. System TTS (系统原生)
+        # ==========================================
+        elif tts_engine == 'systemtts':
+            system_voice_name = tts_settings.get('systemVoiceName', None)
+            system_rate = int(tts_settings.get('systemRate', 200))
+            if mobile_optimized: system_rate = int(system_rate * 0.95)
+            
+            def sync_generate_wav(input_text, voice_name, rate, req_index):
+                temp_filename = os.path.join(TOOL_TEMP_DIR, f"temp_tts_{req_index}_{uuid.uuid4().hex[:8]}.wav")
                 wav_data = b""
-                current_os = platform.system()
-
                 try:
-                    # -------------------------------------------------
-                    # 分支 A: macOS 系统 (使用 subprocess 调用 say)
-                    # -------------------------------------------------
-                    if current_os == 'Darwin':
-                        # --data-format=LEI16@22050 强制输出标准 WAV (16bit Little Endian, 22.05kHz)
+                    if platform.system() == 'Darwin':
                         cmd = ['say', '-o', temp_filename, '--data-format=LEI16@22050', input_text]
-                        
-                        if voice_name:
-                            cmd.extend(['-v', voice_name])
-                        
-                        if rate:
-                            # 简单传递语速，虽然 pyttsx3 和 say 的数值标准不同，但在合理范围内都可用
-                            cmd.extend(['-r', str(rate)])
-
-                        # 执行命令
-                        subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
-
-                    # -------------------------------------------------
-                    # 分支 B: Windows / Linux (使用 pyttsx3)
-                    # -------------------------------------------------
+                        if voice_name: cmd.extend(['-v', voice_name])
+                        if rate: cmd.extend(['-r', str(rate)])
+                        subprocess.run(cmd, check=True)
                     else:
                         import pyttsx3
-                        # 在子线程内初始化，隔离环境
                         engine = pyttsx3.init()
                         engine.setProperty('rate', rate)
-                        
                         if voice_name:
-                            voices = engine.getProperty('voices')
-                            for voice in voices:
-                                # 模糊匹配名称或精确匹配ID
-                                if voice_name.lower() in voice.name.lower() or voice_name == voice.id:
-                                    engine.setProperty('voice', voice.id)
-                                    break
-                        
-                        # save_to_file 是阻塞操作，在 Windows 上安全
+                            for v in engine.getProperty('voices'):
+                                if voice_name.lower() in v.name.lower() or voice_name == v.id:
+                                    engine.setProperty('voice', v.id); break
                         engine.save_to_file(input_text, temp_filename)
                         engine.runAndWait()
-
-                    # -------------------------------------------------
-                    # 读取生成的音频
-                    # -------------------------------------------------
-                    if os.path.exists(temp_filename):
-                        with open(temp_filename, 'rb') as f:
-                            wav_data = f.read()
-                    else:
-                        raise Exception("TTS引擎未能生成音频文件")
-
-                except subprocess.CalledProcessError as e:
-                    print(f"[SystemTTS-Mac] 命令执行失败: {e.stderr.decode() if e.stderr else str(e)}")
-                    raise Exception("macOS TTS 生成失败")
-                except Exception as e:
-                    print(f"[SystemTTS] 合成出错 ({current_os}): {str(e)}")
-                    raise e
+                    if os.path.exists(temp_filename): wav_data = open(temp_filename, 'rb').read()
                 finally:
-                    # 清理临时文件
-                    if os.path.exists(temp_filename):
-                        try:
-                            os.remove(temp_filename)
-                        except:
-                            pass
-                
+                    if os.path.exists(temp_filename): os.remove(temp_filename)
                 return wav_data
 
-            # 3. 异步生成流程
             async def generate_audio():
-                try:
-                    # 将同步阻塞操作放入线程池
-                    wav_content = await asyncio.to_thread(
-                        sync_generate_wav, 
-                        text, 
-                        system_voice_name, 
-                        system_rate, 
-                        index
-                    )
-                    
-                    if not wav_content:
-                        raise HTTPException(status_code=500, detail="SystemTTS 生成内容为空")
-
-                    # 格式转换逻辑 (WAV -> OPUS)
-                    final_audio = wav_content
-                    if target_format == "opus":
-                        # 【修复点 1】放入线程池 + 解包元组
-                        convert_result = await asyncio.to_thread(convert_to_opus_simple, wav_content)
-                        if isinstance(convert_result, tuple):
-                            final_audio = convert_result[0] # 取出数据部分
-                        else:
-                            final_audio = convert_result
-                    
-                    # 分块返回 (模拟流式)
-                    chunk_size = 4096
-                    for i in range(0, len(final_audio), chunk_size):
-                        yield final_audio[i:i + chunk_size]
-                        await asyncio.sleep(0) # 让出控制权
-                        
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"SystemTTS 处理失败: {str(e)}")
-            # 4. 设置响应头
-            if target_format == "opus":
-                media_type = "audio/ogg"
-                filename = f"tts_{index}.opus"
-            else:
-                media_type = "audio/wav"
-                filename = f"tts_{index}.wav"
+                wav_content = await asyncio.to_thread(sync_generate_wav, text, system_voice_name, system_rate, index)
+                final = wav_content
+                if target_format == "opus":
+                    res = await asyncio.to_thread(convert_to_opus_simple, wav_content)
+                    final = res[0] if isinstance(res, tuple) else res
+                for i in range(0, len(final), 4096): yield final[i:i + 4096]
             
-            return StreamingResponse(
-                generate_audio(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
-        
+            media_type = "audio/ogg" if target_format == "opus" else "audio/wav"
+            return StreamingResponse(generate_audio(), media_type=media_type)
+
         # ==========================================
-        # Tetos 统一处理逻辑 (Azure, Baidu, etc.)
+        # 7. Tetos SDK (Azure, 百度, 谷歌, Fish, etc. - 使用实例缓存)
         # ==========================================
         elif tts_engine in ['azure', 'baidu', 'minimax', 'xunfei', 'fish', 'google']:
-            import traceback # 用于打印报错堆栈
-            import uuid
-            # 1. 准备临时文件路径
-            unique_suffix = uuid.uuid4().hex[:8]
-            os.makedirs(TOOL_TEMP_DIR, exist_ok=True)
-            temp_filename = os.path.join(TOOL_TEMP_DIR, f"temp_tetos_{index}_{unique_suffix}.mp3")
+            selected_voice = tts_settings.get(f'{tts_engine}Voice', '') or None
+            
+            # 根据引擎生成缓存Key
+            if tts_engine == 'azure': cache_key = (tts_engine, tts_settings.get('azureSpeechKey'), tts_settings.get('azureRegion'), selected_voice)
+            elif tts_engine == 'baidu': cache_key = (tts_engine, tts_settings.get('baiduApiKey'), tts_settings.get('baiduSecretKey'), selected_voice)
+            elif tts_engine == 'minimax': cache_key = (tts_engine, tts_settings.get('minimaxApiKey'), tts_settings.get('minimaxGroupId'), selected_voice)
+            elif tts_engine == 'xunfei': cache_key = (tts_engine, tts_settings.get('xunfeiAppId'), tts_settings.get('xunfeiApiKey'), tts_settings.get('xunfeiApiSecret'), selected_voice)
+            elif tts_engine == 'fish': cache_key = (tts_engine, tts_settings.get('fishApiKey'), selected_voice)
+            elif tts_engine == 'google': cache_key = (tts_engine, hash(tts_settings.get('googleServiceAccount', '')), selected_voice)
+            else: cache_key = None
 
-            print(f"[DEBUG] 准备调用 Tetos: 引擎={tts_engine}, 临时文件={temp_filename}")
+            temp_filename = os.path.join(TOOL_TEMP_DIR, f"temp_tetos_{index}_{uuid.uuid4().hex[:8]}.mp3")
 
-            # 2. 定义同步生成函数 (将在线程池运行)
             def run_tetos_sync():
-                try:
-                    speaker = None
-                    
-                    # === 统一获取音色 ===
-                    # 如果前端传来的 voice 是空字符串，设为 None，否则 SDK 可能报错
-                    selected_voice = tts_settings.get(f'{tts_engine}Voice', '')
-                    if not selected_voice:
-                        selected_voice = None
-                        
-                    print(f"[DEBUG] 初始化 Speaker: {tts_engine}, 音色: {selected_voice}")
-
-                    # === 1. Azure ===
+                if cache_key in tetos_speakers_cache:
+                    speaker = tetos_speakers_cache[cache_key]
+                else:
                     if tts_engine == 'azure':
                         from tetos.azure import AzureSpeaker
-                        speaker = AzureSpeaker(
-                            speech_key=tts_settings.get('azureSpeechKey', ''),
-                            speech_region=tts_settings.get('azureRegion', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-
-                    # === 3. Baidu ===
+                        speaker = AzureSpeaker(speech_key=cache_key[1], speech_region=cache_key[2], voice=selected_voice)
                     elif tts_engine == 'baidu':
                         from tetos.baidu import BaiduSpeaker
-                        speaker = BaiduSpeaker(
-                            api_key=tts_settings.get('baiduApiKey', ''),
-                            secret_key=tts_settings.get('baiduSecretKey', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-
-                    # === 4. Minimax ===
+                        speaker = BaiduSpeaker(api_key=cache_key[1], secret_key=cache_key[2], voice=selected_voice)
                     elif tts_engine == 'minimax':
                         from tetos.minimax import MinimaxSpeaker
-                        speaker = MinimaxSpeaker(
-                            api_key=tts_settings.get('minimaxApiKey', ''),
-                            group_id=tts_settings.get('minimaxGroupId', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-
-                    # === 5. Xunfei (讯飞) ===
+                        speaker = MinimaxSpeaker(api_key=cache_key[1], group_id=cache_key[2], voice=selected_voice)
                     elif tts_engine == 'xunfei':
                         from tetos.xunfei import XunfeiSpeaker
-                        speaker = XunfeiSpeaker(
-                            app_id=tts_settings.get('xunfeiAppId', ''),
-                            api_key=tts_settings.get('xunfeiApiKey', ''),
-                            api_secret=tts_settings.get('xunfeiApiSecret', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-                    
-                    # === 6. Fish Audio ===
+                        speaker = XunfeiSpeaker(app_id=cache_key[1], api_key=cache_key[2], api_secret=cache_key[3], voice=selected_voice)
                     elif tts_engine == 'fish':
                         from tetos.fish import FishSpeaker
-                        speaker = FishSpeaker(
-                            api_key=tts_settings.get('fishApiKey', ''),
-                            voice=selected_voice  # 在初始化时传入
-                        )
-
-                    # === 7. Google ===
+                        speaker = FishSpeaker(api_key=cache_key[1], voice=selected_voice)
                     elif tts_engine == 'google':
                         from tetos.google import GoogleSpeaker
-                        # Google 需要先处理鉴权文件
                         sa_json = tts_settings.get('googleServiceAccount', '')
                         if sa_json:
-                            import json
                             import tempfile
                             with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tmp:
-                                tmp.write(sa_json)
-                                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
-                        
-                        speaker = GoogleSpeaker(
-                            voice=selected_voice # 在初始化时传入
-                        )
+                                tmp.write(sa_json); os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+                        speaker = GoogleSpeaker(voice=selected_voice)
+                    tetos_speakers_cache[cache_key] = speaker
+                speaker.say(text, temp_filename)
 
-                    if not speaker:
-                        raise Exception(f"无法初始化 {tts_engine} Speaker (对象为空)")
-
-                    # === 执行合成 ===
-                    # 因为 voice 已经在初始化时传入了，这里不再传 voice 参数
-                    print(f"[DEBUG] 开始合成文本 (长度: {len(text)})...")
-                    speaker.say(text, temp_filename)
-                    print(f"[DEBUG] 合成完成，文件已生成: {temp_filename}")
-
-                except Exception as e:
-                    print(f"[ERROR] Tetos 合成线程内部报错: {str(e)}")
-                    raise e
-
-            # 3. 异步执行合成
-            try:
-                await asyncio.to_thread(run_tetos_sync)
-            except Exception as e:
-                print(f"[ERROR] Tetos 异步调用失败: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"TTS合成失败: {str(e)}")
-
-            # 4. 读取文件并返回流
-            if not os.path.exists(temp_filename):
-                raise HTTPException(status_code=500, detail="合成文件未生成")
-
-            async def generate_audio_from_file():
+            await asyncio.to_thread(run_tetos_sync)
+            
+            async def generate_from_file():
                 try:
-                    with open(temp_filename, "rb") as f:
-                        file_data = f.read()
-                    
-                    if target_format == "opus":
-                        # 【修复点 4】放入线程池 + 解包元组
-                        convert_result = await asyncio.to_thread(convert_to_opus_simple, file_data)
-                        if isinstance(convert_result, tuple):
-                            opus_data = convert_result[0]
-                        else:
-                            opus_data = convert_result
-                            
-                        chunk_size = 4096
-                        for i in range(0, len(opus_data), chunk_size):
-                            yield opus_data[i:i + chunk_size]
-                    else:
-                        chunk_size = 4096
-                        for i in range(0, len(file_data), chunk_size):
-                            yield file_data[i:i + chunk_size]
-                except Exception as stream_e:
-                     print(f"[ERROR] 流式读取/转换失败: {str(stream_e)}")
-                finally:
                     if os.path.exists(temp_filename):
-                        try:
-                            os.remove(temp_filename)
-                        except:
-                            pass
+                        data = open(temp_filename, "rb").read()
+                        if target_format == "opus":
+                            res = await asyncio.to_thread(convert_to_opus_simple, data)
+                            data = res[0] if isinstance(res, tuple) else res
+                        for i in range(0, len(data), 4096): yield data[i:i + 4096]
+                finally:
+                    if os.path.exists(temp_filename): os.remove(temp_filename)
 
-            # 设置响应头
-            if target_format == "opus":
-                media_type = "audio/ogg"
-                filename = f"tts_{index}.opus"
-            else:
-                media_type = "audio/mpeg"
-                filename = f"tts_{index}.mp3"
-
-            return StreamingResponse(
-                generate_audio_from_file(),
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={filename}",
-                    "X-Audio-Index": str(index),
-                    "X-Audio-Format": target_format
-                }
-            )
+            media_type = "audio/ogg" if target_format == "opus" else "audio/mpeg"
+            return StreamingResponse(generate_from_file(), media_type=media_type)
 
         raise HTTPException(status_code=400, detail="不支持的TTS引擎")
     
     except Exception as e:
-        print(f"[ERROR] TTS 合成失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": f"服务器内部错误: {str(e)}"})
 
 @app.post("/tts/tetos/list_voices")

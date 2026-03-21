@@ -36,8 +36,8 @@ def _get_recognizer(model_name: str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue")
     # --- 延迟导入重型依赖 ---
     try:
         import sherpa_onnx
-    except ImportError:
-        print("未安装 sherpa_onnx 库")
+    except ImportError as e:
+        print("未安装 sherpa_onnx 库:",e)
         return None
     
     model_dir = Path(DEFAULT_ASR_DIR) / model_name

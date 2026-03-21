@@ -53,7 +53,7 @@ dependencies = [
     "ddgs>=9.5.4",
     "claude-agent-sdk",
     "aiofiles>=25.1.0",
-    "sherpa-onnx==1.12.15",
+    "sherpa-onnx==1.12.19",
     "soundfile>=0.13.1",
     "nvidia-ml-py>=13.580.82",
     "pip-licenses>=5.5.0",
@@ -72,6 +72,3 @@ dependencies = [
     "slack-sdk>=3.39.0",
     "dingtalk-stream>=0.24.3",
 ]
-
-[tool.uv]
-find-links = ["https://k2-fsa.github.io/sherpa/onnx/cpu.html"]

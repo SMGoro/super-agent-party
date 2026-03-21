@@ -354,3 +354,7 @@ After testing the skill, users may request improvements. Often this happens righ
 2. Notice struggles or inefficiencies
 3. Identify how SKILL.md or bundled resources should be updated
 4. Implement changes and test again
+
+## What should be noted?
+
+The skills you create need to be placed in the `.agent/skills/` folder of the current workspace, as other skills are installed in this location by default.

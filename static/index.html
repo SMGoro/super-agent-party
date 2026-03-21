@@ -722,7 +722,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- TTS 控制区 -->
-                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS || fastSettings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
                       <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
                         <el-button @click="toggleTTS(message)" circle size="small">
                           <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
@@ -738,12 +738,13 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <template v-else>
                         <div class="omni-progress-wrapper" style="margin-left: 20px;">
                           <el-slider 
+                            class="omni-slider"
                             v-model="message.omniCurrentTime" 
                             :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
                             :step="0.01"
                             :show-tooltip="false"
                             @change="(val) => seekOmniTTS(message, val)"
-                          />
+                          ></el-slider>
                           <span class="tts-status-time">
                             {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
                           </span>
@@ -967,6 +968,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-button>
                     </el-tooltip>
 
+                    <el-tooltip :content="t('fastResponseButton')" placement="top">
+                      <el-button
+                        @click="fastSettings.enabled = !fastSettings.enabled; autoSaveSettings()"
+                        class="icon-btn deep-think-btn"
+                        :type="fastSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'fastResponseButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-gauge-high"></i>
+                      </el-button>
+                    </el-tooltip>
+
                     <el-tooltip :content="t('deepThinking')" placement="top">
                       <el-button
                         @click="reasonerSettings.enabled = !reasonerSettings.enabled; autoSaveSettings()"
@@ -1069,7 +1081,7 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                     <el-tooltip :content="t('webSearch')" placement="top">
                       <el-button
-                        @click="webSearchSettings.enabled = !webSearchSettings.enabled; autoSaveSettings()"
+                        @click="webSearchSettings.enabled = !webSearchSettings.enabled; handleWebSearchToggle(webSearchSettings.enabled)"
                         class="icon-btn web-search-btn"
                         :type="webSearchSettings.enabled ? 'primary' : 'default'"
                         v-if="MoreButtonDict.find(b => b.name === 'webSearchButton')?.enabled&&!isCapsuleMode"
@@ -1102,7 +1114,7 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                     <el-tooltip :content="t('interpreter')" placement="top">
                       <el-button
-                        @click="codeSettings.enabled = !codeSettings.enabled; autoSaveSettings()"
+                        @click="codeSettings.enabled = !codeSettings.enabled; handleInterpreterToggle(codeSettings.enabled)"
                         class="icon-btn web-search-btn"
                         :type="codeSettings.enabled ? 'primary' : 'default'"
                         v-if="MoreButtonDict.find(b => b.name === 'codeButton')?.enabled&&!isCapsuleMode"
@@ -1114,7 +1126,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <el-tooltip :content="t('CLItool')" placement="top">
                       <el-button
                         :disabled="!isElectron"
-                        @click="CLISettings.enabled = !CLISettings.enabled; autoSaveSettings()"
+                        @click="CLISettings.enabled = !CLISettings.enabled; handleEnableToggle(CLISettings.enabled)"
                         class="icon-btn web-search-btn"
                         :type="CLISettings.enabled ? 'primary' : 'default'"
                         v-if="MoreButtonDict.find(b => b.name === 'CLIButton')?.enabled&&!isCapsuleMode"
@@ -1369,6 +1381,25 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </div>
                       </div>
               
+                      <div 
+                        v-if="isPttRecording && asrSettings.interactionMethod === 'keyTriggered'" 
+                        class="desktop-recording-overlay"
+                      >
+                        <div class="desktop-recording-content">
+                          <!-- 麦克风图标 (你可以换成自己的 el-icon) -->
+                          <el-icon class="mic-icon"><Microphone /></el-icon>
+                          
+                          <!-- 复用你的波纹动画 -->
+                          <div class="recording-wave">
+                            <span></span><span></span><span></span><span></span><span></span>
+                          </div>
+
+                          <!-- 文字提示 -->
+                          <span class="ptt-text">{{ t('releaseToSend') }}</span>
+                        </div>
+                      </div>
+
+
                     <div class="input-status-bar">
                       
                       <!-- ✨ 2. 语音/键盘切换按钮：始终显示（或者你可以加 v-if="isMobile" 只让手机显示） -->
@@ -4892,7 +4923,42 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
               <!-- 主模型界面 -->
               <div v-show="subMenu === 'main'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('mainModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                          {{ t('firstTimeUse') }}
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            class="font-medium"
+                            @click="switchToApiBox"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-key"></i>
+                            </el-icon>{{ t('keyBoxInterface') }}
+                          </el-link>
+                          {{ t('addProviderReturnSelect') }}
+                          {{ t('mainmodelnotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="settings" class="settings-form" label-position="top">
+
                   <div class="tool-item">
                     <!-- 基础配置（仅供应商） -->
                     <div class="tool-header">
@@ -4950,29 +5016,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         ></el-input>
                       </el-form-item>
                     </div>
-                      <el-alert
-                        type="info"
-                        :closable="false"
-                        class="mb-2"
-                      >
-                        <template #default>
-                          <div class="alert-content">
-                            {{ t('firstTimeUse') }}
-                            <el-link
-                              type="primary"
-                              :underline="false"
-                              class="font-medium"
-                              @click="switchToApiBox"
-                            >
-                              <el-icon class="mr-1">
-                                <i class="fa-solid fa-key"></i>
-                              </el-icon>{{ t('keyBoxInterface') }}
-                            </el-link>
-                            {{ t('addProviderReturnSelect') }}
-                            {{ t('mainmodelnotice') }}
-                          </div>
-                        </template>
-                      </el-alert>
                   </div>
                   <!-- 新增高级配置 -->
                   <div class="tool-item">
@@ -5139,8 +5182,344 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </div>
                 </el-form>
               </div>
+              <!-- 快速应答模型界面 -->
+              <div v-show="subMenu === 'fast'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('fastModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                          {{ t('firstTimeUse') }}
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            class="font-medium"
+                            @click="switchToApiBox"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-key"></i>
+                            </el-icon>{{ t('keyBoxInterface') }}
+                          </el-link>
+                          {{ t('addProviderReturnSelect') }}
+                          {{ t('mainmodelnotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <el-form :model="fastSettings" class="settings-form" label-position="top">
+                  <div class="tool-item">
+                    <!-- 基础配置（仅供应商） -->
+                    <div class="tool-header">
+                      <div class="header-left">
+                        <span>
+                          <el-icon>
+                            <i class="fa-solid fa-gauge-high"></i>
+                          </el-icon>
+                          {{ t('fastModelConfiguration') }}
+                        </span>
+                      </div>
+                      <el-switch v-model="fastSettings.enabled" @click.stop @change="autoSaveSettings"/>
+                    </div>
+                    <div class="tool-content">
+                      <el-form-item :label="t('provider')" class="form-item-align">
+                        <el-select
+                          v-model="fastSettings.selectedProvider"
+                          :placeholder="t('selectProvider')"
+                          filterable
+                          @change="selectFastProvider"
+                          @visible-change="handleFastProviderVisibleChange"
+                          class="full-width-input"
+                        >
+                          <el-option
+                            v-for="provider in modelProviders"
+                            :key="provider.id"
+                            :label="provider.vendor+' - '+provider.modelId"
+                            :value="provider.id"
+                          >
+                            <div class="provider-option">
+                              <img 
+                                :src="getVendorLogo(provider.vendor)" 
+                                class="mini-vendor-logo"
+                              />
+                              <span class="model-id">{{ provider.modelId }}</span>
+                            </div>
+                          </el-option>
+                        </el-select>
+                      </el-form-item>
+                      <el-form-item :label="t('triggerMode')" class="form-item-align">
+                        <el-select
+                          v-model="fastSettings.triggerMode"
+                          @change="autoSaveSettings"
+                          class="full-width-input"
+                        >
+                          <el-option :label="t('alwaysTriggerMode')" value="always" ></el-option>
+                          <el-option :label="t('conditionalTriggerMode')" value="conditional" ></el-option>
+                        </el-select>
+                      </el-form-item>
+                      <template v-if="fastSettings.triggerMode === 'conditional'">
+                        <div class="conditional-settings-box" style="padding-left: 20px; border-left: 2px solid #ebeef5; margin-bottom: 18px;">
+                          <!-- 1. 字数限制 -->
+                          <el-form-item :label="t('conditionMaxLen')" class="form-item-align">
+                            <el-slider
+                              v-model="fastSettings.conditionMaxLen"
+                              :min="0"
+                              :max="2000"
+                              :step="10"
+                              show-input
+                              @input="autoSaveSettings"
+                            />
+                          </el-form-item>
+                          
+                          <!-- 2. 禁止换行开关 -->
+                          <el-form-item :label="t('conditionNoNewline')" class="form-item-align" label-position="left">
+                            <el-switch 
+                              v-model="fastSettings.conditionNoNewline" 
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </el-form-item>
+                          
+                          <!-- 3. 禁止图片/文件开关 -->
+                          <el-form-item :label="t('conditionNoFiles')" class="form-item-align" label-position="left">
+                            <el-switch 
+                              v-model="fastSettings.conditionNoFiles" 
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </el-form-item>
+                        </div>
+                      </template>
+                      <el-form-item :label="t('enableOmniTTS')" class="form-item-align" label-position="left">
+                        <el-switch 
+                          v-model="fastSettings.enableOmniTTS" 
+                          @change="autoSaveSettings"
+                        ></el-switch>
+                      </el-form-item>
+                      <el-form-item v-if="fastSettings.enableOmniTTS" :label="t('enabledInterruption')" class="form-item-align" label-position="left">
+                        <el-switch 
+                          v-model="ttsSettings.enabledInterruption" 
+                          @change="autoSaveSettings"
+                        ></el-switch>
+                      </el-form-item>
+                      <el-form-item v-if="fastSettings.enableOmniTTS" :label="t('omniVoice')" class="form-item-align" label-position="left">
+                        <el-input
+                          v-model="fastSettings.omniVoice"
+                          :placeholder="t('omniVoicePlaceholder')"
+                        ></el-input>
+                      </el-form-item>
+                    </div>
+                  </div>
+                  <!-- 新增高级配置 -->
+                  <div class="tool-item">
+                    <div class="tool-header">
+                      <div class="header-left">
+                        <span>
+                          <el-icon>
+                            <i class="fa-solid fa-chevron-right"></i>
+                          </el-icon>
+                          {{ t('advancedConfiguration') }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="tool-content">
+                      <el-form-item :label="t('temperature')" class="form-item-align">
+                        <el-slider
+                          v-model="fastSettings.temperature"
+                          :min="0"
+                          :max="1"
+                          :step="0.01"
+                          show-input
+                          @input="autoSaveSettings"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="'top_p'" class="form-item-align">
+                        <el-slider
+                          v-model="fastSettings.top_p"
+                          :min="0"
+                          :max="1"
+                          :step="0.01"
+                          show-input
+                          @input="autoSaveSettings"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="t('outputLength')" class="form-item-align">
+                        <el-slider
+                          v-model="fastSettings.max_tokens"
+                          :min="0"
+                          :max="128000"
+                          :step="1024"
+                          show-input
+                          @input="autoSaveSettings"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="t('conversationRounds')" class="form-item-align">
+                        <el-slider
+                          v-model="fastSettings.max_rounds"
+                          :min="0"
+                          :max="1000"
+                          :step="1"
+                          show-input
+                          @input="autoSaveSettings"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="t('reasoningEffort')" class="form-item-align">
+                        <el-select
+                          v-model="fastSettings.reasoning_effort"
+                          :placeholder="t('reasoningEffort')"
+                          @change="autoSaveSettings"
+                          class="reasoning-effort-select"
+                        >
+                          <el-option
+                            v-for="effort in reasoningEfforts"
+                            :key="effort.value"
+                            :label="t(effort.label)"
+                            :value="effort.value"
+                          ></el-option>
+                        </el-select>
+                      </el-form-item>
+                      <div class="param-header">
+                        <span>{{ t('extraParams') }}</span>
+                        <el-button 
+                          @click="addParam"
+                          type="primary"
+                          circle
+                          size="small"
+                          class="header-add-btn"
+                        >
+                          <i class="fa-solid fa-plus"></i>
+                        </el-button>
+                      </div>
+                      <div class="extra-params">
+                        <div
+                          v-for="(param, index) in fastSettings.extra_params"
+                          :key="index"
+                          class="param-row"
+                        >
+                          <el-input
+                            v-model="param.name"
+                            :placeholder="t('paramName')"
+                            class="param-input"
+                            @input="autoSaveSettings"
+                          ></el-input>
+                      
+                          <el-select
+                            v-model="param.type"
+                            :placeholder="t('paramType')"
+                            @change="updateParamType(index)"
+                            class="type-select"
+                          >
+                            <el-option
+                              v-for="type in paramTypes"
+                              :key="type.value"
+                              :label="t(type.label)"
+                              :value="type.value"
+                            ></el-option>
+                          </el-select>
+                      
+                          <!-- 动态输入组件 -->
+                          <div class="value-input">
+                            <el-input
+                              v-if="param.type === 'string'"
+                              v-model="param.value"
+                              :placeholder="t('paramValue')"
+                              @input="autoSaveSettings"
+                            ></el-input>
+                          
+                            <el-input-number
+                              v-if="param.type === 'integer'"
+                              v-model="param.value"
+                              :step="1"         
+                              :precision="0"   
+                              @input="autoSaveSettings"
+                            ></el-input-number>
+                          
+                            <el-input-number
+                              v-if="param.type === 'float'"
+                              v-model="param.value"
+                              :step="0.5"      
+                              :precision="2"    
+                              @input="autoSaveSettings"
+                            ></el-input-number>
+      
+                            <el-switch 
+                              v-if="param.type === 'boolean'" 
+                              v-model="param.value" 
+                              @change="autoSaveSettings"
+                            ></el-switch>
+                          </div>
+                      
+                          <el-button
+                            @click="removeParam(index)"
+                            type="danger"
+                            circle
+                            size="small"
+                            class="remove-btn"
+                          >
+                            <i class="fa-solid fa-trash"></i>
+                          </el-button>
+                        </div>
+                      </div>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        class="mb-2"
+                      >
+                        <template #default>
+                          <div class="alert-content">
+                            {{ t('extraParamsNotice') }}
+                          </div>
+                        </template>
+                      </el-alert>
+                    </div>
+                  </div>
+                </el-form>
+              </div>
               <!-- 推理模型界面 -->
               <div v-show="subMenu === 'reasoner'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('reasonerModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                          {{ t('firstTimeUse') }}
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            class="font-medium"
+                            @click="switchToApiBox"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-key"></i>
+                            </el-icon>{{ t('keyBoxInterface') }}
+                          </el-link>
+                          {{ t('addProviderReturnSelect') }}
+                          {{ t('addresonerNotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="settings" class="settings-form" label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5181,29 +5560,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                     </div>
-                    <el-alert
-                    type="info"
-                    :closable="false"
-                    class="mb-2"
-                  >
-                    <template #default>
-                      <div class="alert-content">
-                        {{ t('firstTimeUse') }}
-                        <el-link
-                          type="primary"
-                          :underline="false"
-                          class="font-medium"
-                          @click="switchToApiBox"
-                        >
-                          <el-icon class="mr-1">
-                            <i class="fa-solid fa-key"></i>
-                          </el-icon>{{ t('keyBoxInterface') }}
-                        </el-link>
-                        {{ t('addProviderReturnSelect') }}
-                        {{ t('addresonerNotice') }}
-                      </div>
-                    </template>
-                  </el-alert>
                   </div>
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5270,6 +5626,40 @@ function updateElement(el, rawMarkdown, formatFn) {
                 </el-form>
               </div>
               <div v-show="subMenu === 'vision'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('visionModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                          {{ t('firstTimeUse') }}
+                          <el-link
+                            type="primary"
+                            :underline="false"
+                            class="font-medium"
+                            @click="switchToApiBox"
+                          >
+                            <el-icon class="mr-1">
+                              <i class="fa-solid fa-key"></i>
+                            </el-icon>{{ t('keyBoxInterface') }}
+                          </el-link>
+                          {{ t('addProviderReturnSelect') }}
+                          {{ t('addVisionNotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="settings" class="settings-form" label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5308,29 +5698,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                     </div>
-                    <el-alert
-                    type="info"
-                    :closable="false"
-                    class="mb-2"
-                  >
-                    <template #default>
-                      <div class="alert-content">
-                        {{ t('firstTimeUse') }}
-                        <el-link
-                          type="primary"
-                          :underline="false"
-                          class="font-medium"
-                          @click="switchToApiBox"
-                        >
-                          <el-icon class="mr-1">
-                            <i class="fa-solid fa-key"></i>
-                          </el-icon>{{ t('keyBoxInterface') }}
-                        </el-link>
-                        {{ t('addProviderReturnSelect') }}
-                        {{ t('addVisionNotice') }}
-                      </div>
-                    </template>
-                  </el-alert>
                   </div>
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5360,6 +5727,40 @@ function updateElement(el, rawMarkdown, formatFn) {
               </div>
              <!-- 图像生成界面 -->
               <div v-show="subMenu === 'text2img'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('text2imgModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                          {{ t('firstTimeUse') }}
+                            <el-link
+                              type="primary"
+                              :underline="false"
+                              class="font-medium"
+                              @click="switchToApiBox"
+                            >
+                              <el-icon class="mr-1">
+                                <i class="fa-solid fa-key"></i>
+                              </el-icon>{{ t('keyBoxInterface') }}
+                            </el-link>
+                            {{ t('addProviderReturnSelect') }}
+                            {{ t('addText2imgNotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="text2imgSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5508,29 +5909,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>                        
                       </el-form-item>
                     </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('firstTimeUse') }}
-                          <el-link
-                            type="primary"
-                            :underline="false"
-                            class="font-medium"
-                            @click="switchToApiBox"
-                          >
-                            <el-icon class="mr-1">
-                              <i class="fa-solid fa-key"></i>
-                            </el-icon>{{ t('keyBoxInterface') }}
-                          </el-link>
-                          {{ t('addProviderReturnSelect') }}
-                          {{ t('addText2imgNotice') }}
-                        </div>
-                      </template>
-                    </el-alert>
                   </div>
                   <div class="tool-item" v-show="text2imgSettings.engine === 'openaiChat'">
                     <div class="tool-header">
@@ -5570,34 +5948,33 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-select>
                       </el-form-item>
                     </div>
-                    <el-alert
-                      type="info"
-                      :closable="false"
-                      class="mb-2"
-                    >
-                      <template #default>
-                        <div class="alert-content">
-                          {{ t('firstTimeUse') }}
-                          <el-link
-                            type="primary"
-                            :underline="false"
-                            class="font-medium"
-                            @click="switchToApiBox"
-                          >
-                            <el-icon class="mr-1">
-                              <i class="fa-solid fa-key"></i>
-                            </el-icon>{{ t('keyBoxInterface') }}
-                          </el-link>
-                          {{ t('addProviderReturnSelect') }}
-                          {{ t('addimgNotice') }}
-                        </div>
-                      </template>
-                    </el-alert>
                   </div>
                 </el-form>
               </div>
              <!-- 语音识别界面 -->
               <div v-show="subMenu === 'asr'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('asrModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                            {{ t('addAsrNotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="asrSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -5643,9 +6020,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                           @change="autoSaveSettings"
                           class="full-width-input"
                         >
-                          <el-option label="Alt" value="Alt" ></el-option>
+                          <el-option :label="isMac?'Option':'Alt'" value="Alt" ></el-option>
                           <el-option :label="t('Space')" value=" " ></el-option>
-                          <el-option label="Ctrl" value="Control" ></el-option>
                           <el-option label="Shift" value="Shift" ></el-option>
                           <el-option label="CapsLock" value="CapsLock" ></el-option>
                           <el-option label="Tab" value="Tab" ></el-option>
@@ -5914,6 +6290,28 @@ function updateElement(el, rawMarkdown, formatFn) {
 
               <!-- 语音合成界面 -->
               <div v-show="subMenu === 'tts'" class="page">
+                <!-- 顶部全局设置区域 (模型配置样式优化) -->
+                <div class="market-link-banner model-config-banner">
+                  <!-- 左侧装饰条：显示“MODELS”或类似文字 -->
+                  <div class="banner-accent-bar">{{ t('modelConfig') || 'MODELS' }}</div>
+                  
+                  <div class="banner-main" style="justify-content: space-between; padding: 0 20px;">
+                    
+                    <!-- 左侧：图标和说明文案 -->
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-robot"></i> <!-- 改为机器人图标更贴合模型配置 -->
+                      </div>
+                      <div class="banner-text">
+                        <h3 style="margin: 0">{{ t('ttsModelConfigDescription') }}</h3>
+                        <!-- 多行说明文字 -->
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 12px; line-height: 1.5;">
+                            {{ t('addTtsNotice') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <el-form :model="ttsSettings" class="settings-form"  label-position="top">
                   <div class="tool-item">
                     <div class="tool-header">
@@ -7952,41 +8350,80 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
                   </div>
                   <div class="provider-grid">
-                    <!-- 已安装的 Skills 卡片 -->
-                    <div class="provider-card knowledge-card" v-for="skill in skillsList" :key="skill.id">
+                    <!-- 技能卡片 -->
+                    <div class="provider-card knowledge-card skill-card" v-for="skill in computedSkillsList" :key="skill.id">
+                      
+                      <!-- 头部信息 -->
                       <div class="card-header">
-                        <el-tooltip 
-                          :content="!CLISettings.cc_path ? t('pleaseSelectWorkspaceFirst') : t('syncToProject')" 
-                          placement="top"
-                        >
-                          <el-switch 
-                            :model-value="isSkillInProject(skill.id)"
-                            :disabled="!CLISettings.cc_path"
-                            @change="(val) => toggleSkillInProject(skill.id, val)"
-                          ></el-switch>
-                        </el-tooltip>
+                        <div class="kb-header">
+                          <h3 class="kb-title">{{ skill.name }}</h3>
+                          <el-tag type="info" size="small" effect="plain">v{{ skill.version }}</el-tag>
+                        </div>
                         <div class="card-actions">
-                          <el-button @click="previewSkill(skill.id)" type="info" circle size="small">
+                          <el-button @click="previewSkill(skill.id)" type="info" link size="small">
                             <i class="fa-solid fa-eye"></i>
-                          </el-button>
-                          <el-button @click="removeSkill(skill.id)" type="danger" circle size="small">
-                            <i class="fa-solid fa-trash"></i>
                           </el-button>
                         </div>
                       </div>
-                      <div class="kb-content">
-                        <div class="kb-header">
-                          <h3 class="kb-title">{{ skill.name }}</h3>
-                          <el-tag type="info" size="small">v{{ skill.version }}</el-tag>
+
+                      <!-- 技能内容 -->
+                      <div class="kb-content skill-content-wrapper">
+                        <p class="skill-desc">
+                          {{ skill.description && skill.description.length > 120 
+                            ? skill.description.slice(0, 120) + '...' 
+                            : skill.description }}
+                        </p>
+                      </div>
+
+                      <!-- 底部状态管理栏 (严格适配你的主题体系) -->
+                      <div class="skill-locations-bar">
+                        <!-- 🌍 全局状态 (Global) -->
+                        <div class="location-pane" :class="{ 'is-active': skill.isGlobal }">
+                          <div class="pane-title"><i class="fa-solid fa-globe"></i> {{ t('global') || 'Global' }}</div>
+                          <div class="pane-action">
+                            <template v-if="skill.isGlobal">
+                              <span class="status-indicator success"><i class="fa-solid fa-circle-check"></i> {{ t('installed') }}</span>
+                              <!-- 传 skill 对象，用于判断是否要弹窗 -->
+                              <el-button @click="removeGlobalSkill(skill)" type="danger" link class="action-icon-btn" :title="t('removeFromGlobal')">
+                                <i class="fa-solid fa-trash-can"></i>
+                              </el-button>
+                            </template>
+                            <template v-else>
+                              <span class="status-indicator pending">{{ t('notInstalled') }}</span>
+                              <!-- 如果全局没有，但项目里有，显示反向同步按钮 -->
+                              <el-button @click="syncToGlobal(skill.id)" type="default" link class="action-icon-btn" :title="t('syncToGlobal') || 'Sync to Global'">
+                                <i class="fa-solid fa-arrow-up-from-bracket"></i>
+                              </el-button>
+                            </template>
+                          </div>
                         </div>
-                        <div class="kb-meta">
-                          <p style="font-size: 12px; color: #666; margin-bottom: 5px;">
-                            {{ skill.description && skill.description.length > 200 
-                              ? skill.description.slice(0, 200) + '...' 
-                              : skill.description }}
-                          </p>
-                          <div style="font-size: 11px; color: #909399;">
-                            <i class="fa-regular fa-file"></i> {{ skill.files.length }} files
+
+
+                        <!-- 分割线 -->
+                        <div class="pane-divider"></div>
+
+                        <!-- 📁 项目状态 (Workspace) -->
+                        <div class="location-pane" :class="{ 'is-active': skill.isProject, 'is-disabled': !CLISettings.cc_path }">
+                          <div class="pane-title">
+                            <i class="fa-solid fa-folder-tree"></i> {{ t('workspace') || 'Project' }}
+                          </div>
+                          <div class="pane-action">
+                            <template v-if="!CLISettings.cc_path">
+                              <span class="status-indicator disabled">{{ t('pleaseSelectWorkspaceFirst') }}</span>
+                            </template>
+                            <template v-else-if="skill.isProject">
+                              <span class="status-indicator success"><i class="fa-solid fa-link"></i> {{ t('synced') }}</span>
+                              <!-- 传 skill 对象，用于判断是否要弹窗 -->
+                              <el-button @click="removeProjectSkill(skill)" type="danger" link class="action-icon-btn" :title="t('removeFromProject')">
+                                <i class="fa-solid fa-unlink"></i>
+                              </el-button>
+                            </template>
+                            <template v-else>
+                              <span class="status-indicator pending">{{ t('notSynced') || 'Not Synced' }}</span>
+                              <el-button @click="syncToProject(skill.id)" type="default" link class="action-icon-btn" :disabled="!skill.isGlobal" :title="t('sync')">
+                                <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                              </el-button>
+                            </template>
                           </div>
                         </div>
                       </div>
@@ -7994,10 +8431,9 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                     <!-- 添加新 Skill 卡片 -->
                     <div class="provider-card add-tile" @click="showAddSkillDialog = true">
-                      <el-icon :size="40" color="#909399"><i class="fa-solid fa-plus"></i></el-icon>
-                      <div style="color: #606266; margin-top: 10px;">{{ t('addSkill') }}</div>
+                      <el-icon :size="40" color="var(--el-text-color-secondary)"><i class="fa-solid fa-plus"></i></el-icon>
+                      <div style="color: var(--el-text-color-regular); margin-top: 10px; font-weight: 500;">{{ t('addSkill') }}</div>
                     </div>
-
                   </div>
                 </el-tab-pane>
               </el-tabs>
@@ -12011,23 +12447,31 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                   <!-- 桌宠配置页面 -->
                   <div v-show="subMenu === 'table_pet'">
-                    <el-form class="settings-form" :model="VRMConfig" label-position="top">
-                      <div class="tool-item">
-                        <!-- 桌宠机器人配置头部 -->
-                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
-                          <span>
-                            <el-icon><i class="fa-solid fa-user-ninja"></i></el-icon>
-                            {{ t('table_pet_config') }}
+
+                  <div class="market-link-banner" @click="openRepository('https://www.agentparty.top/blog/en/article-0yuan.html')">
+
+                    <div class="banner-accent-bar">VRM Table Pet</div>
+                    
+                    <div class="banner-main">
+                      <!-- 图标换成闪电 -->
+                      <div class="banner-icon-box">
+                        <i class="fa-solid fa-user-ninja"></i>
+                      </div>
+                      
+                      <div class="banner-text">
+                        <h3>{{ t('table_pet_config')}}</h3>
+                        <p>
                             <el-link
                               type="primary"
                               :underline="false"
-                              href="https://www.agentparty.top/article.html?lang=zh&slug=0yuan" 
+                              href="https://www.agentparty.top/blog/en/article-0yuan.html" 
                               target="_blank"
                             >
                               <el-icon class="mr-1">
                                 <i class="fa-solid fa-book-open-reader"></i>
                               </el-icon>{{ t('detailedTutorial') }}
                             </el-link>
+                            <span>{{ '   ' }}</span>
                             <el-link
                               type="primary"
                               :underline="false"
@@ -12038,7 +12482,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <i class="fa-solid fa-key"></i>
                               </el-icon>{{ t('gotoVroid') }}
                             </el-link>
-                            <span>{{ '  ' }}</span>
+                            <span>{{ '   ' }}</span>
                             <el-link
                               type="primary"
                               :underline="false"
@@ -12049,7 +12493,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <i class="fa-solid fa-cube"></i>
                               </el-icon>{{ t('gotoVroidHub') }}
                             </el-link>
-                            <span>{{ '  ' }}</span>
+                            <span>{{ '   ' }}</span>
                             <el-link
                               type="primary"
                               :underline="false"
@@ -12060,6 +12504,22 @@ function updateElement(el, rawMarkdown, formatFn) {
                                 <i class="fa-solid fa-cube"></i>
                               </el-icon>{{ t('gotoAplaybox') }}
                             </el-link>
+                        </p>
+                      </div>
+
+                      <div class="banner-action">
+                        <span>GO</span>
+                        <i class="fa-solid fa-arrow-right-long"></i>
+                      </div>
+                    </div>
+                  </div>
+                    <el-form class="settings-form" :model="VRMConfig" label-position="top">
+                      <div class="tool-item">
+                        <!-- 桌宠机器人配置头部 -->
+                        <div class="tool-header" style="display: flex; justify-content: space-between; align-items: center;">
+                          <span>
+                            <el-icon><i class="fa-solid fa-user-ninja"></i></el-icon>
+                            {{ t('table_pet_config') }}
                           </span>
                           <div>
                             <!-- 启动按钮 -->
@@ -14362,7 +14822,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- TTS 控制区 -->
-                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS || fastSettings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
                       <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
                         <el-button @click="toggleTTS(message)" circle size="small">
                           <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
@@ -14378,12 +14838,13 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <template v-else>
                         <div class="omni-progress-wrapper" style="margin-left: 20px;">
                           <el-slider 
+                            class="omni-slider"
                             v-model="message.omniCurrentTime" 
                             :max="message.omniDuration > 0 ? message.omniDuration : 0.1" 
                             :step="0.01"
                             :show-tooltip="false"
                             @change="(val) => seekOmniTTS(message, val)"
-                          />
+                          ></el-slider>
                           <span class="tts-status-time">
                             {{ (message.omniCurrentTime || 0).toFixed(1) }}s / {{ (message.omniDuration || 0).toFixed(1) }}s
                           </span>

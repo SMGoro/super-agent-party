@@ -432,12 +432,20 @@ function setNaturalPose(vrm) {
     if (!isVRM1){
         v = -1;
     }
-    // 左臂自然下垂
-    vrm.humanoid.getNormalizedBoneNode( 'leftUpperArm' ).rotation.z = -0.4 * Math.PI * v;
+    // 1. 调整双臂：将 0.4 改为 0.45 让手臂更贴近身体，并增加 x 轴让手臂微向前倾，更放松
+    const leftArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+    if (leftArm) {
+        leftArm.rotation.z = -0.45 * Math.PI * v; 
+        leftArm.rotation.x = 0.05; // 手臂微微前倾
+    }
 
-    // 右臂自然下垂
-    vrm.humanoid.getNormalizedBoneNode( 'rightUpperArm' ).rotation.z = 0.4 * Math.PI * v;
+    const rightArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+    if (rightArm) {
+        rightArm.rotation.z = 0.45 * Math.PI * v;
+        rightArm.rotation.x = 0.05; // 手臂微微前倾
+    }
     
+    // 手腕保持原来的逻辑
     const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
     if (leftHand) {
         leftHand.rotation.z = 0.1 * v; // 手腕自然弯曲
@@ -448,6 +456,7 @@ function setNaturalPose(vrm) {
         rightHand.rotation.z = -0.1 * v; // 手腕自然弯曲
         rightHand.rotation.x = 0.05;
     }
+
     // 添加手指的自然弯曲（如果模型支持）
     const fingerBones = [
         'leftThumbProximal', 'leftThumbIntermediate', 'leftThumbDistal',
@@ -604,14 +613,32 @@ class IdleAnimationManager {
     
     easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
     
-    getNaturalRotation(boneName) { /* 同原代码 */ 
-         // ... 请保留原代码中的 getNaturalRotation 实现 ...
-         // 简写以节省空间
+    getNaturalRotation(boneName) { 
          const euler = new THREE.Euler(0, 0, 0);
          const v = isVRM1 ? 1 : -1;
-         if(boneName === 'leftUpperArm') euler.set(0, 0, -0.4 * Math.PI * v);
-         else if(boneName === 'rightUpperArm') euler.set(0, 0, 0.4 * Math.PI * v);
-         // ... 其他骨骼 ...
+         
+         // 手臂更贴身，微微前倾
+         if(boneName === 'leftUpperArm') {
+             euler.set(0.05, 0, -0.45 * Math.PI * v);
+         }
+         else if(boneName === 'rightUpperArm') {
+             euler.set(0.05, 0, 0.45 * Math.PI * v);
+         }
+         // 手腕微曲
+         else if(boneName === 'leftHand') {
+             euler.set(0.05, 0, 0.1 * v);
+         }
+         else if(boneName === 'rightHand') {
+             euler.set(0.05, 0, -0.1 * v);
+         }
+         // 双腿微岔
+         else if(boneName === 'leftUpperLeg') {
+             euler.set(0, 0.05 * v, 0.04 * v);
+         }
+         else if(boneName === 'rightUpperLeg') {
+             euler.set(0, -0.05 * v, -0.04 * v);
+         }
+
          const q = new THREE.Quaternion();
          q.setFromEuler(euler);
          return q;
@@ -981,10 +1008,17 @@ async function getAnimationFiles() {
     if (urls.length === 0) {
       const fallback = 
       [
+       `${window.location.protocol}//${window.location.host}/vrm/animations/greeting.vrma`,
         `${window.location.protocol}//${window.location.host}/vrm/animations/akimbo.vrma`,
        `${window.location.protocol}//${window.location.host}/vrm/animations/play_fingers.vrma`,
        `${window.location.protocol}//${window.location.host}/vrm/animations/scratch_head.vrma`,
-       `${window.location.protocol}//${window.location.host}/vrm/animations/stretch.vrma`
+       `${window.location.protocol}//${window.location.host}/vrm/animations/stretch.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/shoot.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/peace_sign.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/show_full_body.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/squat.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/model_pose.vrma`,
+       `${window.location.protocol}//${window.location.host}/vrm/animations/spin.vrma`,
       ];
       console.warn('没有选中任何动作，使用兜底动画');
       return fallback;
@@ -996,7 +1030,7 @@ async function getAnimationFiles() {
   } catch (err) {
     console.error('获取动画列表失败：', err);
     // 兜底
-    return [`${window.location.protocol}//${window.location.host}/vrm/animations/akimbo.vrma`];
+    return [`${window.location.protocol}//${window.location.host}/vrm/animations/greeting.vrma`];
   }
 }
 
@@ -1533,122 +1567,176 @@ function startChunkAnimation(chunkId, chunkState) {
 }
 
 /**
- * 为单个语音块启动基于音频分析的口型同步
- * @param {object} data 包含音频和表情信息的数据对象
+ * 完整版：基于共振峰 (Formants F1/F2) 的口型同步播放函数
+ * 已适配 Promise 队列逻辑，确保播放顺序并保留所有核心算法
  */
 async function startLipSyncForChunk(data) {
-    const chunkId = data.chunkIndex;
+    return new Promise(async (resolve) => {
+        const chunkId = data.chunkIndex;
 
-    if (chunkAnimations.has(chunkId)) {
-        stopChunkAnimation(chunkId);
-    }
-
-    if (!currentVrm || !currentVrm.expressionManager) {
-        console.error('VRM 或表情管理器尚未准备好');
-        return;
-    }
-    
-    // 后端必须提供 Base64 编码的音频数据
-    if (!data.audioDataUrl) {
-        console.error(`Chunk ${chunkId} 缺少 'audioDataUrl'`);
-        return;
-    }
-
-    try {
-        const chunkState = {
-            isPlaying: true,
-            animationId: null,
-            audio: null,
-            audioSource: null,
-            analyser: null,
-            expression: null,
-        };
-        chunkAnimations.set(chunkId, chunkState);
-
-        // 初始化 Web Audio API 上下文
+        // 1. 初始化 Web Audio 环境
         if (!currentAudioContext) {
             currentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
-        // 激活 AudioContext
         if (currentAudioContext.state === 'suspended') {
             await currentAudioContext.resume();
         }
 
-        // ==========================================
-        // NEW: Check for Motion IDs in expressions
-        // ==========================================
+        // 2. 检查动作 ID (Motion ID)
         const incomingExpressions = data.expressions || [];
-        
-        // 1. Check if any expression matches a known motion ID
         if (idleAnimationManager) {
-             const foundMotionId = incomingExpressions.find(exp => motionUrlMap.has(exp));
-             if (foundMotionId) {
-                 const motionUrl = motionUrlMap.get(foundMotionId);
-                 if (motionUrl) {
-                     console.log(`[LipSync] Triggering motion: ${foundMotionId} -> ${motionUrl}`);
-                     // Play one-shot animation (interrupting idle loop)
-                     idleAnimationManager.playOneShotAnimation(motionUrl);
-                 }
-             }
-        }
-        // ==========================================
-
-        // 处理表情
-        // 允许的表情清单（顺序随意，这里按常见度排了一下）
-        const ALLOW_EXPS = [
-        'surprised','happy','angry','sad','neutral','relaxed',
-        'blink','blinkLeft','blinkRight'
-        ];
-
-        // 找到第一个命中项 (Only standard blend shapes)
-        const hit = incomingExpressions.find(e => ALLOW_EXPS.includes(e));
-
-        // 如果命中就存下来，否则保持原来的值（或 undefined）
-        if (hit !== undefined) {
-            chunkState.expression = hit;
+            const foundMotionId = incomingExpressions.find(exp => motionUrlMap.has(exp));
+            if (foundMotionId) {
+                const motionUrl = motionUrlMap.get(foundMotionId);
+                if (motionUrl) {
+                    console.log(`[LipSync] 触发动作: ${foundMotionId}`);
+                    idleAnimationManager.playOneShotAnimation(motionUrl);
+                }
+            }
         }
 
-        // 创建音频元素
-        const audio = new Audio();
-        audio.crossOrigin = 'anonymous';
-        audio.src = data.audioDataUrl;
-        chunkState.audio = audio;
+        // 3. 处理表情逻辑 (Blend Shapes)
+        const ALLOW_EXPS = ['surprised','happy','angry','sad','neutral','relaxed','blink','blinkLeft','blinkRight'];
+        const hitExpression = incomingExpressions.find(e => ALLOW_EXPS.includes(e));
 
-        await new Promise((resolve, reject) => {
-            audio.addEventListener('canplaythrough', resolve, { once: true });
-            audio.addEventListener('error', reject, { once: true });
-            audio.load();
-        });
+        // 4. 创建播放状态
+        const chunkState = {
+            isPlaying: true,
+            animationId: null,
+            audio: new Audio(data.audioDataUrl),
+            audioSource: null,
+            analyser: currentAudioContext.createAnalyser(),
+            expression: hitExpression,
+        };
+        chunkAnimations.set(chunkId, chunkState);
 
-        if (!chunkAnimations.has(chunkId)) {
-            return; // 在加载时被取消
-        }
-
-        // 创建分析器节点 (Web Audio API)
-        const analyser = currentAudioContext.createAnalyser();
-        analyser.fftSize = 256;
+        const { audio, analyser } = chunkState;
+        
+        // 5. 设置分析器精度 (针对 F1/F2 优化)
+        analyser.fftSize = 1024; 
         analyser.smoothingTimeConstant = 0.3;
-        chunkState.analyser = analyser;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        const sampleRate = currentAudioContext.sampleRate;
 
-        // 创建媒体源节点并连接 (Web Audio API)
+        // 6. 音频连接
+        audio.crossOrigin = 'anonymous';
         const audioSource = currentAudioContext.createMediaElementSource(audio);
         audioSource.connect(analyser);
-        analyser.connect(currentAudioContext.destination); // 必须连接到输出才能处理
+        analyser.connect(currentAudioContext.destination);
         chunkState.audioSource = audioSource;
 
-        await audio.play();
+        // 7. 内部函数：寻找共振峰
+        function getFormant(minFreq, maxFreq) {
+            const nyquist = sampleRate / 2;
+            const startIndex = Math.floor((minFreq / nyquist) * bufferLength);
+            const endIndex = Math.floor((maxFreq / nyquist) * bufferLength);
+            let maxAmp = -Infinity;
+            let maxIndex = -1;
+            for (let i = startIndex; i <= endIndex; i++) {
+                if (dataArray[i] > maxAmp) {
+                    maxAmp = dataArray[i];
+                    maxIndex = i;
+                }
+            }
+            return { freq: (maxIndex / bufferLength) * nyquist, amp: maxAmp };
+        }
 
-        startChunkAnimation(chunkId, chunkState);
+        // 8. 内部变量：平滑插值
+        let currentBlends = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+        const SENSITIVITY = 1.0; 
+        const NOISE_GATE = 15;
 
-        audio.addEventListener('ended', () => {
-            console.log(`Chunk ${chunkId} 音频结束`);
+        // 9. 动画循环 (核心算法)
+        function animateChunk() {
+            const currentState = chunkAnimations.get(chunkId);
+            if (!currentState || !currentState.isPlaying) {
+                if (currentVrm && currentVrm.expressionManager) {
+                    ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => currentVrm.expressionManager.setValue(v, 0));
+                }
+                return;
+            }
+
+            currentState.animationId = requestAnimationFrame(animateChunk);
+            analyser.getByteFrequencyData(dataArray);
+
+            const f1 = getFormant(200, 1000);
+            const f2 = getFormant(1000, 3000);
+
+            let vocalEnergy = 0;
+            const startBin = Math.floor((200 / (sampleRate/2)) * bufferLength);
+            const endBin = Math.floor((4000 / (sampleRate/2)) * bufferLength);
+            for(let i=startBin; i<endBin; i++) vocalEnergy += dataArray[i];
+            const avgVol = vocalEnergy / (endBin - startBin);
+
+            let target = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+            
+            if (avgVol > NOISE_GATE) {
+                const intensity = Math.min(1.0, (avgVol / 255) * SENSITIVITY);
+                if (f1.freq > 600) {
+                    target.aa = intensity;
+                } else if (f1.freq < 450 && f2.freq > 1800) {
+                    target.ih = intensity;
+                    target.ee = intensity * 0.3; 
+                } else if (f1.freq < 450 && f2.freq < 1100) {
+                    target.ou = intensity;
+                } else if (f2.freq > 1600) {
+                    target.ee = intensity;
+                    target.ih = intensity * 0.2;
+                } else {
+                    target.oh = intensity;
+                    target.ou = intensity * 0.3;
+                }
+            }
+
+            if (currentVrm && currentVrm.expressionManager) {
+                // 表情限制
+                const expression = currentState.expression;
+                let limit = (expression && ['happy', 'surprised'].includes(expression)) ? 0.5 : 1.0;
+
+                if (expression) {
+                    const EMOTIONS = ['surprised', 'happy', 'angry', 'sad', 'neutral', 'relaxed'];
+                    if (EMOTIONS.includes(expression)) {
+                        EMOTIONS.forEach(exp => {
+                            currentVrm.expressionManager.setValue(exp, exp === expression ? 1.0 : 0.0);
+                        });
+                    } else {
+                        currentVrm.expressionManager.setValue(expression, 1.0);
+                    }
+                }
+
+                ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(v => {
+                    const t = target[v] * limit;
+                    const c = currentBlends[v];
+                    const smooth = t > c ? 0.5 : 0.1; 
+                    currentBlends[v] = c + (t - c) * smooth;
+                    currentVrm.expressionManager.setValue(v, currentBlends[v]);
+                });
+            }
+        }
+
+        // 10. 绑定音频事件
+        audio.onended = () => {
             stopChunkAnimation(chunkId);
-        }, { once: true });
+            resolve(); // 播放结束，触发 Promise 解决，队列进入下一项
+        };
 
-    } catch (error) {
-        console.error(`为 Chunk ${chunkId} 启动口型同步时出错:`, error);
-        stopChunkAnimation(chunkId);
-    }
+        audio.onerror = (err) => {
+            console.error(`Chunk ${chunkId} 播放错误:`, err);
+            stopChunkAnimation(chunkId);
+            resolve(); // 出错也必须 resolve，否则队列会卡死
+        };
+
+        // 11. 开始播放与动画
+        try {
+            await audio.play();
+            chunkState.animationId = requestAnimationFrame(animateChunk);
+        } catch (error) {
+            console.error("Audio.play 失败:", error);
+            stopChunkAnimation(chunkId);
+            resolve();
+        }
+    });
 }
 
 let VRMname = await getVRMname();
@@ -3914,47 +4002,125 @@ let ttsWebSocket = null;
 let wsConnected = false;
 let currentAudioContext = null; // 用于管理音频处理
 const chunkAnimations = new Map(); // 用于存储每个语音块的动画状态
+let vrmAudioQueue = [];            // 排序后的待播放队列
+let vrmReceiveBuffer = new Map();   // 排序缓冲区
+let nextExpectedIndex = 0;         // 期望的下一个 Index
+let isVrmPlaying = false;          // 播放状态锁
 
-// 初始化 WebSocket 连接
 function initTTSWebSocket() {
     const http_protocol = window.location.protocol;
     const ws_protocol = http_protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${ws_protocol}//${window.location.host}/ws/vrm`;
+    
     ttsWebSocket = new WebSocket(wsUrl);
-    
-    ttsWebSocket.onopen = () => {
-        console.log('VRM TTS WebSocket connected');
-        wsConnected = true;
-        
-        // 发送连接确认
-        sendToMain('vrmConnected', { status: 'ready' });
-    };
-    
-    ttsWebSocket.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            handleTTSMessage(message);
-        } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+    ttsWebSocket.binaryType = 'arraybuffer'; // 必须！
+
+    ttsWebSocket.onopen = () => { wsConnected = true; console.log('VRM Binary Connected'); };
+
+    ttsWebSocket.onmessage = async (event) => {
+        if (event.data instanceof ArrayBuffer) {
+            // 1. 解析二进制
+            const buffer = event.data;
+            const view = new DataView(buffer);
+            const jsonLen = view.getUint32(0, true);
+            const metadata = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, jsonLen)));
+            const audioDataBytes = new Uint8Array(buffer, 4 + jsonLen);
+
+            if (metadata.type === 'omni_chunk') {
+                // ======= 【复用你的逻辑】 =======
+                isOmniMode = true;
+                isAudioStreaming = true;
+                if (metadata.text) fullTargetText = metadata.text;
+                
+                // 将原始字节转为 Base64 喂给你的 processOmniStreaming
+                const b64 = btoa(String.fromCharCode.apply(null, audioDataBytes));
+                processOmniStreaming({
+                    audioData: b64,
+                    sampleRate: metadata.sampleRate
+                });
+                
+                // 启动你的打字机
+                startTypewriterLoop();
+                // ===============================
+            } else if (metadata.type === 'audio_chunk') {
+                // 标准 TTS 排序逻辑
+                const audioUrl = URL.createObjectURL(new Blob([audioDataBytes], { type: metadata.mimeType }));
+                addToVrmSortBuffer({
+                    audioDataUrl: audioUrl, chunkIndex: metadata.chunkIndex,
+                    expressions: metadata.expressions, text: metadata.text, isBinary: true
+                });
+            }
+        } else {
+            // 处理指令 (JSON)
+            try {
+                const message = JSON.parse(event.data);
+                handleVrmCoreLogic(message);
+            } catch (e) {}
         }
     };
-    
-    ttsWebSocket.onclose = () => {
-        console.log('VRM TTS WebSocket disconnected');
-        wsConnected = false;
-        
-        // 自动重连
-        setTimeout(() => {
-            if (!wsConnected) {
-                initTTSWebSocket();
-            }
-        }, 3000);
-    };
-    
-    ttsWebSocket.onerror = (error) => {
-        console.error('VRM TTS WebSocket error:', error);
-    };
+    ttsWebSocket.onclose = () => { wsConnected = false; setTimeout(initTTSWebSocket, 3000); };
 }
+
+// --- 处理指令的函数 ---
+function handleVrmCoreLogic(message) {
+    const { type, data } = message;
+    
+    // 【核心修复】当对话开始或停止时，重置所有你定义的打字机变量
+    if (type === 'ttsStarted' || type === 'stopSpeaking') {
+        // 1. 重置你写好的打字机变量
+        isOmniMode = false;
+        isAudioStreaming = false;
+        fullTargetText = "";
+        currentVisibleCount = 0;
+        displayStartIndex = 0;
+        stopTypewriterLoop(); // 调用你的停止函数
+        clearSubtitle();     // 调用你的清理函数
+
+        // 2. 重置标准 TTS 队列
+        vrmAudioQueue = [];
+        vrmReceiveBuffer.clear();
+        nextExpectedIndex = 0;
+        isVrmPlaying = false;
+        haltCurrentAudio();
+    }
+    
+    // 兼容静音块指令
+    if (type === 'startSpeaking' && data.voice === 'silence') {
+        addToVrmSortBuffer({ ...data, isSilence: true });
+    }
+}
+
+// --- 标准 TTS 排序函数 (完整版) ---
+function addToVrmSortBuffer(task) {
+    vrmReceiveBuffer.set(task.chunkIndex, task);
+    while (vrmReceiveBuffer.has(nextExpectedIndex)) {
+        const nextTask = vrmReceiveBuffer.get(nextExpectedIndex);
+        vrmAudioQueue.push(nextTask);
+        vrmReceiveBuffer.delete(nextExpectedIndex);
+        nextExpectedIndex++;
+    }
+    if (!isVrmPlaying && vrmAudioQueue.length > 0) processVrmQueue();
+}
+
+// --- 标准 TTS 播放队列 (完整版) ---
+async function processVrmQueue() {
+    if (vrmAudioQueue.length === 0) { isVrmPlaying = false; return; }
+    isVrmPlaying = true;
+    const task = vrmAudioQueue.shift();
+
+    // 复用你的字幕渲染
+    if (task.text) renderSubtitleUI(task.text);
+
+    if (task.isSilence) {
+        await new Promise(r => setTimeout(r, 600));
+    } else {
+        await startLipSyncForChunk(task); // 调用你那个 F1/F2 算法函数
+    }
+
+    if (task.isBinary && task.audioDataUrl) URL.revokeObjectURL(task.audioDataUrl);
+    processVrmQueue();
+}
+
 initTTSWebSocket();
 
 const VMCToVRMBlend = {

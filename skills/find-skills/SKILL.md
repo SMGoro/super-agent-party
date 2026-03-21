@@ -131,3 +131,7 @@ I can still help you with this task directly! Would you like me to proceed?
 If this is something you do often, you could create your own skill:
 npx skills init my-xyz-skill
 ```
+
+## What should be noted?
+
+When the user does not specify the installation location for skills, they are installed in the project folder by default, not globally, unless the user specifically requests otherwise.

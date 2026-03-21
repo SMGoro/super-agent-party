@@ -1058,8 +1058,7 @@ const handleRemoteInstall = (data) => {
         // 自动清理无效的 selectedProvider
         [this.settings, this.reasonerSettings,this.visionSettings,
           this.KBSettings,this.text2imgSettings,this.ccSettings,
-          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
-          this.LimbicSystemSettings,this.ReptilianBrainSettings
+          this.qcSettings,this.fastSettings
         ].forEach(config => {
           if (config.selectedProvider && !existingIds.has(config.selectedProvider)) {
             config.selectedProvider = null;
@@ -1074,8 +1073,7 @@ const handleRemoteInstall = (data) => {
         });
         [this.settings, this.reasonerSettings,this.visionSettings,
           this.KBSettings,this.text2imgSettings,this.ccSettings,
-          this.qcSettings,this.prefrontalCortexSettings,this.NeocortexSettings,
-          this.LimbicSystemSettings,this.ReptilianBrainSettings
+          this.qcSettings,this.fastSettings
         ].forEach(config => {
           if (config.selectedProvider) this.syncProviderConfig(config);
         });
@@ -1141,6 +1139,33 @@ const handleRemoteInstall = (data) => {
     },
   },
   computed: {
+    computedSkillsList() {
+      const skillMap = new Map();
+      
+      // 1. 灌入全局技能
+      this.skillsList.forEach(skill => {
+        skillMap.set(skill.id, {
+          ...skill,
+          isGlobal: true,
+          isProject: false
+        });
+      });
+
+      // 2. 灌入项目技能 (补充全局没有的，或者标记项目存在的)
+      this.projectSkillsDetails.forEach(skill => {
+        if (skillMap.has(skill.id)) {
+          skillMap.get(skill.id).isProject = true;
+        } else {
+          skillMap.set(skill.id, {
+            ...skill,
+            isGlobal: false,
+            isProject: true
+          });
+        }
+      });
+
+      return Array.from(skillMap.values());
+    },
     hasWorkspacePath() {
         return this.CLISettings && 
                this.CLISettings.cc_path && 

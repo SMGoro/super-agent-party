@@ -112,6 +112,25 @@ let vue_data = {
       omniVoice: 'Cherry', // omniTTS的语音
       extra_params: [], // 额外参数
     },
+    fastSettings: {
+      enabled: false, // 默认不启用
+      triggerMode: 'conditional', // 默认触发模式条件触发
+      model: '',
+      base_url: '',
+      api_key: '',
+      temperature: 0.7,  // 默认温度值
+      max_tokens: 8192,    // 默认最大输出长度
+      max_rounds: 0,    // 默认最大轮数
+      selectedProvider: null,
+      top_p: 1,
+      reasoning_effort: null,
+      enableOmniTTS: false,// 是否启用omniTTS
+      omniVoice: 'Cherry', // omniTTS的语音
+      extra_params: [], // 额外参数
+      conditionMaxLen: 200,       // 默认字数限制，小于此字数才触发
+      conditionNoNewline: true,   // 是否要求不能有换行才触发
+      conditionNoFiles: true,     // 是否要求无图片/文件才触发
+    },
     reasonerSettings: {
       enabled: false, // 默认不启用
       model: '',
@@ -465,7 +484,7 @@ let vue_data = {
     },
     networkOptions:[
       { value: 'local', label: 'local' }, 
-      { value: 'global', label: 'global' },
+      { value: 'global', label: 'allDevicesVisible' },
     ],
     imgHostOptions:[
       { value: 'easyImage2', label: 'easyImage2' }
@@ -751,6 +770,7 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": true},
       {"name": "expandButton", "enabled": true},
       {"name": "fileButton", "enabled": true},
+      {"name": "fastResponseButton", "enabled": true},
       {"name": "reasonerButton", "enabled": true},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -783,6 +803,7 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": true},
       {"name": "expandButton", "enabled": true},
       {"name": "fileButton", "enabled": true},
+      {"name": "fastResponseButton", "enabled": true},
       {"name": "reasonerButton", "enabled": true},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -815,6 +836,7 @@ let vue_data = {
       {"name": "brieflyButton", "enabled": false},
       {"name": "expandButton", "enabled": false},
       {"name": "fileButton", "enabled": false},
+      {"name": "fastResponseButton", "enabled": false},
       {"name": "reasonerButton", "enabled": false},
       {"name": "deepSearchButton", "enabled": false},
       {"name": "visionButton", "enabled": false},
@@ -1241,6 +1263,7 @@ let vue_data = {
     modelTiles: [
       { id: 'service', title: 'modelService', icon: 'fa-solid fa-cloud' },
       { id: 'main', title: 'mainModel', icon: 'fa-solid fa-microchip' },
+      { id: 'fast', title: 'fastModel', icon: 'fa-solid fa-gauge-high' },
       { id: 'reasoner', title: 'reasonerModel', icon: 'fa-solid fa-atom' },
       { id: 'vision', title: 'visionModel' , icon: 'fa-solid fa-camera'},
       { id: 'text2img', title: 'imgModel', icon: 'fa-solid fa-pencil' },
@@ -2005,6 +2028,7 @@ main();`,
     renderedSkillContent: '',
     extensionsPollingTimer: null,
     skillsInProject: [], 
+    projectSkillsDetails: [],
     showBehaviorDialog: false,     // 控制弹窗显示
     currentBehaviorIndex: -1,      // 当前编辑的索引，-1 表示新增
     tempBehavior: null,            // 临时编辑对象，避免直接修改原数据

@@ -465,7 +465,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                     </div>
 
                     <!-- TTS 控制区 -->
-                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
+                    <div v-if="(ttsSettings.enabled || settings.enableOmniTTS || fastSettings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
                       <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
                         <el-button @click="toggleTTS(message)" circle size="small">
                           <i :class="message.isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
@@ -707,6 +707,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                         v-if="MoreButtonDict.find(b => b.name === 'fileButton')?.enabled && !isCapsuleMode"
                         circle>
                         <i class="fa-solid fa-paperclip"></i>
+                      </el-button>
+                    </el-tooltip>
+
+                    <el-tooltip :content="t('fastResponseButton')" placement="top">
+                      <el-button
+                        @click="fastSettings.enabled = !fastSettings.enabled; autoSaveSettings()"
+                        class="icon-btn deep-think-btn"
+                        :type="fastSettings.enabled ? 'primary' : 'default'"
+                        v-if="MoreButtonDict.find(b => b.name === 'fastResponseButton')?.enabled&&!isCapsuleMode"
+                        circle>
+                        <i class="fa-solid fa-gauge-high"></i>
                       </el-button>
                     </el-tooltip>
 

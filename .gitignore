@@ -177,7 +177,7 @@ kb/
 release/
 server.build/
 server.dist/
-agents/
+.agents/
 super-agent-data/
 .DS_Store
 botpy.log*

@@ -32,7 +32,7 @@ duckduckgo_tool = {
     "type": "function",
     "function": {
         "name": "DDGsearch_async",
-        "description": f"通过关键词获得DuckDuckGo搜索上的信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": f"通过关键词获得DuckDuckGo搜索上的信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -98,7 +98,7 @@ searxng_tool = {
     "type": "function",
     "function": {
         "name": "searxng_async",
-        "description": "通过SearXNG开源元搜索引擎获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过SearXNG开源元搜索引擎获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -174,7 +174,7 @@ bochaai_tool = {
     "type": "function",
     "function": {
         "name": "bochaai_search_async",
-        "description": "通过博查得智能搜索API获取网络信息，支持深度语义理解。回答时，在回答的最下方按照以下格式标注信息来源：[网站名称](链接地址)，注意：1.链接地址直接使用原始URL 2.不要添加任何空格 3.多个来源换行排列。",
+        "description": "通过博查得智能搜索API获取网络信息，支持深度语义理解。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -215,7 +215,7 @@ tavily_tool = {
     "type": "function",
     "function": {
         "name": "Tavily_search_async",
-        "description": "通过Tavily专业搜索API获取高质量的网络信息，特别适合获取实时数据和专业分析。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Tavily专业搜索API获取高质量的网络信息，特别适合获取实时数据和专业分析。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -257,7 +257,7 @@ bing_tool = {
     "type": "function",
     "function": {
         "name": "Bing_search_async",
-        "description": "通过Bing搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Bing搜索API获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -299,7 +299,7 @@ google_tool = {
     "type": "function",
     "function": {
         "name": "Google_search_async",
-        "description": "通过Google搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Google搜索API获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -339,7 +339,7 @@ brave_tool = {
     "type": "function",
     "function": {
         "name": "Brave_search_async",
-        "description": "通过Brave搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Brave搜索API获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -385,7 +385,7 @@ exa_tool = {
     "type": "function", 
     "function": {
         "name": "Exa_search_async",
-        "description": "通过Exa搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Exa搜索API获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -425,7 +425,7 @@ serper_tool = {
     "type": "function",
     "function": {
         "name": "Serper_search_async",
-        "description": "通过Serper搜索API获取网络信息。回答时，在回答的最下方给出信息来源。以链接的形式给出信息来源，格式为：[网站名称](链接地址)。返回链接时，不要让()内出现空格。",
+        "description": "通过Serper搜索API获取网络信息。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -473,7 +473,7 @@ jina_crawler_tool = {
     "type": "function",
     "function": {
         "name": "jina_crawler_async",
-        "description": "通过Jina AI的网页爬取API获取指定URL的网页内容。指定URL可以为其他搜索引擎搜索出来的网页链接，也可以是用户给出的网站链接。但不要将本机地址或内网地址开头的URL作为参数传入，因为jina将无法访问到这些URL。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "description": "通过Jina AI的网页爬取API获取指定URL的网页内容。指定URL可以为其他搜索引擎搜索出来的网页链接，也可以是用户给出的网站链接。但不要将本机地址或内网地址开头的URL作为参数传入，因为jina将无法访问到这些URL。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -540,7 +540,7 @@ Crawl4Ai_tool = {
     "type": "function",
     "function": {
         "name": "Crawl4Ai_search_async",
-        "description": "通过Crawl4Ai服务爬取指定URL的网页内容，返回Markdown格式的文本。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "description": "通过Crawl4Ai服务爬取指定URL的网页内容，返回Markdown格式的文本。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -840,7 +840,7 @@ firecrawl_tool = {
     "type": "function",
     "function": {
         "name": "firecrawl_search_async",
-        "description": "通过Firecrawl服务获取网页内容。支持单页抓取、整站爬取、搜索和网站地图模式。可以处理JavaScript渲染的页面，返回结构化的Markdown内容。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "description": "通过Firecrawl服务获取网页内容。支持单页抓取、整站爬取、搜索和网站地图模式。可以处理JavaScript渲染的页面，返回结构化的Markdown内容。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -975,7 +975,7 @@ simple_fetch_tool = {
     "type": "function",
     "function": {
         "name": "simple_fetch_async",
-        "description": "抓取指定URL的网页内容。支持内网和外网地址。会自动检查robots.txt合规性。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "description": "抓取指定URL的网页内容。支持内网和外网地址。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1032,7 +1032,7 @@ markdown_new_tool = {
     "type": "function",
     "function": {
         "name": "markdown_new_async",
-        "description": "通过 markdown.new 服务获取指定URL的网页内容，并自动转换为结构化的 Markdown 文本。此工具非常轻量高效，适用于外网链接。请勿传入本机地址或内网地址（会无法访问）。回答时需在末尾以[网页标题](链接地址)格式标注来源（链接中避免空格）。",
+        "description": "通过 markdown.new 服务获取指定URL的网页内容，并自动转换为结构化的 Markdown 文本。此工具非常轻量高效，适用于外网链接。请勿传入本机地址或内网地址（会无法访问）。",
         "parameters": {
             "type": "object",
             "properties": {
